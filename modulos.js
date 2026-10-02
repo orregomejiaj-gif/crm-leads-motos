@@ -12,7 +12,7 @@ const render = () => H.render();
 const D = {};            // datos cargados por módulo
 const cargando = {};
 const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'cruce', cfgRepos: null };
-const F = { fecha: '', semana: '', punto: '', asesor: '', dias: '30', cobertura: '30', quieto: '90', estado: '', tipo: '', periodoCot: '60' };
+const F = { fecha: '', semana: '', punto: '', asesor: '', dias: '30', cobertura: '30', quieto: '90', estado: '', tipo: '', periodoCot: '60', buscar: '' };
 let IMP = null;          // estado del cargador de exportes
 let REPOS = null;        // estado de repositorios (Ajustes)
 
@@ -504,22 +504,33 @@ function prepInv(d) {
   const modeloDe = r => { const a = String(col(r, P.modelo) || '').trim(), c = String(col(r, P.codigo) || '').trim(); return eq[nkey(a)] || eq[nkey(c)] || a || c || 'Sin modelo'; };
   const puntoDe = r => sedeCanon(col(r, P.bodega)) || 'Sin punto';
   const esMoto = r => !/repuesto|accesorio|taller/.test(norm(col(r, P.bodega)));
+  // Cada hoja del repositorio ya es de un punto (Motos_Itagui / Motos_Los_Colores); si no, se deduce de la bodega.
+  const puntoHoja = r => /itagui/i.test(r._hoja || '') ? 'Itagüí' : /colores/i.test(r._hoja || '') ? 'Los Colores' : puntoDe(r);
   const ultimo = {};
-  d.sistema.forEach(r => { const p = puntoDe(r), l = fechaTxt(r._lote); if (!ultimo[p] || l > ultimo[p]) ultimo[p] = l; });
-  const stock = d.sistema.filter(r => esMoto(r) && fechaTxt(r._lote) === ultimo[puntoDe(r)]).map(r => ({ punto: puntoDe(r), modelo: modeloDe(r), cant: num(col(r, P.cant)) ?? 1, dias: num(col(r, P.dias)), presentacion: r.presentacion || '' }));
+  d.sistema.forEach(r => { const p = puntoHoja(r), l = fechaTxt(r._lote); if (!ultimo[p] || l > ultimo[p]) ultimo[p] = l; });
+  const stock = d.sistema.filter(r => esMoto(r) && fechaTxt(r._lote) === ultimo[puntoHoja(r)]).map(r => ({ punto: puntoHoja(r), modelo: modeloDe(r), cant: num(col(r, P.cant)) ?? 1, dias: num(col(r, P.dias)), presentacion: r.presentacion || '' }));
   const ventas = d.facturacion.filter(esMoto).map(r => ({ punto: puntoDe(r), modelo: modeloDe(r), cant: num(col(r, ['cantidad', 'cant', 'unidades'])) || 1, fecha: parseFecha(col(r, P.fecha)) }));
-  return { stock, ventas, ultimo, modeloDe };
+  const ultRep = {};
+  (d.repuestos || []).forEach(r => { const p = puntoHoja(r), l = fechaTxt(r._lote); if (!ultRep[p] || l > ultRep[p]) ultRep[p] = l; });
+  const repuestos = (d.repuestos || []).filter(r => fechaTxt(r._lote) === ultRep[puntoHoja(r)]).map(r => ({ punto: puntoHoja(r), articulo: String(col(r, P.modelo) || '').trim(),
+    codigo: String(col(r, P.codigo) || '').trim(), presentacion: r.presentacion || '', cant: num(col(r, P.cant)) ?? 0, dias: num(col(r, P.dias)) }));
+  const pendiente = (d.pendiente || []).map(r => Object.assign({}, r, { punto: sedeCanon(r.bodega_destino), modeloC: eq[nkey(r.modelo)] || String(r.modelo || '').trim(), cant: num(r.cantidad_pendiente) || 0,
+    abierto: !['llego', 'cancelado'].includes(norm(r.estado)) }));
+  return { stock, ventas, ultimo, modeloDe, repuestos, ultRep, pendiente };
 }
 function vInventario() {
-  const lista = [['basicos', 'Básicos y quiebres'], ['quieto', 'Inventario quieto'], ['descuadres', 'Descuadres y conteo'], ['cargar', 'Cargar exportes']];
+  const lista = [['basicos', 'Básicos y quiebres'], ['quieto', 'Inventario quieto'], ['repuestos', 'Repuestos'], ['pendiente', 'Pendiente por llegar'], ['descuadres', 'Descuadres y conteo'], ['cargar', 'Cargar exportes']];
   const d = datos('inventario');
-  const head = cabecera('Inventario real del punto', 'Inventario del sistema (Síntesis) vs unidades facturadas y conteo físico. Costos y seriales nunca se muestran.', 'inventario');
+  const head = cabecera('Inventario real del punto', 'Repositorio de Inventario: motos y repuestos de Itagüí y Los Colores (Síntesis), pendiente por llegar, facturación y conteo físico. Costos y seriales nunca se muestran.', 'inventario');
   if (!d) return head + tabs('inv', lista) + loading();
   if (d.error) return head + tabs('inv', lista) + errorMod(d);
   if (!d.repoOk) return head + tabs('inv', lista) + sinRepo('Inventario');
-  if (T.inv === 'cargar') return head + tabs('inv', lista) + importador('inventario', [['Inventario_Sistema', 'Inventario del sistema (corte de Síntesis)'], ['Facturacion', 'Facturación de motos (Síntesis)']]);
+  if (T.inv === 'cargar') return head + tabs('inv', lista) + importador('inventario', [['Motos_Itagui', 'Motos · Itagüí (Existencia General)'], ['Motos_Los_Colores', 'Motos · Los Colores / Medellín (Existencia General)'],
+    ['Repuestos_Itagui', 'Repuestos · Itagüí'], ['Repuestos_Los_Colores', 'Repuestos · Los Colores / Medellín'], ['Facturacion', 'Facturación de motos (Síntesis)']]);
   const I = prepInv(d);
-  if (!d.sistema.length) return head + tabs('inv', lista) + empty('ti-building-warehouse', 'Aún no hay un corte de inventario cargado. Usa “Cargar exportes”.');
+  if (T.inv === 'repuestos') return head + tabs('inv', lista) + tRepuestos(I);
+  if (T.inv === 'pendiente') return head + tabs('inv', lista) + tPendiente(I);
+  if (!d.sistema.length) return head + tabs('inv', lista) + empty('ti-building-warehouse', 'Aún no hay un corte de inventario de motos cargado. Usa “Cargar exportes”.');
   const puntos = uniq(I.stock.map(s => s.punto));
   const pSel = esJefe() ? F.punto : u().sede;
   const filtroP = x => !pSel || x.punto === pSel;
@@ -535,16 +546,17 @@ function vInventario() {
   if (T.inv === 'basicos') {
     const modelos = uniq(stockP.map(s => s.modelo).concat(ventasP.map(v => v.modelo)));
     const demanda = {}; S.M.leads.filter(l => l.asign && l.asign >= desde && l.raw.modelo_interes && (!pSel || l.sede === pSel)).forEach(l => { demanda[nkey(l.raw.modelo_interes)] = (demanda[nkey(l.raw.modelo_interes)] || 0) + 1; });
+    const llega = {}; I.pendiente.filter(x => x.abierto && filtroP(x)).forEach(x => { llega[x.modeloC] = (llega[x.modeloC] || 0) + x.cant; });
     const filas = modelos.map(m => {
       const st = stockP.filter(s => s.modelo === m).reduce((a, s) => a + s.cant, 0), vt = ventasP.filter(v => v.modelo === m).reduce((a, v) => a + v.cant, 0);
-      const cob = vt ? Math.round(st / (vt / N)) : null, dem = demanda[nkey(m)] || 0;
+      const cob = vt ? Math.round(st / (vt / N)) : null, dem = demanda[nkey(m)] || 0, lleg = llega[m] || 0;
       const est = vt && !st ? ['Quiebre', 'pill-bad', 0] : vt && cob < Number(F.cobertura) ? ['Por agotarse', 'pill-warn', 1] : !vt && dem && !st ? ['Demanda sin stock', 'pill-bad', 0] : !vt && st ? ['Sin ventas', '', 3] : ['OK', 'pill-ok', 2];
-      return { m, st, vt, cob, dem, est };
+      return { m, st, vt, cob, dem, est, lleg };
     }).sort((a, b) => a.est[2] - b.est[2] || b.vt - a.vt);
     const n = k => filas.filter(f => f.est[0] === k).length;
     return head + tabs('inv', lista) + filtros + `<div class="grid g-kpi">${kpi('Quiebres', n('Quiebre'), 'se vende y no hay', n('Quiebre') ? 'bad' : 'ok')}${kpi('Por agotarse', n('Por agotarse'), `cobertura < ${F.cobertura} días`, n('Por agotarse') ? 'warn' : 'ok')}${kpi('Demanda sin stock', n('Demanda sin stock'), 'piden en leads y no hay')}${kpi('Unidades en sistema', stockP.reduce((a, s) => a + s.cant, 0))}${kpi('Vendidas', ventasP.reduce((a, v) => a + v.cant, 0), `últimos ${N} días`)}</div>
-      <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Modelo</th><th>Estado</th><th class="r">Vendidas ${N} d</th><th class="r">Existencias</th><th class="r">Cobertura (días)</th><th class="r">Leads que la piden</th></tr></thead><tbody>
-      ${filas.map(f => `<tr><td><b>${esc(f.m)}</b></td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="r num">${f.vt}</td><td class="r num">${f.st}</td><td class="r num">${f.cob === null ? '—' : f.cob}</td><td class="r num">${f.dem || '—'}</td></tr>`).join('')}
+      <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Modelo</th><th>Estado</th><th class="r">Vendidas ${N} d</th><th class="r">Existencias</th><th class="r">Por llegar</th><th class="r">Cobertura (días)</th><th class="r">Leads que la piden</th></tr></thead><tbody>
+      ${filas.map(f => `<tr><td><b>${esc(f.m)}</b></td><td><span class="pill ${f.est[1]}">${f.est[0]}</span></td><td class="r num">${f.vt}</td><td class="r num">${f.st}</td><td class="r num">${f.lleg || '—'}</td><td class="r num">${f.cob === null ? '—' : f.cob}</td><td class="r num">${f.dem || '—'}</td></tr>`).join('')}
       </tbody></table></div><p class="tiny muted">Básicos = los modelos que más se venden; deben estar siempre. Cobertura = existencias ÷ ventas diarias promedio del período.</p>`;
   }
   if (T.inv === 'quieto') {
@@ -568,6 +580,67 @@ function vInventario() {
       ${desc.map(c => `<tr><td>${esc(c.punto)}</td><td><b>${esc(c.modelo)}</b></td><td class="r num">${esc(c.cantidad_sistema)}</td><td class="r num">${esc(c.cantidad_fisica)}</td><td class="r num"><span class="pill ${num(c.diferencia) < 0 ? 'pill-bad' : 'pill-warn'}">${num(c.diferencia) > 0 ? '+' : ''}${esc(c.diferencia)}</span></td><td style="white-space:normal">${esc(c.observacion)}</td></tr>`).join('')}</tbody></table></div>`
       : ult.length ? `<div class="notice ok" style="margin-top:12px"><i class="ti ti-circle-check"></i><div>El último conteo cuadra con el sistema.</div></div>` : ''}`;
 }
+function tRepuestos(I) {
+  const pSel = esJefe() ? F.punto : u().sede;
+  const q = norm(F.buscar || '');
+  const rows = I.repuestos.filter(r => (!pSel || r.punto === pSel) && (!q || norm(r.articulo + ' ' + r.codigo).includes(q)));
+  const sum = p => I.repuestos.filter(r => r.punto === p).reduce((a, r) => a + r.cant, 0);
+  const refs = p => I.repuestos.filter(r => r.punto === p).length;
+  if (!I.repuestos.length) return empty('ti-tool', 'Aún no hay inventario de repuestos cargado. Usa “Cargar exportes” → Repuestos · Itagüí o Los Colores.');
+  return `<div class="filters">${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}
+      <input class="inp" data-mch="f" data-k="buscar" value="${esc(F.buscar || '')}" placeholder="Buscar repuesto o código…" style="flex:2 1 220px"></div>
+    <div class="grid g-kpi">${['Itagüí', 'Los Colores'].map(p => kpi('Repuestos ' + p, sum(p) + ' und', `${refs(p)} referencias · corte ${esc(I.ultRep[p] || '—')}`)).join('')}${kpi('Sin existencias', rows.filter(r => !r.cant).length, 'referencias en 0', 'warn')}</div>
+    <div class="tbl-wrap" style="margin-top:12px;max-height:520px"><table class="tbl"><thead><tr><th>Repuesto / accesorio</th><th>Código</th><th>Punto</th><th class="r">Disponible</th><th class="r">Días</th></tr></thead><tbody>
+    ${rows.sort((a, b) => b.cant - a.cant).slice(0, 400).map(r => `<tr><td style="white-space:normal"><b>${esc(r.articulo)}</b></td><td class="small">${esc(r.codigo)}</td><td>${esc(r.punto)}</td><td class="r num">${r.cant}</td><td class="r num">${r.dias ?? '—'}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Sin resultados.</td></tr>'}
+    </tbody></table></div>${rows.length > 400 ? `<p class="tiny muted">Mostrando 400 de ${rows.length}. Usa el buscador.</p>` : ''}`;
+}
+const ESTADOS_PEND = ['Pendiente', 'En tránsito', 'Llegó', 'Cancelado'];
+function tPendiente(I) {
+  const pSel = esJefe() ? F.punto : u().sede;
+  const rows = I.pendiente.filter(r => !pSel || r.punto === pSel).sort((a, b) => (a.abierto === b.abierto ? 0 : a.abierto ? -1 : 1) || String(a.fecha_estimada_llegada).localeCompare(String(b.fecha_estimada_llegada)));
+  const abiertos = rows.filter(r => r.abierto);
+  const vencidos = abiertos.filter(r => r.fecha_estimada_llegada && fechaTxt(r.fecha_estimada_llegada) < hoyTxt());
+  const porModelo = {}; abiertos.forEach(r => { porModelo[r.modeloC] = (porModelo[r.modeloC] || 0) + r.cant; });
+  return `<div class="filters">${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}
+      <button class="btn btn-primary" data-act="m-pend-nuevo"><i class="ti ti-truck-delivery"></i> Registrar pedido por llegar</button></div>
+    <div class="grid g-kpi">${kpi('Unidades por llegar', abiertos.reduce((a, r) => a + r.cant, 0), `${abiertos.length} registro(s)`)}${kpi('Con fecha vencida', vencidos.length, 'la fecha estimada ya pasó', vencidos.length ? 'bad' : 'ok')}${kpi('Modelos en camino', Object.keys(porModelo).length)}</div>
+    ${Object.keys(porModelo).length ? `<div class="card" style="margin-top:12px"><h3 style="margin-bottom:10px">Por modelo</h3>${bars(Object.entries(porModelo).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v), { cls: 'alt' })}</div>` : ''}
+    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Modelo</th><th>Color / variante</th><th class="r">Cant.</th><th>Llegada estimada</th><th>Destino</th><th>Factura / OC</th><th>Estado</th><th>Observaciones</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td><b>${esc(r.modelo)}</b>${r.marca ? `<br><span class="tiny muted">${esc(r.marca)}</span>` : ''}</td><td>${esc(r.color_variante)}</td><td class="r num">${r.cant}</td>
+      <td>${r.abierto && r.fecha_estimada_llegada && fechaTxt(r.fecha_estimada_llegada) < hoyTxt() ? `<span class="pill pill-bad">${esc(fechaTxt(r.fecha_estimada_llegada))}</span>` : esc(fechaTxt(r.fecha_estimada_llegada))}</td>
+      <td>${esc(r.punto || r.bodega_destino)}</td><td class="small">${esc(r.factura_orden_compra)}</td>
+      <td><select class="sel" data-mch="pend-estado" data-id="${esc(r.id)}" style="min-height:32px;font-size:.78rem">${opts(ESTADOS_PEND, r.estado || 'Pendiente')}</select></td><td style="white-space:normal" class="small">${esc(r.observaciones)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No hay pedidos registrados.</td></tr>'}
+    </tbody></table></div>`;
+}
+function formPendiente() {
+  const modelos = uniq(prepInv(D.inventario).stock.map(s => s.modelo).concat((D.inventario.equivalencias || []).map(e => e.modelo_comercial))).sort();
+  abrirSheet(`<div class="sheet-h"><div><h2>Pedido por llegar</h2><div class="muted small">Motos compradas que aún no están en el inventario del punto.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
+  <div class="sheet-b"><div class="card stack">
+    <div class="grid g2"><div><label class="f">Modelo *</label><input id="pe-modelo" class="inp w100" list="pe-modelos" maxlength="80"><datalist id="pe-modelos">${modelos.map(m => `<option value="${esc(m)}">`).join('')}</datalist></div>
+      <div><label class="f">Marca</label><input id="pe-marca" class="inp w100" maxlength="40"></div></div>
+    <div class="grid g3"><div><label class="f">Color / variante</label><input id="pe-color" class="inp w100" maxlength="60"></div><div><label class="f">Cantidad *</label>${stepper('pe-cant', 1)}</div><div><label class="f">Llegada estimada</label><input id="pe-fecha" type="date" class="inp w100"></div></div>
+    <div class="grid g2"><div><label class="f">Destino *</label><select id="pe-destino" class="sel w100">${opts(esJefe() ? ['Itagüí', 'Los Colores'] : [u().sede], esJefe() ? 'Itagüí' : u().sede)}</select></div><div><label class="f">Factura / orden de compra</label><input id="pe-oc" class="inp w100" maxlength="40"></div></div>
+    <div><label class="f">Observaciones</label><input id="pe-obs" class="inp w100" maxlength="200"></div>
+  </div><div class="row" style="justify-content:flex-end"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-act="m-pend-guardar"><i class="ti ti-device-floppy"></i> Guardar</button></div></div>`);
+}
+async function guardarPendiente(btn) {
+  const fila = { modelo: $('#pe-modelo').value.trim(), marca: $('#pe-marca').value.trim(), color_variante: $('#pe-color').value.trim(), cantidad_pendiente: valN('pe-cant'),
+    fecha_estimada_llegada: $('#pe-fecha').value, bodega_destino: $('#pe-destino').value, factura_orden_compra: $('#pe-oc').value.trim(), observaciones: $('#pe-obs').value.trim(), estado: 'Pendiente' };
+  if (!fila.modelo || !fila.cantidad_pendiente) return toast('Modelo y cantidad son obligatorios.', 'bad');
+  btn.disabled = true;
+  try { const r = await api('registrar', { repo: 'inventario', hoja: 'Pendiente_por_Llegar', fila }); D.inventario.pendiente = (D.inventario.pendiente || []).concat([Object.assign({ id: r.ids[0], registrado_por: u().nombre }, fila)]); cerrarSheet(); toast('Pedido registrado', 'ok'); render(); }
+  catch (e) { toast(e.message, 'bad'); btn.disabled = false; }
+}
+async function estadoPendiente(id, valor) {
+  const r = (D.inventario.pendiente || []).find(x => x.id === id);
+  if (!r) return;
+  try {
+    const res = await api('actualizar', { repo: 'inventario', hoja: 'Pendiente_por_Llegar', id, campo: 'estado', valor, expected: String(r.estado ?? '') });
+    if (res.conflict) { toast(res.error, 'bad'); return cargarMod('inventario', true); }
+    r.estado = valor; toast('Estado actualizado', 'ok'); render();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
 function formConteo(punto) {
   const I = prepInv(D.inventario);
   const porModelo = {}; I.stock.filter(s => s.punto === punto).forEach(s => { porModelo[s.modelo] = (porModelo[s.modelo] || 0) + s.cant; });
@@ -619,8 +692,10 @@ function vCotizaciones() {
 }
 
 // ═══════════════════════ CARGADOR DE EXPORTES (Síntesis/CRM) ══════════════
+const DET_INV = [['Modelo / artículo', P.modelo], ['Bodega / punto', P.bodega], ['Disponibilidad', P.cant], ['Días en inventario', P.dias]];
+const PUNTO_HOJA = { Motos_Itagui: 'Itagüí', Repuestos_Itagui: 'Itagüí', Motos_Los_Colores: 'Los Colores', Repuestos_Los_Colores: 'Los Colores' };
 const DETECTA = {
-  Inventario_Sistema: [['Modelo / artículo', P.modelo], ['Bodega / punto', P.bodega], ['Disponibilidad', P.cant], ['Días en inventario', P.dias]],
+  Motos_Itagui: DET_INV, Motos_Los_Colores: DET_INV, Repuestos_Itagui: DET_INV, Repuestos_Los_Colores: DET_INV,
   Facturacion: [['Fecha', P.fecha], ['Modelo / artículo', P.modelo], ['Bodega / punto', P.bodega]],
   Ingresos_Taller: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Valor', P.valor]],
   Cotizaciones_Sintesis: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Asesor', P.asesor]],
@@ -632,14 +707,20 @@ function importador(repo, hojas) {
   const cols = IMP.filas ? uniq([].concat(...IMP.filas.slice(0, 50).map(r => Object.keys(r)))) : [];
   const cruce = ['Ingresos_Taller', 'Cotizaciones_Sintesis', 'Cotizaciones_CRM'].includes(IMP.hoja);
   const faltaClave = cruce && IMP.filas && !det.slice(1, 4).some(x => x[1]);
+  const esperado = PUNTO_HOJA[IMP.hoja];
+  const bodegas = IMP.filas && esperado ? uniq(IMP.filas.map(r => String(col(r, P.bodega) || '').trim())) : [];
+  const ajenas = bodegas.filter(b => sedeCanon(b) !== esperado);
+  const repEnMotos = IMP.filas && /^Motos_/.test(IMP.hoja) && bodegas.some(b => /repuesto|accesorio/i.test(b));
   return `<div class="card stack">
     <div class="grid g3"><div><label class="f">¿Qué vas a cargar?</label><select class="sel w100" data-mch="imp-hoja">${opts(hojas.map(([v, t]) => ({ v, t })), IMP.hoja)}</select></div>
-      <div><label class="f">${IMP.hoja === 'Inventario_Sistema' ? 'Fecha del corte de inventario' : 'Fecha de la carga'}</label><input type="date" class="inp w100" data-mch="imp-lote" value="${IMP.lote}"></div>
+      <div><label class="f">${PUNTO_HOJA[IMP.hoja] ? 'Fecha del corte de inventario' : 'Fecha de la carga'}</label><input type="date" class="inp w100" data-mch="imp-lote" value="${IMP.lote}"></div>
       <div><label class="f">Archivo de Excel o CSV exportado</label><input type="file" class="inp w100" accept=".xlsx,.xls,.csv" data-mch="imp-file"></div></div>
     <details><summary class="small">…o pega aquí las celdas copiadas de Excel</summary><textarea class="inp" id="imp-txt" style="min-height:100px;font-family:monospace;font-size:.75rem;margin-top:6px"></textarea><button class="btn btn-sm" data-act="m-imp-leer" style="margin-top:6px">Leer lo pegado</button></details>
     ${IMP.filas ? `<div class="notice ${faltaClave ? 'bad' : 'ok'}"><i class="ti ti-${faltaClave ? 'alert-triangle' : 'circle-check'}"></i><div><b>${IMP.filas.length} filas leídas</b> · ${cols.length} columnas.<br>Detectado: ${det.map(([t, ok]) => `${ok ? '✓' : '✗'} ${t}`).join(' · ')}${faltaClave ? '<br>No hay cédula, celular ni correo: no se podrá cruzar.' : ''}</div></div>
       <div class="tbl-wrap" style="max-height:220px"><table class="tbl"><thead><tr>${cols.slice(0, 12).map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${IMP.filas.slice(0, 5).map(r => `<tr>${cols.slice(0, 12).map(c => `<td>${esc(/costo|serie/i.test(c) ? '•••' : r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <div class="row between wrap"><span class="tiny muted">Se guardan todas las columnas tal como vienen. Si vuelves a subir filas iguales, se omiten.</span><button class="btn btn-primary" data-act="m-imp-subir"><i class="ti ti-upload"></i> Cargar ${IMP.filas.length} filas</button></div>` : ''}
+      ${ajenas.length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>El archivo trae la bodega <b>${esc(ajenas.join(', '))}</b>, que no es de <b>${esc(esperado)}</b>. Elige la hoja correcta arriba; si lo cargas así, el servidor lo rechazará.</div></div>` : ''}
+      ${repEnMotos ? '<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>Este archivo parece de <b>repuestos</b> (bodega de repuestos) y lo vas a cargar en una hoja de motos.</div></div>' : ''}
+      <div class="row between wrap"><span class="tiny muted">Se guardan todas las columnas tal como vienen. Si vuelves a subir filas iguales, se omiten.</span><button class="btn btn-primary" data-act="m-imp-subir" ${ajenas.length || repEnMotos ? 'disabled' : ''}><i class="ti ti-upload"></i> Cargar ${IMP.filas.length} filas</button></div>` : ''}
   </div>`;
 }
 /** Convierte la hoja en objetos usando como encabezado la primera fila con 3+ celdas (los exportes traen títulos arriba). */
@@ -657,7 +738,7 @@ async function leerArchivo(input) {
     const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
     const m = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '', dateNF: 'yyyy-mm-dd' });
     IMP.filas = filasDeMatriz(m);
-    if (IMP.hoja === 'Inventario_Sistema') { const fc = IMP.filas.map(r => fechaTxt(r.FECHACORTE || r.fechacorte || '')).find(Boolean); if (fc) IMP.lote = fc; }
+    if (PUNTO_HOJA[IMP.hoja]) { const fc = IMP.filas.map(r => fechaTxt(r.FECHACORTE || r.fechacorte || '')).find(Boolean); if (fc) IMP.lote = fc; }
     render();
   } catch (e) { toast('No se pudo leer el archivo: ' + e.message, 'bad'); }
 }
@@ -712,6 +793,8 @@ async function onClick(act, el) {
   if (act === 'm-pos-guardar') return guardarPosventa(el);
   if (act === 'm-pos-nota') return formNota(el.dataset.id);
   if (act === 'm-pos-nota-g') { const v = $('#pn-nota').value.trim(); cerrarSheet(); return actualizarPos(el.dataset.id, 'nota_gestion', v); }
+  if (act === 'm-pend-nuevo') return formPendiente();
+  if (act === 'm-pend-guardar') return guardarPendiente(el);
   if (act === 'm-conteo') return formConteo(el.dataset.p);
   if (act === 'm-conteo-guardar') return guardarConteo(el);
   if (act === 'm-imp-leer') { const p = H.parsePegado($('#imp-txt').value); if (p.error) return toast(p.error, 'bad'); IMP.filas = p.rows; return render(); }
@@ -734,6 +817,7 @@ function onChange(t) {
   if (k === 'f') { F[t.dataset.k] = t.value; if (t.dataset.k === 'punto') F.asesor = ''; return render(); }
   if (k === 'pos-estado') return actualizarPos(t.dataset.id, 'estado', t.value);
   if (k === 'pos-fecha') return actualizarPos(t.dataset.id, 'fecha_proxima', t.value);
+  if (k === 'pend-estado') return estadoPendiente(t.dataset.id, t.value);
   if (k === 'imp-hoja') { IMP.hoja = t.value; IMP.filas = null; return render(); }
   if (k === 'imp-lote') { IMP.lote = t.value; return; }
   if (k === 'imp-file') return leerArchivo(t);

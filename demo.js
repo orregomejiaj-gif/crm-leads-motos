@@ -123,18 +123,25 @@
     moto_cliente: pick(MODELOS), origen: pick(['Punto de venta', 'WhatsApp', 'Llamada']), estado: pick(['Nuevo', 'Contactado', 'Agendado', 'Ingresó / compró', 'Sin interés']), proxima_accion: '', fecha_proxima: rnd() < 0.4 ? ymdB(hace(24 * (rnd() * 10 - 5))) : '', nota_gestion: '' }));
   const ingresos = Array.from({ length: 14 }, (_, i) => ({ _lote: ymdB(hace(24)), 'Fecha orden': ymdB(hace(24 * (rnd() * 20))), 'Cliente': i < 9 ? interesados[i * 3].nombre : 'Cliente Taller Demo ' + i,
     'Cedula cliente': i < 9 ? interesados[i * 3].cedula : String(8000000 + i), 'Telefono': i < 9 ? interesados[i * 3].celular : '3209000' + pad(i), 'Tipo trabajo': pick(['Revisión', 'Repuestos', 'Accesorios']), 'Valor total': 80000 + Math.floor(rnd() * 20) * 15000 }));
-  const sistema = [];
-  [['MOTOS  ITAGUI', 'Itagüí'], ['MOTOS LOS COLORES', 'Los Colores']].forEach(([bod]) => MODELOS.forEach(m => { const n = Math.floor(rnd() * 4); for (let k = 0; k < n; k++) sistema.push({ _lote: ymdB(hace(48)), articulo: m, presentacion: 'MOD 2027 ; ' + pick(['NEGRO', 'GRIS', 'AZUL', 'BLANCO']), bodega: bod, disponibilidad: 1, DIASINVENTARIO: Math.floor(rnd() * 220), FECHACORTE: ymdB(hace(48)) }); }));
+  const motosIt = [], motosLc = [];
+  [['MOTOS  ITAGUI', motosIt], ['MOTOS MEDELLIN', motosLc]].forEach(([bod, arr]) => MODELOS.forEach(m => { const n = Math.floor(rnd() * 4); for (let k = 0; k < n; k++) arr.push({ _lote: ymdB(hace(48)), articulo: m, presentacion: 'MOD 2027 ; ' + pick(['NEGRO', 'GRIS', 'AZUL', 'BLANCO']), bodega: bod, disponibilidad: 1, DIASINVENTARIO: Math.floor(rnd() * 220), FECHACORTE: ymdB(hace(48)), costo: 1, serie: 'X' }); }));
+  const REPS = ['Kit de arrastre NKD', 'Pastillas freno delanteras', 'Filtro de aceite 125', 'Casco integral talla M', 'Guantes MC29', 'Llanta trasera 90/90-17', 'Bujía CR7HSA', 'Espejo retrovisor izq.', 'Cadena 428H', 'Aceite 20W50 1L'];
+  const repIt = REPS.map((a, i) => ({ _lote: ymdB(hace(24)), codigo: '77010' + (1000 + i), articulo: '[DEMO] ' + a, presentacion: 'UND', bodega: 'REPUESTOS ITAGUI', disponibilidad: Math.floor(rnd() * 15), DIASINVENTARIO: Math.floor(rnd() * 120), FECHACORTE: ymdB(hace(24)) }));
+  const repLc = REPS.slice(2).map((a, i) => ({ _lote: ymdB(hace(24)), codigo: '77010' + (1000 + i), articulo: '[DEMO] ' + a, presentacion: 'UND', bodega: 'REPUESTOS MEDELLIN', disponibilidad: Math.floor(rnd() * 10), DIASINVENTARIO: Math.floor(rnd() * 120), FECHACORTE: ymdB(hace(24)) }));
+  const pendiente = [['NKD 125', 4, 'Itagüí', 5], ['CR4 150', 2, 'Los Colores', -3], ['TTR 200', 3, 'Itagüí', 12]].map(([m, c, p, d], i) => ({ id: 'PEN-D' + i, registrado: fmtB(hace(72)), registrado_por: 'DEMO Jefe Comercial',
+    marca: 'DEMO', modelo: m, color_variante: pick(['NEGRO', 'GRIS']), cantidad_pendiente: c, fecha_estimada_llegada: ymdB(hace(-24 * d)), factura_orden_compra: 'OC-DEMO-' + (100 + i), bodega_destino: p, observaciones: '', estado: 'Pendiente' }));
+  const sistema = motosIt.concat(motosLc);
   const facturacion = Array.from({ length: 70 }, (_, i) => ({ _lote: ymdB(hace(24)), Fecha: ymdB(hace(24 * rnd() * 90)), Articulo: pick(MODELOS.slice(0, 5).concat(MODELOS)), Bodega: rnd() < 0.55 ? 'MOTOS  ITAGUI' : 'MOTOS LOS COLORES', Cantidad: 1, Cliente: 'Comprador Demo ' + i, Valor: 6000000 + Math.floor(rnd() * 10) * 500000 }));
-  const conteos = MODELOS.slice(0, 6).map((m, i) => { const s = sistema.filter(x => x.articulo === m && x.bodega === 'MOTOS  ITAGUI').length; const f = i === 2 ? Math.max(0, s - 1) : i === 4 ? s + 1 : s;
+  const conteos = MODELOS.slice(0, 6).map((m, i) => { const s = motosIt.filter(x => x.articulo === m).length; const f = i === 2 ? Math.max(0, s - 1) : i === 4 ? s + 1 : s;
     return { id: 'CON-D' + i, fecha: ymdB(hace(24 * 6)), registrado_por: 'DEMO Admin Itagüí', punto: 'Itagüí', modelo: m, cantidad_sistema: s, cantidad_fisica: f, diferencia: f - s, observacion: f !== s ? '[DEMO] revisar traslado' : '' }; });
   const telLead = leads.map(l => l.telefono_whatsapp).filter(Boolean);
   const cotSin = Array.from({ length: 40 }, (_, i) => ({ _lote: ymdB(hace(24)), 'Fecha': ymdB(hace(24 * rnd() * 70)), 'Nit/Cedula': String(7000000 + i), 'Nombre cliente': 'Cotizado Demo ' + pad(i), 'Celular': i % 3 === 0 && telLead[i] ? telLead[i] : '3155' + pad(100000 + i).slice(-6), 'Vendedor': pick(ASESORES).nombre, 'Articulo': pick(MODELOS), 'Bodega': rnd() < 0.5 ? 'MOTOS  ITAGUI' : 'MOTOS LOS COLORES', 'Valor': 7000000 }));
   const cotCrm = cotSin.filter(() => rnd() < 0.65).map(r => ({ _lote: ymdB(hace(24)), fecha_creacion: r.Fecha, documento: r['Nit/Cedula'], cliente: r['Nombre cliente'], telefono: r.Celular, asesor: r.Vendedor }))
     .concat(Array.from({ length: 5 }, (_, i) => ({ _lote: ymdB(hace(24)), fecha_creacion: ymdB(hace(24 * i)), documento: String(6000000 + i), cliente: 'Solo CRM Demo ' + i, telefono: '3177' + pad(100000 + i).slice(-6), asesor: pick(ASESORES).nombre })));
-  const REPO = { seguimientos: { daily, checklist, compromisos }, posventa: { interesados, ingresos }, inventario: { sistema, facturacion, conteos }, cotizaciones: { sintesis: cotSin, crm: cotCrm } };
+  const REPO = { seguimientos: { daily, checklist, compromisos }, posventa: { interesados, ingresos }, inventario: { motosIt, motosLc, repIt, repLc, pendiente, facturacion, conteos }, cotizaciones: { sintesis: cotSin, crm: cotCrm } };
   const REPO_HOJA = { Daily_Asesor: ['seguimientos', 'daily'], Checklist_Semanal: ['seguimientos', 'checklist'], Compromisos_Semana: ['seguimientos', 'compromisos'], Interesados: ['posventa', 'interesados'],
-    Ingresos_Taller: ['posventa', 'ingresos'], Inventario_Sistema: ['inventario', 'sistema'], Facturacion: ['inventario', 'facturacion'], Conteo_Fisico: ['inventario', 'conteos'], Cotizaciones_Sintesis: ['cotizaciones', 'sintesis'], Cotizaciones_CRM: ['cotizaciones', 'crm'] };
+    Ingresos_Taller: ['posventa', 'ingresos'], Motos_Itagui: ['inventario', 'motosIt'], Motos_Los_Colores: ['inventario', 'motosLc'], Repuestos_Itagui: ['inventario', 'repIt'],
+    Repuestos_Los_Colores: ['inventario', 'repLc'], Pendiente_por_Llegar: ['inventario', 'pendiente'], Facturacion: ['inventario', 'facturacion'], Conteo_Fisico: ['inventario', 'conteos'], Cotizaciones_Sintesis: ['cotizaciones', 'sintesis'], Cotizaciones_CRM: ['cotizaciones', 'crm'] };
 
   const headers = n => n === 'Inventarios' ? ['marca', 'modelo', 'categoria', 'precio_publico', 'precio_promocional_medio_pago', 'bono', 'disponible_itagui', 'disponible_los_colores', 'fuente']
     : Object.keys(DB[n][0] || {}).filter(k => k !== '_row');
@@ -267,7 +274,12 @@
         compromisos: R.seguimientos.compromisos.filter(r => u.rol === 'asesor' ? norm(r.asesor) === norm(u.nombre) : enPunto(r.punto)) };
       if (p.m === 'posventa') return { ok: true, repoOk: true, interesados: R.posventa.interesados.filter(r => enPunto(r.punto)), ingresos: u.rol !== 'asesor' || u.recibe === 'posventa' ? R.posventa.ingresos : [] };
       if (u.rol === 'asesor') fail('Solo el Jefe Comercial y los administradores ven este módulo.', 'FORBIDDEN');
-      if (p.m === 'inventario') return { ok: true, repoOk: true, sistema: sinOcultas(R.inventario.sistema), facturacion: R.inventario.facturacion, conteos: R.inventario.conteos, equivalencias: [] };
+      if (p.m === 'inventario') {
+        const tag = (rows, h) => sinOcultas(rows).map(r => Object.assign(r, { _hoja: h }));
+        return { ok: true, repoOk: true, sistema: tag(R.inventario.motosIt, 'Motos_Itagui').concat(tag(R.inventario.motosLc, 'Motos_Los_Colores')),
+          repuestos: tag(R.inventario.repIt, 'Repuestos_Itagui').concat(tag(R.inventario.repLc, 'Repuestos_Los_Colores')), pendiente: R.inventario.pendiente,
+          facturacion: R.inventario.facturacion, conteos: R.inventario.conteos, equivalencias: [] };
+      }
       if (p.m === 'cotizaciones') return { ok: true, repoOk: true, sintesis: R.cotizaciones.sintesis, crm: R.cotizaciones.crm };
     }
     if (action === 'registrar') {
@@ -293,16 +305,16 @@
     if (action === 'importar') {
       const [rk, arr] = REPO_HOJA[p.hoja] || [];
       if (!rk) fail('No se pueden cargar exportes en ' + p.hoja, 'FORBIDDEN');
-      if (p.hoja === 'Inventario_Sistema' && !p.continuar && REPO[rk][arr].some(r => String(r._lote).slice(0, 10) === p.lote)) fail('Ya hay un corte de inventario con fecha ' + p.lote + '. Usa la fecha real del corte.', 'DUPLICADO');
+      if (/^(Motos|Repuestos)_/.test(p.hoja) && !p.continuar && REPO[rk][arr].some(r => String(r._lote).slice(0, 10) === p.lote)) fail('Ya hay un corte de inventario con fecha ' + p.lote + '. Usa la fecha real del corte.', 'DUPLICADO');
       const huellas = new Set(REPO[rk][arr].map(r => JSON.stringify(Object.keys(r).filter(k => k[0] !== '_').sort().map(k => [k, String(r[k])]))));
       let ag = 0, rep = 0;
-      p.filas.forEach(f => { const h = JSON.stringify(Object.keys(f).sort().map(k => [k, String(f[k])])); if (huellas.has(h) && p.hoja !== 'Inventario_Sistema') { rep++; return; } huellas.add(h); REPO[rk][arr].push(Object.assign({ _lote: p.lote }, f)); ag++; });
+      p.filas.forEach(f => { const h = JSON.stringify(Object.keys(f).sort().map(k => [k, String(f[k])])); if (huellas.has(h) && !/^(Motos|Repuestos)_/.test(p.hoja)) { rep++; return; } huellas.add(h); REPO[rk][arr].push(Object.assign({ _lote: p.lote }, f)); ag++; });
       return { ok: true, agregadas: ag, repetidas: rep };
     }
     if (action === 'repos' || action === 'crearRepos') {
       if (!esJefe) fail('Solo el Jefe Comercial administra los repositorios.', 'FORBIDDEN');
       const estado = [['seguimientos', 'Seguimientos comerciales', ['Daily_Asesor', 'Checklist_Semanal', 'Compromisos_Semana', 'Seguimientos']], ['posventa', 'Posventa', ['Interesados', 'Ingresos_Taller']], ['cotizaciones', 'Cotizaciones', ['Cotizaciones_Sintesis', 'Cotizaciones_CRM']],
-        ['inventario', 'Inventario', ['Inventario_Sistema', 'Facturacion', 'Conteo_Fisico']], ['financieras', 'Financieras', ['Financieras']], ['bonos', 'Bonos', ['Bonos']]]
+        ['inventario', 'Inventario', ['Motos_Itagui', 'Motos_Los_Colores', 'Repuestos_Itagui', 'Repuestos_Los_Colores', 'Pendiente_por_Llegar', 'Facturacion', 'Conteo_Fisico']], ['financieras', 'Financieras', ['Financieras']], ['bonos', 'Bonos', ['Bonos']]]
         .map(([key, n, hs]) => ({ key, nombre: 'CRM Motos · ' + n + ' (DEMO)', existe: true, configurado: true, url: '', hojas: hs.map(h => h + ' (demo)') }));
       return action === 'repos' ? { ok: true, repos: estado } : { ok: true, creados: [], estado };
     }
