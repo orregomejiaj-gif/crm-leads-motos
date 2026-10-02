@@ -100,6 +100,42 @@
     Inventarios: MODELOS.map(m => ({ modelo: m, categoria: '', disponible_itagui: Math.floor(rnd() * 5) || '', disponible_los_colores: '' })),
     Bitacora_App: bitacora, Config_App: [], Seguimientos: seguimientos
   };
+  // ── Repositorios de la etapa 2 (también ficticios) ──
+  const ymdB = d => fmtB(d).slice(0, 10);
+  const semK = d => { const x = new Date(Date.UTC(+ymdB(d).slice(0, 4), +ymdB(d).slice(5, 7) - 1, +ymdB(d).slice(8, 10))); const dw = (x.getUTCDay() + 6) % 7; x.setUTCDate(x.getUTCDate() - dw + 3); const j4 = new Date(Date.UTC(x.getUTCFullYear(), 0, 4)); return x.getUTCFullYear() + '-W' + pad(1 + Math.round(((x - j4) / 864e5 - 3 + ((j4.getUTCDay() + 6) % 7)) / 7)); };
+  const pc = a => a.nombre_punto === IT ? 'Itagüí' : 'Los Colores';
+  const daily = [], checklist = [], compromisos = [];
+  for (let i = 1; i <= 28; i++) {
+    const d = hace(24 * i); if (new Date(d.getTime() - OFF).getUTCDay() === 0) continue;
+    ASESORES.forEach(a => { if (rnd() < 0.15) return; daily.push({ id: 'DAI-D' + i + a.CEDULA, fecha: ymdB(d), registrado_por: 'DEMO Jefe Comercial', punto: pc(a), asesor: a.nombre,
+      leads_asignados_crm: Math.floor(rnd() * 4), contactados_crm: Math.floor(rnd() * 4), sin_contacto_crm: Math.floor(rnd() * 2), gestion_leads: pick(['Sí', 'Sí', 'Parcial', 'No']),
+      contactos: 4 + Math.floor(rnd() * 14), citas: Math.floor(rnd() * 4), cotizaciones: Math.floor(rnd() * 5), ventas: rnd() < 0.3 ? 1 : 0, semaforo: pick(['Verde', 'Verde', 'Amarillo', 'Rojo']), bloqueo: rnd() < 0.15 ? '[DEMO] Cliente espera aprobación de crédito' : '' }); });
+  }
+  const CK = ['Leads de la semana gestionados en el CRM (sin SLA vencidos abiertos)', 'Cotizaciones abiertas con seguimiento registrado', 'Facturas de la semana cargadas en el CRM', 'Inventario del punto revisado contra el sistema', 'Modelos básicos (los más vendidos) disponibles en exhibición', 'Exhibición ordenada, precios y bonos visibles', 'Solicitudes de crédito en trámite revisadas con las financieras', 'Interesados de posventa contactados', 'Metas de la semana socializadas con el equipo', 'Compromisos de la semana anterior revisados con cada asesor'];
+  for (let w = 1; w <= 5; w++) ['Itagüí', 'Los Colores'].forEach(p => { const its = CK.map(item => ({ item, ok: rnd() < 0.7, nota: '' })); const c = its.filter(x => x.ok).length;
+    checklist.push({ id: 'CHE-' + w + p, semana: semK(hace(24 * 7 * w)), registrado_por: 'DEMO Jefe Comercial', punto: p, items_json: JSON.stringify(its), cumplidos: c, total: its.length, porcentaje: Math.round(c / its.length * 100), observaciones: '' }); });
+  for (let w = 0; w <= 3; w++) ASESORES.forEach(a => { if (w === 0 && rnd() < 0.5) return; const est = w === 0 ? '' : pick(['cumplido', 'parcial', 'no', 'cumplido']);
+    compromisos.push({ id: 'COM-' + w + a.CEDULA, semana: semK(hace(24 * 7 * w)), registrado_por: a.nombre, asesor: a.nombre, punto: pc(a), meta_motos: 2 + Math.floor(rnd() * 3), meta_citas: 5, meta_cotizaciones: 8,
+      accion_1: '[DEMO] Llamar a los cotizados de la semana anterior', accion_2: '[DEMO] Publicar 3 historias de modelos en stock', accion_3: '', revision_estado: est, revision_motos_reales: est ? Math.floor(rnd() * 4) : '', revision_nota: '', revisado_por: est ? 'DEMO Jefe Comercial' : '' }); });
+  const TIPOS = ['Accesorios', 'Repuestos', 'Revisión / mantenimiento', 'Garantía'];
+  const interesados = Array.from({ length: 30 }, (_, i) => ({ id: 'INT-D' + i, registrado: fmtB(hace(24 * (1 + rnd() * 40))), registrado_por: pick(['DEMO Técnico', 'DEMO Ana Asesora', 'DEMO Carla Asesora']), punto: rnd() < 0.6 ? 'Itagüí' : 'Los Colores',
+    nombre: 'Cliente Posventa Demo ' + pad(i + 1), cedula: rnd() < 0.6 ? String(9000000 + i) : '', celular: '3101000' + pad(i + 10), correo: '', tipo: pick(TIPOS), detalle: pick(['[DEMO] Casco talla M', '[DEMO] Kit de arrastre', '[DEMO] Revisión de 5.000 km', '[DEMO] Llantas traseras']),
+    moto_cliente: pick(MODELOS), origen: pick(['Punto de venta', 'WhatsApp', 'Llamada']), estado: pick(['Nuevo', 'Contactado', 'Agendado', 'Ingresó / compró', 'Sin interés']), proxima_accion: '', fecha_proxima: rnd() < 0.4 ? ymdB(hace(24 * (rnd() * 10 - 5))) : '', nota_gestion: '' }));
+  const ingresos = Array.from({ length: 14 }, (_, i) => ({ _lote: ymdB(hace(24)), 'Fecha orden': ymdB(hace(24 * (rnd() * 20))), 'Cliente': i < 9 ? interesados[i * 3].nombre : 'Cliente Taller Demo ' + i,
+    'Cedula cliente': i < 9 ? interesados[i * 3].cedula : String(8000000 + i), 'Telefono': i < 9 ? interesados[i * 3].celular : '3209000' + pad(i), 'Tipo trabajo': pick(['Revisión', 'Repuestos', 'Accesorios']), 'Valor total': 80000 + Math.floor(rnd() * 20) * 15000 }));
+  const sistema = [];
+  [['MOTOS  ITAGUI', 'Itagüí'], ['MOTOS LOS COLORES', 'Los Colores']].forEach(([bod]) => MODELOS.forEach(m => { const n = Math.floor(rnd() * 4); for (let k = 0; k < n; k++) sistema.push({ _lote: ymdB(hace(48)), articulo: m, presentacion: 'MOD 2027 ; ' + pick(['NEGRO', 'GRIS', 'AZUL', 'BLANCO']), bodega: bod, disponibilidad: 1, DIASINVENTARIO: Math.floor(rnd() * 220), FECHACORTE: ymdB(hace(48)) }); }));
+  const facturacion = Array.from({ length: 70 }, (_, i) => ({ _lote: ymdB(hace(24)), Fecha: ymdB(hace(24 * rnd() * 90)), Articulo: pick(MODELOS.slice(0, 5).concat(MODELOS)), Bodega: rnd() < 0.55 ? 'MOTOS  ITAGUI' : 'MOTOS LOS COLORES', Cantidad: 1, Cliente: 'Comprador Demo ' + i, Valor: 6000000 + Math.floor(rnd() * 10) * 500000 }));
+  const conteos = MODELOS.slice(0, 6).map((m, i) => { const s = sistema.filter(x => x.articulo === m && x.bodega === 'MOTOS  ITAGUI').length; const f = i === 2 ? Math.max(0, s - 1) : i === 4 ? s + 1 : s;
+    return { id: 'CON-D' + i, fecha: ymdB(hace(24 * 6)), registrado_por: 'DEMO Admin Itagüí', punto: 'Itagüí', modelo: m, cantidad_sistema: s, cantidad_fisica: f, diferencia: f - s, observacion: f !== s ? '[DEMO] revisar traslado' : '' }; });
+  const telLead = leads.map(l => l.telefono_whatsapp).filter(Boolean);
+  const cotSin = Array.from({ length: 40 }, (_, i) => ({ _lote: ymdB(hace(24)), 'Fecha': ymdB(hace(24 * rnd() * 70)), 'Nit/Cedula': String(7000000 + i), 'Nombre cliente': 'Cotizado Demo ' + pad(i), 'Celular': i % 3 === 0 && telLead[i] ? telLead[i] : '3155' + pad(100000 + i).slice(-6), 'Vendedor': pick(ASESORES).nombre, 'Articulo': pick(MODELOS), 'Bodega': rnd() < 0.5 ? 'MOTOS  ITAGUI' : 'MOTOS LOS COLORES', 'Valor': 7000000 }));
+  const cotCrm = cotSin.filter(() => rnd() < 0.65).map(r => ({ _lote: ymdB(hace(24)), fecha_creacion: r.Fecha, documento: r['Nit/Cedula'], cliente: r['Nombre cliente'], telefono: r.Celular, asesor: r.Vendedor }))
+    .concat(Array.from({ length: 5 }, (_, i) => ({ _lote: ymdB(hace(24)), fecha_creacion: ymdB(hace(24 * i)), documento: String(6000000 + i), cliente: 'Solo CRM Demo ' + i, telefono: '3177' + pad(100000 + i).slice(-6), asesor: pick(ASESORES).nombre })));
+  const REPO = { seguimientos: { daily, checklist, compromisos }, posventa: { interesados, ingresos }, inventario: { sistema, facturacion, conteos }, cotizaciones: { sintesis: cotSin, crm: cotCrm } };
+  const REPO_HOJA = { Daily_Asesor: ['seguimientos', 'daily'], Checklist_Semanal: ['seguimientos', 'checklist'], Compromisos_Semana: ['seguimientos', 'compromisos'], Interesados: ['posventa', 'interesados'],
+    Ingresos_Taller: ['posventa', 'ingresos'], Inventario_Sistema: ['inventario', 'sistema'], Facturacion: ['inventario', 'facturacion'], Conteo_Fisico: ['inventario', 'conteos'], Cotizaciones_Sintesis: ['cotizaciones', 'sintesis'], Cotizaciones_CRM: ['cotizaciones', 'crm'] };
+
   const headers = n => n === 'Inventarios' ? ['marca', 'modelo', 'categoria', 'precio_publico', 'precio_promocional_medio_pago', 'bono', 'disponible_itagui', 'disponible_los_colores', 'fuente']
     : Object.keys(DB[n][0] || {}).filter(k => k !== '_row');
   const SOLICITUDES = {
@@ -118,7 +154,8 @@
     { id: 'jefe', label: 'DEMO · Jefe Comercial', user: { usuario: 'DEMO Jefe Comercial', nombre: 'DEMO Jefe Comercial', rol: 'jefe', sede: '' } },
     { id: 'admin', label: 'DEMO · Admin Itagüí', user: { usuario: 'DEMO Admin Itagüí', nombre: 'DEMO Admin Itagüí', rol: 'admin', sede: 'Itagüí' } },
     { id: 'asesor', label: 'DEMO · Ana (asesora)', user: { usuario: 'DEMO Ana Asesora', nombre: 'DEMO Ana Asesora', rol: 'asesor', sede: 'Itagüí' } },
-    { id: 'asesor2', label: 'DEMO · Carla (asesora)', user: { usuario: 'DEMO Carla Asesora', nombre: 'DEMO Carla Asesora', rol: 'asesor', sede: 'Los Colores' } }
+    { id: 'asesor2', label: 'DEMO · Carla (asesora)', user: { usuario: 'DEMO Carla Asesora', nombre: 'DEMO Carla Asesora', rol: 'asesor', sede: 'Los Colores' } },
+    { id: 'posventa', label: 'DEMO · Técnico (posventa)', user: { usuario: 'DEMO Técnico', nombre: 'DEMO Técnico', rol: 'asesor', sede: 'Itagüí', recibe: 'posventa' } }
   ];
   const NIVEL = { asesor: 1, admin: 2, jefe: 3 };
   const EDITABLE = {
@@ -144,6 +181,7 @@
       const mismaSede = s => esJefe || sedeCanon(s) === u.sede;
       return {
         ok: true, version: 'demo', serverTime: fmtB(new Date()), user: u, hojas: HEADERS, solicitudes: SOLICITUDES,
+        repos: { seguimientos: true, posventa: true, cotizaciones: true, inventario: true, financieras: true, bonos: true },
         leads: vis, gestion: DB.Gestion_Asesor.filter(g => ids.has(g.id_lead)),
         cotizaciones: esJefe || esAdmin ? DB.Cotizaciones.filter(c => mismaSede(c.sede)) : DB.Cotizaciones.filter(c => norm(c.asesor) === norm(u.nombre)),
         facturas: esJefe || esAdmin ? DB.Facturas.filter(f => mismaSede(f.sede)) : DB.Facturas.filter(f => ids.has(f.id_lead)),
@@ -220,6 +258,55 @@
       r[p.field] = p.value;
       return { ok: true };
     }
+    // ── Etapa 2 ──
+    const enPunto = s => esJefe || sedeCanon(s) === u.sede;
+    const sinOcultas = rows => rows.map(r => { const o = Object.assign({}, r); delete o.costo; delete o.serie; return o; });
+    if (action === 'modulo') {
+      const R = REPO;
+      if (p.m === 'seguimiento') return { ok: true, repoOk: true, daily: u.rol === 'asesor' ? [] : R.seguimientos.daily.filter(r => enPunto(r.punto)), checklist: u.rol === 'asesor' ? [] : R.seguimientos.checklist.filter(r => enPunto(r.punto)),
+        compromisos: R.seguimientos.compromisos.filter(r => u.rol === 'asesor' ? norm(r.asesor) === norm(u.nombre) : enPunto(r.punto)) };
+      if (p.m === 'posventa') return { ok: true, repoOk: true, interesados: R.posventa.interesados.filter(r => enPunto(r.punto)), ingresos: u.rol !== 'asesor' || u.recibe === 'posventa' ? R.posventa.ingresos : [] };
+      if (u.rol === 'asesor') fail('Solo el Jefe Comercial y los administradores ven este módulo.', 'FORBIDDEN');
+      if (p.m === 'inventario') return { ok: true, repoOk: true, sistema: sinOcultas(R.inventario.sistema), facturacion: R.inventario.facturacion, conteos: R.inventario.conteos, equivalencias: [] };
+      if (p.m === 'cotizaciones') return { ok: true, repoOk: true, sintesis: R.cotizaciones.sintesis, crm: R.cotizaciones.crm };
+    }
+    if (action === 'registrar') {
+      const [rk, arr] = REPO_HOJA[p.hoja] || [];
+      if (!rk) fail('No se puede registrar en ' + p.hoja, 'FORBIDDEN');
+      const filas = p.filas || [p.fila];
+      const unico = { Daily_Asesor: ['fecha', 'asesor'], Checklist_Semanal: ['semana', 'punto'], Compromisos_Semana: ['semana', 'asesor'] }[p.hoja];
+      const ids = filas.map((f, i) => {
+        const o = Object.assign({}, f, { id: p.hoja.slice(0, 3).toUpperCase() + '-' + Date.now() + i, registrado: fmtB(new Date()), registrado_por: u.nombre });
+        if (u.rol === 'asesor' && p.hoja === 'Compromisos_Semana') { o.asesor = u.nombre; o.punto = u.sede; }
+        if (unico && REPO[rk][arr].some(r => unico.every(c => String(r[c]).slice(0, 10) === String(o[c]).slice(0, 10)))) fail('Ya existe un registro para ' + unico.map(c => o[c]).join(' · ') + '.', 'DUPLICADO');
+        REPO[rk][arr].push(o); return o.id;
+      });
+      return { ok: true, ids };
+    }
+    if (action === 'actualizar') {
+      const [rk, arr] = REPO_HOJA[p.hoja] || [];
+      const r = rk && REPO[rk][arr].find(x => x.id === p.id);
+      if (!r) fail('Registro no encontrado.', 'NOROW');
+      r[p.campo] = p.valor;
+      return { ok: true };
+    }
+    if (action === 'importar') {
+      const [rk, arr] = REPO_HOJA[p.hoja] || [];
+      if (!rk) fail('No se pueden cargar exportes en ' + p.hoja, 'FORBIDDEN');
+      if (p.hoja === 'Inventario_Sistema' && !p.continuar && REPO[rk][arr].some(r => String(r._lote).slice(0, 10) === p.lote)) fail('Ya hay un corte de inventario con fecha ' + p.lote + '. Usa la fecha real del corte.', 'DUPLICADO');
+      const huellas = new Set(REPO[rk][arr].map(r => JSON.stringify(Object.keys(r).filter(k => k[0] !== '_').sort().map(k => [k, String(r[k])]))));
+      let ag = 0, rep = 0;
+      p.filas.forEach(f => { const h = JSON.stringify(Object.keys(f).sort().map(k => [k, String(f[k])])); if (huellas.has(h) && p.hoja !== 'Inventario_Sistema') { rep++; return; } huellas.add(h); REPO[rk][arr].push(Object.assign({ _lote: p.lote }, f)); ag++; });
+      return { ok: true, agregadas: ag, repetidas: rep };
+    }
+    if (action === 'repos' || action === 'crearRepos') {
+      if (!esJefe) fail('Solo el Jefe Comercial administra los repositorios.', 'FORBIDDEN');
+      const estado = [['seguimientos', 'Seguimientos comerciales', ['Daily_Asesor', 'Checklist_Semanal', 'Compromisos_Semana', 'Seguimientos']], ['posventa', 'Posventa', ['Interesados', 'Ingresos_Taller']], ['cotizaciones', 'Cotizaciones', ['Cotizaciones_Sintesis', 'Cotizaciones_CRM']],
+        ['inventario', 'Inventario', ['Inventario_Sistema', 'Facturacion', 'Conteo_Fisico']], ['financieras', 'Financieras', ['Financieras']], ['bonos', 'Bonos', ['Bonos']]]
+        .map(([key, n, hs]) => ({ key, nombre: 'CRM Motos · ' + n + ' (DEMO)', existe: true, configurado: true, url: '', hojas: hs.map(h => h + ' (demo)') }));
+      return action === 'repos' ? { ok: true, repos: estado } : { ok: true, creados: [], estado };
+    }
+    if (action === 'vincularRepo') fail('En el modo demo no se vinculan archivos.', 'INVALID');
     fail('Acción no reconocida: ' + action);
   }
 

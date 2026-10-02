@@ -367,8 +367,13 @@ function vistasDeRol() {
     { id: 'embudo', icon: 'ti-layout-kanban', label: 'Embudo' }
   ];
   if (r !== 'asesor') v.push({ id: 'analista', icon: 'ti-chart-histogram', label: 'Tablero' });
+  v.push({ id: 'seguimientos', icon: 'ti-clipboard-check', label: 'Seguimiento' });
+  v.push({ id: 'posventa', icon: 'ti-tool', label: 'Posventa' });
+  if (r !== 'asesor') {
+    v.push({ id: 'inventario', icon: 'ti-building-warehouse', label: 'Inventario' });
+    v.push({ id: 'cotizaciones', icon: 'ti-file-dollar', label: 'Cotizaciones' });
+  }
   v.push({ id: 'comisiones', icon: 'ti-coin', label: 'Comisiones' });
-  v.push({ id: 'seguimientos', icon: 'ti-clipboard-check', label: 'Seguimientos' });
   if (r === 'jefe') {
     v.push({ id: 'conciliacion', icon: 'ti-git-compare', label: 'Conciliación' });
     v.push({ id: 'config', icon: 'ti-settings', label: 'Ajustes' });
@@ -385,7 +390,8 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const fn = { hoy: vHoy, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, seguimientos: vSeguimientos, conciliacion: vConciliacion, config: vConfig }[S.view];
+  const base = { hoy: vHoy, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, config: vConfig };
+  const fn = (MOD && MOD.views[S.view]) || base[S.view];
   $('#view').innerHTML = fn();
   if (S.view === 'embudo') bindKanban();
 }
@@ -1070,7 +1076,7 @@ const CARGAS = {
 };
 function vConfig() {
   const d = S.data, tab = S.cfgTab;
-  const tabs = [['sheet', 'Estado del Sheet'], ['umbrales', 'Umbrales'], ['equipo', 'Equipo y accesos'], ['metas', 'Metas'], ['carga', 'Carga masiva'], ['catalogos', 'Catálogos']];
+  const tabs = [['sheet', 'Estado del Sheet'], ['repos', 'Repositorios'], ['umbrales', 'Umbrales'], ['equipo', 'Equipo y accesos'], ['metas', 'Metas'], ['carga', 'Carga masiva'], ['catalogos', 'Catálogos']];
   let body = '';
   if (tab === 'sheet') {
     const sol = d.solicitudes || {};
@@ -1083,6 +1089,7 @@ function vConfig() {
     </tbody></table></div>
     <p class="tiny muted">Opcionales: <code>Leads.telefono_contacto</code> (teléfono dicho en el chat), <code>Leads.estado_crm</code> (estado calculado por n8n; si existe, la app lo muestra en vez de calcularlo), <code>Gestion_Asesor.fecha_contactado</code> (hora exacta de contacto), <code>Cotizaciones.id_contacto</code> (cruce sin teléfono).</p>`;
   }
+  if (tab === 'repos') body = MOD ? MOD.repoTab() : '';
   if (tab === 'umbrales') {
     const raw = S.M.cfg.raw;
     body = `${!d.hojas.Config_App ? '<div class="notice bad" style="margin-bottom:12px"><i class="ti ti-table-off"></i><div>Falta la hoja <b>Config_App</b>: se usan los valores del brief y los pendientes quedan inactivos.</div></div>' : ''}
@@ -1191,6 +1198,7 @@ document.addEventListener('click', async e => {
   if (sc) { $$('button', sc.parentNode).forEach(b => b.classList.toggle('on', b === sc)); return; }
   const a = e.target.closest('[data-act]');
   if (!a) return;
+  if (MOD && a.dataset.act.startsWith('m-')) { if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault(); return MOD.onClick(a.dataset.act, a, e); }
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'abrir' && l) return abrirLead(l.id);
@@ -1256,6 +1264,7 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (MOD && t.dataset.mch !== undefined) return MOD.onChange(t, e);
   if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
   if (t.dataset.sf !== undefined) { S.segFiltro[t.dataset.sf] = t.value; render(); return; }
   if (t.dataset.ch) { S[t.dataset.ch] = t.value; if (t.dataset.ch === 'cargaHoja') { S.cargaPrev = ''; } render(); return; }
@@ -1288,6 +1297,16 @@ document.addEventListener('keydown', e => {
 $('#btn-refresh').onclick = () => cargar();
 $('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
 $('#demo-role').onchange = e => { S.demoRole = e.target.value; S.hoyAsesor = ''; S.f.asesor = ''; S.f.punto = ''; cargar(); };
+
+// ── Módulos de la etapa 2 (modulos.js) ────────────────────────────────────
+// Se les pasan las utilidades de la app para que usen el mismo estado, API y estilo.
+const H = {
+  S, api, $, $$, esc, norm, digits, tel10, si, pad, num, pct, fmtPct, money, cap, uniq, sedeCanon, cedulaDe,
+  parseFecha, fmtFecha, ymd, ym, bparts, bog, fmtMes, mesKey, mesesRecientes, horasHabiles, fmtHoras,
+  toast, empty, kpi, bars, contar, opts, abrirSheet, cerrarSheet, confirmar, render, renderNav, cargar, parsePegado,
+  vAcompanamientos: vSeguimientos
+};
+const MOD = window.AKT_MODULOS ? window.AKT_MODULOS(H) : null;
 
 // ── Arranque ──────────────────────────────────────────────────────────────
 window.AKT_TEST = { horasHabiles, festivos, parseFecha, bog, mesKey };
