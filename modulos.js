@@ -506,6 +506,7 @@ function prepInv(d) {
   const esMoto = r => !/repuesto|accesorio|taller/.test(norm(col(r, P.bodega)));
   // Cada hoja del repositorio ya es de un punto (Motos_Itagui / Motos_Los_Colores); si no, se deduce de la bodega.
   const puntoHoja = r => /itagui/i.test(r._hoja || '') ? 'Itagüí' : /colores/i.test(r._hoja || '') ? 'Los Colores' : puntoDe(r);
+  // El servidor ya trae _lote (FECHACORTE del exporte si se pegó directo en el Excel).
   const ultimo = {};
   d.sistema.forEach(r => { const p = puntoHoja(r), l = fechaTxt(r._lote); if (!ultimo[p] || l > ultimo[p]) ultimo[p] = l; });
   const stock = d.sistema.filter(r => esMoto(r) && fechaTxt(r._lote) === ultimo[puntoHoja(r)]).map(r => ({ punto: puntoHoja(r), modelo: modeloDe(r), cant: num(col(r, P.cant)) ?? 1, dias: num(col(r, P.dias)), presentacion: r.presentacion || '' }));
@@ -519,14 +520,29 @@ function prepInv(d) {
   return { stock, ventas, ultimo, modeloDe, repuestos, ultRep, pendiente };
 }
 function vInventario() {
-  const lista = [['basicos', 'Básicos y quiebres'], ['quieto', 'Inventario quieto'], ['repuestos', 'Repuestos'], ['pendiente', 'Pendiente por llegar'], ['descuadres', 'Descuadres y conteo'], ['cargar', 'Cargar exportes']];
+  const lista = [['basicos', 'Básicos y quiebres'], ['quieto', 'Inventario quieto'], ['repuestos', 'Repuestos'], ['pendiente', 'Pendiente por llegar'], ['descuadres', 'Descuadres y conteo'], ['cargar', 'Cómo actualizar']];
   const d = datos('inventario');
   const head = cabecera('Inventario real del punto', 'Repositorio de Inventario: motos y repuestos de Itagüí y Los Colores (Síntesis), pendiente por llegar, facturación y conteo físico. Costos y seriales nunca se muestran.', 'inventario');
   if (!d) return head + tabs('inv', lista) + loading();
   if (d.error) return head + tabs('inv', lista) + errorMod(d);
   if (!d.repoOk) return head + tabs('inv', lista) + sinRepo('Inventario');
-  if (T.inv === 'cargar') return head + tabs('inv', lista) + importador('inventario', [['Motos_Itagui', 'Motos · Itagüí (Existencia General)'], ['Motos_Los_Colores', 'Motos · Los Colores / Medellín (Existencia General)'],
-    ['Repuestos_Itagui', 'Repuestos · Itagüí'], ['Repuestos_Los_Colores', 'Repuestos · Los Colores / Medellín'], ['Facturacion', 'Facturación de motos (Síntesis)']]);
+  if (T.inv === 'cargar') return head + tabs('inv', lista) + `<div class="card stack">
+      <h3>El inventario se actualiza directamente en el Excel</h3>
+      <p class="small" style="margin:0">Abre el archivo <b>CRM Motos · Inventario</b> (carpeta <b>AKT</b> en Drive) y pega el exporte <b>Existencia General</b> de Síntesis en la hoja que corresponda:</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Hoja</th><th>Qué va ahí</th></tr></thead><tbody>
+        <tr><td><b>Motos_Itagui</b></td><td>Existencia General de motos · bodega MOTOS ITAGUI</td></tr>
+        <tr><td><b>Motos_Los_Colores</b></td><td>Existencia General de motos · bodega MOTOS MEDELLIN (Los Colores)</td></tr>
+        <tr><td><b>Repuestos_Itagui</b></td><td>Existencia de repuestos y accesorios de Itagüí</td></tr>
+        <tr><td><b>Repuestos_Los_Colores</b></td><td>Existencia de repuestos y accesorios de Los Colores</td></tr>
+        <tr><td><b>Pendiente_por_Llegar</b></td><td>Motos compradas en camino (también se pueden registrar desde la pestaña «Pendiente por llegar»)</td></tr>
+        <tr><td><b>Facturacion</b></td><td>Exporte de facturación de motos (para básicos, quiebres e inventario quieto)</td></tr>
+      </tbody></table></div>
+      <ul class="small" style="margin:0;padding-left:18px">
+        <li>Pega <b>con la fila de encabezados</b> tal como sale de Síntesis (Empresa, codigo, presentacion, articulo… FECHACORTE…).</li>
+        <li>La app toma el corte más reciente según la columna <b>FECHACORTE</b>. Puedes reemplazar el contenido de la hoja o pegar el nuevo corte debajo.</li>
+        <li>Las columnas de costo y serie se quedan en el Excel; la app nunca las muestra.</li>
+        <li>Después de pegar, pulsa <b>Actualizar</b> arriba para ver los cambios.</li>
+      </ul></div>`;
   const I = prepInv(d);
   if (T.inv === 'repuestos') return head + tabs('inv', lista) + tRepuestos(I);
   if (T.inv === 'pendiente') return head + tabs('inv', lista) + tPendiente(I);
@@ -609,7 +625,7 @@ function tPendiente(I) {
     ${rows.map(r => `<tr><td><b>${esc(r.modelo)}</b>${r.marca ? `<br><span class="tiny muted">${esc(r.marca)}</span>` : ''}</td><td>${esc(r.color_variante)}</td><td class="r num">${r.cant}</td>
       <td>${r.abierto && r.fecha_estimada_llegada && fechaTxt(r.fecha_estimada_llegada) < hoyTxt() ? `<span class="pill pill-bad">${esc(fechaTxt(r.fecha_estimada_llegada))}</span>` : esc(fechaTxt(r.fecha_estimada_llegada))}</td>
       <td>${esc(r.punto || r.bodega_destino)}</td><td class="small">${esc(r.factura_orden_compra)}</td>
-      <td><select class="sel" data-mch="pend-estado" data-id="${esc(r.id)}" style="min-height:32px;font-size:.78rem">${opts(ESTADOS_PEND, r.estado || 'Pendiente')}</select></td><td style="white-space:normal" class="small">${esc(r.observaciones)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No hay pedidos registrados.</td></tr>'}
+      <td>${r.id ? `<select class="sel" data-mch="pend-estado" data-id="${esc(r.id)}" style="min-height:32px;font-size:.78rem">${opts(ESTADOS_PEND, r.estado || 'Pendiente')}</select>` : `<span class="pill" title="Registrado directamente en el Excel: el estado se cambia allá">${esc(r.estado || 'Pendiente')}</span>`}</td><td style="white-space:normal" class="small">${esc(r.observaciones)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No hay pedidos registrados.</td></tr>'}
     </tbody></table></div>`;
 }
 function formPendiente() {
