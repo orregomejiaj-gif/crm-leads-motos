@@ -38,7 +38,7 @@ const uniq = a => Array.from(new Set(a.filter(Boolean)));
 function sedeCanon(s) {
   const n = norm(s);
   if (n.includes('itag')) return 'Itagüí';
-  if (n.includes('colores')) return 'Los Colores';
+  if (n.includes('colores') || n.includes('medellin')) return 'Los Colores'; // bodega "MOTOS MEDELLIN" en Síntesis
   return String(s || '').trim();
 }
 function rolDeCargo(c) {
@@ -787,8 +787,8 @@ function vAnalista() {
     </div>
     <div class="section-title"><i class="ti ti-building-warehouse"></i>Inventario vs demanda</div>
     ${demanda.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modelo pedido</th><th class="r">Leads</th><th class="r">Disp. Itagüí</th><th class="r">Disp. Los Colores</th></tr></thead><tbody>
-      ${demanda.map(d => { const i = invRow(d.l); return `<tr><td>${esc(d.l)}${i ? '' : ' <span class="pill">no está en Inventarios</span>'}</td><td class="r num">${d.v}</td><td class="r num">${i ? cel(i.disponible_itagui) : '—'}</td><td class="r num">${i ? cel(i.disponible_los_colores) : '—'}</td></tr>`; }).join('')}
-    </tbody></table></div><p class="tiny muted">Existencias de la hoja Inventarios. Las celdas vacías no se completan: falta el dato (p. ej. Los Colores).</p>` : empty('ti-motorbike', 'Ningún lead del período tiene modelo de interés.')}`;
+      ${demanda.map(d => { const i = invRow(d.l); return `<tr><td>${esc(d.l)}${i ? '' : ' <span class="pill">sin existencias en el último corte</span>'}</td><td class="r num">${d.v}</td><td class="r num">${i ? cel(i.disponible_itagui) : '—'}</td><td class="r num">${i ? cel(i.disponible_los_colores) : '—'}</td></tr>`; }).join('')}
+    </tbody></table></div><p class="tiny muted">Existencias del repositorio de Inventario (último corte de Síntesis por punto). El detalle está en Inventario.</p>` : empty('ti-motorbike', 'Ningún lead del período tiene modelo de interés.')}`;
 }
 
 // ── Vista: Comisiones ─────────────────────────────────────────────────────
@@ -1099,7 +1099,7 @@ function vConfig() {
   }
   if (tab === 'equipo') {
     const ps = S.M.personas;
-    const cols = (d.hojas.Equipo || ['CEDULA', 'nombre', 'cargo', 'nombre_punto', 'direccion', 'whatsapp', 'activo']).filter(c => c && !['marca'].includes(norm(c)));
+    const cols = (d.hojas.Equipo || ['CEDULA', 'nombre', 'cargo', 'nombre_punto', 'direccion', 'whatsapp', 'activo']).filter(c => c && !['marca', 'contrasena', 'password'].includes(norm(c)));
     const avisos = [];
     const ced = {}; ps.forEach(p => { const c = cedulaDe(p); if (c) (ced[c] = ced[c] || []).push(p.nombre); });
     Object.values(ced).filter(v => v.length > 1).forEach(v => avisos.push('Cédula repetida (no podrán entrar): ' + v.join(', ')));
@@ -1110,7 +1110,7 @@ function vConfig() {
     if (!ps.some(p => p.rolApp === 'admin')) avisos.push('No hay administradores de punto en Equipo (cargo que contenga “administrador”).');
     (d.sedes || []).filter(s => !s.direccion).forEach(s => avisos.push(`El punto ${s.nombre_punto} no tiene dirección en Equipo.`));
     body = `${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><div>${esc(a)}</div></div>`).join('')}
-      <div class="notice info" style="margin-bottom:10px"><i class="ti ti-key"></i><div><b>Acceso:</b> usuario = número de cédula · contraseña = la de la app (se cambia en Propiedades del script, <code>APP_PASSWORD</code>). Solo entran personas con <code>activo</code> = Si y un cargo que contenga “asesor”, “administrador” o “jefe” (o cuya cédula esté en <code>JEFE_CEDULAS</code>).</div></div>
+      <div class="notice info" style="margin-bottom:10px"><i class="ti ti-key"></i><div><b>Acceso:</b> usuario = número de cédula · contraseña = la columna <code>CONTRASEÑA</code> de la hoja Equipo (si está vacía, <code>APP_PASSWORD</code>). Por seguridad la app no muestra ni edita contraseñas: se cambian directamente en el Sheet. Solo entran personas con <code>activo</code> = Si y un cargo que contenga “asesor”, “administrador” o “jefe” (o cuya cédula esté en <code>JEFE_CEDULAS</code>).</div></div>
       <p class="small muted">Haz clic en una celda para editarla; se guarda al salir de la celda y queda en la bitácora.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Rol en la app</th></tr></thead><tbody>
       ${ps.map(p => `<tr>${cols.map(c => `<td contenteditable="true" data-edit="Equipo" data-row="${p._row}" data-field="${esc(c)}" data-orig="${esc(p[c] ?? '')}" style="min-width:90px">${esc(p[c] ?? '')}</td>`).join('')}<td>${p.rolApp && norm(p.activo || 'si').startsWith('si') ? `<span class="pill">${p.rolApp}</span>` : '<span class="muted tiny">sin acceso</span>'}</td></tr>`).join('')}
