@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Ícono genérico de moto deportiva (sin marcas): azul rey, franja roja y blanco -->
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a52b8"/><stop offset="1" stop-color="#0b2e6e"/></linearGradient></defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path d="M-20 430 L532 352 L532 392 L-20 470 Z" fill="#e1232b"/>
+  <!-- llantas -->
+  <g fill="none" stroke="#fff">
+    <circle cx="132" cy="322" r="60" stroke-width="30"/>
+    <circle cx="384" cy="322" r="60" stroke-width="30"/>
+  </g>
+  <circle cx="132" cy="322" r="14" fill="#fff"/><circle cx="384" cy="322" r="14" fill="#fff"/>
+  <!-- basculante, horquilla y manubrio -->
+  <g fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M132 322 L236 284"/>
+    <path d="M384 322 L338 196"/>
+    <path d="M330 178 L366 156 L392 160"/>
+  </g>
+  <!-- tanque + asiento + colín -->
+  <path d="M96 214 L196 206 Q228 172 286 176 L344 190 L322 236 L246 252 L170 246 Z" fill="#fff"/>
+  <!-- motor -->
+  <rect x="210" y="246" width="86" height="58" rx="14" fill="#fff"/>
+  <!-- líneas de velocidad -->
+  <g stroke="#e1232b" stroke-width="12" stroke-linecap="round"><path d="M40 190 H120"/><path d="M60 226 H140"/></g>
+</svg>

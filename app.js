@@ -1,0 +1,1301 @@
+/* CRM Leads Motos — app.js
+ * Toda la interfaz. Los datos vienen de la API (Apps Script) en un solo lote
+ * ("bootstrap") y se escriben celda por celda con control de concurrencia.
+ */
+(function () {
+'use strict';
+
+const APP_VERSION = 'akt-crm-1.1.0';
+const CFG = Object.assign({ API_URL: '', REFRESH_MS: 90000 }, window.AKT_CONFIG || {});
+const DEMO = /[?&]demo=1\b/.test(location.search);
+
+const ESTADOS = ['Nuevo', 'Contactado', 'Cotizado', 'Facturado', 'Perdido', 'Retenido'];
+const MOTIVOS = ['precio', 'financiación negada', 'compró en otro lado', 'no contesta', 'otro'];
+const TEMPS = ['caliente', 'tibio', 'frío'];
+
+const S = {
+  token: null, data: null, M: null, view: 'hoy', demoRole: 'jefe',
+  f: { punto: '', asesor: '', origen: '', periodo: '30' },
+  hoyAsesor: '', mes: '', segFiltro: { tipo: '', mes: '', sede: '', evaluado: '' },
+  concTab: 'incons', cfgTab: 'sheet', lastLoad: null, timer: null, busy: false
+};
+
+// ── Utilidades ────────────────────────────────────────────────────────────
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+const digits = s => String(s ?? '').replace(/\D/g, '');
+const tel10 = s => { const d = digits(s); return d.length >= 10 ? d.slice(-10) : ''; };
+const si = v => ['si', 'true', '1', 'x', 'yes'].includes(norm(v));
+const pad = n => String(n).padStart(2, '0');
+const num = v => { if (v === '' || v === null || v === undefined || !/\d/.test(String(v))) return null; const n = Number(String(v).replace(/[^\d.,-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return isFinite(n) ? n : null; };
+const pct = (a, b) => b ? Math.round(a / b * 100) : null;
+const fmtPct = v => v === null || v === undefined ? '—' : v + '%';
+const money = v => v === null || v === undefined ? '—' : '$' + Math.round(v).toLocaleString('es-CO');
+const cap = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
+const uniq = a => Array.from(new Set(a.filter(Boolean)));
+function sedeCanon(s) {
+  const n = norm(s);
+  if (n.includes('itag')) return 'Itagüí';
+  if (n.includes('colores')) return 'Los Colores';
+  return String(s || '').trim();
+}
+function rolDeCargo(c) {
+  const n = norm(c);
+  if (n.includes('jefe')) return 'jefe';
+  if (n.includes('admin')) return 'admin';
+  if (n.includes('asesor')) return 'asesor';
+  return '';
+}
+// La columna del Sheet se llama "CEDULA " (con espacio); se busca sin importar mayúsculas.
+function cedulaDe(p) { for (const k in p) if (norm(k) === 'cedula') return digits(p[k]); return ''; }
+function canonTemp(v) {
+  const n = norm(v);
+  if (n.startsWith('cali')) return 'caliente';
+  if (n.startsWith('tib')) return 'tibio';
+  if (n.startsWith('fri')) return 'frío';
+  return '';
+}
+
+// ── Fechas en hora de Colombia (UTC−5, sin horario de verano) ─────────────
+const OFF = 5 * 3600e3;
+const bog = (y, mo, d, h = 0, mi = 0, se = 0) => new Date(Date.UTC(y, mo - 1, d, h, mi, se) + OFF);
+function bparts(dt) { const x = new Date(dt.getTime() - OFF); return { y: x.getUTCFullYear(), m: x.getUTCMonth() + 1, d: x.getUTCDate(), dow: x.getUTCDay(), h: x.getUTCHours(), mi: x.getUTCMinutes() }; }
+const ymd = dt => { const p = bparts(dt); return `${p.y}-${pad(p.m)}-${pad(p.d)}`; };
+const ym = dt => { const p = bparts(dt); return `${p.y}-${pad(p.m)}`; };
+function parseFecha(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return v;
+  const s = String(v).trim();
+  let m;
+  if (/(z|[+-]\d\d:?\d\d)$/i.test(s) && !isNaN(Date.parse(s))) return new Date(s);
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?/))) return bog(+m[1], +m[2], +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])?)?/i))) {
+    let h = +(m[4] || 0); const ap = (m[7] || '').toLowerCase();
+    if (ap === 'p' && h < 12) h += 12; if (ap === 'a' && h === 12) h = 0;
+    return bog(+m[3], +m[2], +m[1], h, +(m[5] || 0), +(m[6] || 0));
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? null : new Date(t);
+}
+function fmtFecha(dt, conHora = true) {
+  if (!dt) return '—';
+  const p = bparts(dt);
+  const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  let s = `${p.d} ${meses[p.m - 1]}`;
+  if (p.y !== bparts(new Date()).y) s += ' ' + p.y;
+  if (conHora) { const h12 = p.h % 12 || 12; s += ` ${h12}:${pad(p.mi)} ${p.h < 12 ? 'a. m.' : 'p. m.'}`; }
+  return s;
+}
+const MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const fmtMes = k => { if (!k) return '—'; const [y, m] = k.split('-'); return cap(MESES_L[+m - 1]) + ' ' + y; };
+function mesKey(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  let m;
+  if ((m = s.match(/^(\d{4})[-/](\d{1,2})$/))) return `${m[1]}-${pad(m[2])}`;
+  if ((m = s.match(/^(\d{1,2})[-/](\d{4})$/))) return `${m[2]}-${pad(m[1])}`;
+  const d = parseFecha(s); if (d) return ym(d);
+  const i = MESES_L.findIndex(x => norm(s).startsWith(x.slice(0, 3)));
+  const y = (s.match(/\d{4}/) || [])[0];
+  return i >= 0 && y ? `${y}-${pad(i + 1)}` : '';
+}
+
+// Festivos de Colombia (Ley Emiliani + Semana Santa)
+const _fest = {};
+function pascua(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+    g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+    l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
+    mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(y, mes - 1, dia));
+}
+function festivos(y) {
+  if (_fest[y]) return _fest[y];
+  const set = new Set();
+  const D = (m, d) => new Date(Date.UTC(y, m - 1, d));
+  const k = dt => `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+  const lunes = dt => { const w = dt.getUTCDay(); return w === 1 ? dt : new Date(dt.getTime() + ((8 - w) % 7) * 864e5); };
+  [[1, 1], [5, 1], [7, 20], [8, 7], [12, 8], [12, 25]].forEach(([m, d]) => set.add(k(D(m, d))));
+  [[1, 6], [3, 19], [6, 29], [8, 15], [10, 12], [11, 1], [11, 11]].forEach(([m, d]) => set.add(k(lunes(D(m, d)))));
+  const e = pascua(y), mas = n => new Date(e.getTime() + n * 864e5);
+  [mas(-3), mas(-2)].forEach(x => set.add(k(x)));
+  [mas(39), mas(60), mas(68)].forEach(x => set.add(k(lunes(x))));
+  return (_fest[y] = set);
+}
+// Horario hábil: L–V 9:30–18:00, sáb 9:30–15:00, dom y festivos cerrado.
+function ventana(y, m, d, dow) {
+  if (dow === 0 || festivos(y).has(`${y}-${pad(m)}-${pad(d)}`)) return null;
+  return [bog(y, m, d, 9, 30).getTime(), (dow === 6 ? bog(y, m, d, 15, 0) : bog(y, m, d, 18, 0)).getTime()];
+}
+function horasHabiles(a, b) {
+  if (!a || !b || b <= a) return 0;
+  const A = a.getTime(), B = b.getTime();
+  const pa = bparts(a), pb = bparts(b);
+  let day = Date.UTC(pa.y, pa.m - 1, pa.d); const end = Date.UTC(pb.y, pb.m - 1, pb.d);
+  let ms = 0, guard = 0;
+  while (day <= end && guard++ < 400) {
+    const dt = new Date(day);
+    const w = ventana(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), dt.getUTCDay());
+    if (w) { const s = Math.max(w[0], A), e = Math.min(w[1], B); if (e > s) ms += e - s; }
+    day += 864e5;
+  }
+  return ms / 36e5;
+}
+function fmtHoras(h) {
+  if (h === null || h === undefined) return '—';
+  if (h < 1) return Math.round(h * 60) + ' min';
+  if (h < 10) return h.toFixed(1).replace('.', ',') + ' h';
+  return Math.round(h) + ' h';
+}
+
+// ── API ───────────────────────────────────────────────────────────────────
+async function api(action, payload = {}) {
+  if (DEMO) return window.AKT_DEMO.handle(action, payload, S.demoRole);
+  const res = await fetch(CFG.API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS en Apps Script
+    body: JSON.stringify(Object.assign({ action, token: S.token }, payload))
+  });
+  if (!res.ok) throw new Error('El servidor respondió ' + res.status);
+  const j = await res.json();
+  if (!j.ok && !j.conflict) { const e = new Error(j.error || 'Error desconocido'); e.code = j.code; throw e; }
+  return j;
+}
+
+// ── Sesión ────────────────────────────────────────────────────────────────
+// La sesión (token firmado por la API, válido 12 h) se guarda en este dispositivo.
+// La contraseña nunca se guarda: solo viaja una vez, al entrar.
+function store(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } }
+function read(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function tokenVigente(t) {
+  try { const p = JSON.parse(atob(t.split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))); return p.exp > Date.now() + 60e3; } catch (e) { return false; }
+}
+
+function mostrarLogin(msg) {
+  $('#app').hidden = true; $('#login').hidden = false;
+  const box = $('#login-msg');
+  box.hidden = !msg; box.textContent = msg || '';
+  if (DEMO) { $('#demo-link').hidden = true; return; }
+  if (!CFG.API_URL) {
+    $('#login-form').hidden = true;
+    box.hidden = false;
+    box.textContent = 'Falta configurar API_URL en config.js (la URL /exec del Apps Script, ver backend/README.md). Mientras tanto puedes revisar el modo demo.';
+    return;
+  }
+  $('#login-form').hidden = false;
+  setTimeout(() => $('#login-ced').focus(), 50);
+}
+
+async function entrar(ev) {
+  ev.preventDefault();
+  const btn = $('#login-btn'), box = $('#login-msg');
+  const cedula = $('#login-ced').value.replace(/\D/g, ''), password = $('#login-pass').value;
+  if (!cedula || !password) { box.hidden = false; box.textContent = 'Escribe tu número de cédula y la contraseña.'; return; }
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Entrando…'; box.hidden = true;
+  try {
+    const r = await api('login', { cedula, password });
+    S.token = r.token; store('akt_ses', r.token);
+    $('#login-pass').value = '';
+    arrancar();
+  } catch (e) {
+    box.hidden = false; box.textContent = e.message;
+  } finally { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login-2"></i> Entrar'; }
+}
+
+function salir(msg) {
+  S.token = null; store('akt_ses', null);
+  clearInterval(S.timer);
+  mostrarLogin(msg);
+}
+
+async function arrancar() {
+  $('#login').hidden = true; $('#app').hidden = false;
+  $('#view').innerHTML = '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Cargando leads…</div></div>';
+  if (DEMO) {
+    $('#demo-badge').hidden = false;
+    document.body.classList.add('demo');
+    const sel = $('#demo-role'); sel.hidden = false;
+    sel.innerHTML = window.AKT_DEMO.roles.map(r => `<option value="${r.id}">${esc(r.label)}</option>`).join('');
+    sel.value = S.demoRole;
+  }
+  const ok = await cargar();
+  if (!ok) return;
+  clearInterval(S.timer);
+  S.timer = setInterval(() => { if (!document.hidden && $('#sheet').hidden) cargar(true); }, Math.max(60000, CFG.REFRESH_MS));
+}
+
+async function cargar(silencioso) {
+  if (S.busy) return false;
+  S.busy = true;
+  $('#btn-refresh i').classList.add('spin');
+  try {
+    if (!DEMO && S.token && !tokenVigente(S.token)) { salir('Tu sesión venció. Vuelve a entrar.'); return false; }
+    S.data = await api('bootstrap');
+    construirModelo();
+    S.lastLoad = new Date();
+    $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
+    $('#tb-sub').textContent = `${S.data.user.nombre} · ${({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
+    const vistas = vistasDeRol();
+    if (!vistas.some(v => v.id === S.view)) S.view = vistas[0].id;
+    renderNav(); render();
+    return true;
+  } catch (e) {
+    if (['AUTH', 'NOUSER'].includes(e.code)) { salir(e.message); return false; }
+    if (!silencioso || !S.data) {
+      $('#view').innerHTML = `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div><b>No se pudieron cargar los datos.</b><br>${esc(e.message)}${e.code === 'CONFIG' ? '<br>Revisa las Propiedades del script (ver backend/README.md).' : ''}</div></div>`;
+    } else toast('No se pudo actualizar: ' + e.message, 'bad');
+    return false;
+  } finally {
+    S.busy = false;
+    $('#btn-refresh i').classList.remove('spin');
+  }
+}
+
+// ── Modelo ────────────────────────────────────────────────────────────────
+function construirModelo() {
+  const d = S.data, now = new Date();
+  const c = {}; (d.config || []).forEach(r => { c[r.clave] = r.valor; });
+  const n = (k, def) => { const v = num(c[k]); return v === null ? def : v; };
+  const cfg = {
+    raw: c,
+    sla_preventiva_h: n('sla_preventiva_h', 1), sla_vencida_h: n('sla_vencida_h', 3), sin_cotizar_h: n('sin_cotizar_h', 20),
+    cotizado_sin_avance_dias: n('cotizado_sin_avance_dias', null), seguimiento_frecuencia_dias: n('seguimiento_frecuencia_dias', null)
+  };
+
+  const gBy = {}; (d.gestion || []).forEach(g => { gBy[String(g.id_lead)] = g; });
+  const bitContacto = {};
+  (d.bitacora || []).forEach(b => {
+    if (b.hoja === 'Gestion_Asesor' && b.campo === 'contactado' && norm(b.valor_nuevo) === 'si') {
+      const f = parseFecha(b.fecha_hora); const k = String(b.llave);
+      if (f && (!bitContacto[k] || f < bitContacto[k])) bitContacto[k] = f;
+    }
+  });
+  const cotUsadas = new Set(), facUsadas = new Set();
+  const cotTel = {}, cotIdc = {};
+  (d.cotizaciones || []).forEach((q, i) => {
+    q._i = i;
+    const t = tel10(q.telefono_lead); if (t) (cotTel[t] = cotTel[t] || []).push(q);
+    if (q.id_contacto) (cotIdc[String(q.id_contacto)] = cotIdc[String(q.id_contacto)] || []).push(q);
+  });
+  const facLead = {};
+  (d.facturas || []).forEach((f, i) => { f._i = i; if (f.id_lead) (facLead[String(f.id_lead)] = facLead[String(f.id_lead)] || []).push(f); });
+  const alertasLead = {};
+  (d.alertas || []).forEach(a => {
+    [a.id_lead, a.id_contacto].filter(Boolean).forEach(k => { (alertasLead[String(k)] = alertasLead[String(k)] || []).push(a); });
+  });
+
+  const leads = (d.leads || []).map(l => {
+    const id = String(l.id_lead || l.id_contacto || '');
+    const g = l.id_lead ? gBy[String(l.id_lead)] || null : null;
+    const tels = uniq([tel10(l.telefono_whatsapp), tel10(l.telefono_contacto)]);
+    const cot = uniq([].concat(...tels.map(t => cotTel[t] || []), l.id_contacto ? cotIdc[String(l.id_contacto)] || [] : []));
+    const fac = l.id_lead ? facLead[String(l.id_lead)] || [] : [];
+    cot.forEach(q => cotUsadas.add(q._i)); fac.forEach(f => facUsadas.add(f._i));
+    const asign = parseFecha(l.fecha_asignacion) || parseFecha(g && g.fecha_hora_registro) || parseFecha(l.fecha_primer_contacto);
+    const contactadoEn = parseFecha(g && g.fecha_contactado) || bitContacto[id] || null;
+    const contactado = si(g && g.contactado), cotizado = si(g && g.cotizado);
+    const res = norm((g && g.resultado) || l.resultado_venta);
+    let estado = 'Nuevo';
+    const ec = norm(l.estado_crm);
+    if (ec) estado = ESTADOS.find(e => ec.startsWith(norm(e).slice(0, 5))) || (ec.startsWith('ganad') ? 'Facturado' : 'Nuevo');
+    else if (/^(ganad|factur|vendid)/.test(res)) estado = 'Facturado';
+    else if (res.startsWith('perd')) estado = 'Perdido';
+    else if (res.startsWith('reten')) estado = 'Retenido';
+    else if (cotizado) estado = 'Cotizado';
+    else if (contactado) estado = 'Contactado';
+
+    const incons = [];
+    if ((estado === 'Cotizado' || (estado === 'Facturado' && cotizado)) && !cot.length) incons.push('Marcado cotizado sin cotización en el CRM');
+    if (estado === 'Facturado' && !fac.length) incons.push('Marcado vendido sin factura (pendiente de facturar)');
+    if (ec.includes('inconsist') && !incons.length) incons.push('Inconsistencia reportada por n8n');
+
+    const tel = tel10(l.telefono_whatsapp) || tel10(l.telefono_contacto);
+    const cita = parseFecha(l.cita_dia ? (String(l.cita_dia).slice(0, 10) + (l.cita_hora ? ' ' + horaTxt(l.cita_hora) : '')) : null);
+    const hAsign = asign ? horasHabiles(asign, now) : null;
+    const hPrimera = asign && contactadoEn ? horasHabiles(asign, contactadoEn) : null;
+    const ultimaAct = parseFecha(g && g.fecha_ultima_actualizacion);
+
+    let sla = null;
+    if (estado === 'Nuevo' && hAsign !== null) sla = hAsign >= cfg.sla_vencida_h ? 'bad' : hAsign >= cfg.sla_preventiva_h ? 'warn' : 'ok';
+    const sinCotizar = estado === 'Contactado' && hAsign !== null && hAsign >= cfg.sin_cotizar_h;
+    const diasSinAvance = ultimaAct ? (now - ultimaAct) / 864e5 : null;
+    const cotSinAvance = estado === 'Cotizado' && cfg.cotizado_sin_avance_dias !== null && diasSinAvance !== null && diasSinAvance >= cfg.cotizado_sin_avance_dias;
+    const alertas = uniq([].concat(alertasLead[String(l.id_lead)] || [], l.id_contacto ? alertasLead[String(l.id_contacto)] || [] : []));
+
+    return {
+      id, raw: l, g, estado, incons, cot, fac, alertas, tel, asign, contactadoEn, hAsign, hPrimera, ultimaAct,
+      contactado, cotizado, resultado: res, motivo: (g && g.motivo_perdida) || '',
+      nombre: String(l.nombre_completo || l.username_whatsapp || '').trim() || 'Sin nombre',
+      usuario: l.username_whatsapp || '', sede: sedeCanon(l.punto_asignado), asesor: String(l.nombre_asesor || '').trim(),
+      origen: String(l.origen || '').trim() || 'Sin origen', anuncio: String(l.anuncio_origen || '').trim(),
+      temp: canonTemp(l.etiqueta_asesor), tempIA: canonTemp(l.etiqueta), cita,
+      citaHoy: cita && ymd(cita) === ymd(now), sla, sinCotizar, cotSinAvance, diasSinAvance,
+      aTiempo: hPrimera !== null ? hPrimera <= cfg.sla_preventiva_h : null
+    };
+  });
+
+  const byId = {}; leads.forEach(l => { byId[l.id] = l; });
+  const personas = (d.personal || []).map(p => Object.assign({}, p, { rolApp: rolDeCargo(p.rol || p.cargo), sedeCanon: p.sedeCanon || sedeCanon(p.sede) }));
+  S.M = {
+    cfg, leads, byId, personas,
+    // Asesores comerciales: excluye posventa (recibe = posventa) y personas inactivas.
+    asesores: personas.filter(p => (p.rolApp === 'asesor' || p.rolApp === 'admin') && norm(p.recibe) !== 'posventa' && (!p.activo || norm(p.activo).startsWith('si'))),
+    cotHuerfanas: (d.cotizaciones || []).filter(q => !cotUsadas.has(q._i)),
+    facSinOrigen: (d.facturas || []).filter(f => !f.id_lead || !leads.some(l => String(l.raw.id_lead) === String(f.id_lead))),
+    alertasAbiertas: (d.alertas || []).filter(a => !si(a.atendida) && !a.fecha_atendida)
+  };
+}
+function horaTxt(h) {
+  const s = String(h);
+  const m = s.match(/(\d{1,2}):(\d{2})/);
+  if (m) {
+    let hh = +m[1];
+    if (/p\.?\s*m/i.test(s) && hh < 12) hh += 12;
+    if (/a\.?\s*m/i.test(s) && hh === 12) hh = 0;
+    return `${pad(hh)}:${m[2]}`;
+  }
+  return '';
+}
+
+// ── Navegación ────────────────────────────────────────────────────────────
+function vistasDeRol() {
+  const r = S.data.user.rol;
+  const v = [
+    { id: 'hoy', icon: 'ti-checklist', label: 'Hoy' },
+    { id: 'embudo', icon: 'ti-layout-kanban', label: 'Embudo' }
+  ];
+  if (r !== 'asesor') v.push({ id: 'analista', icon: 'ti-chart-histogram', label: 'Tablero' });
+  v.push({ id: 'comisiones', icon: 'ti-coin', label: 'Comisiones' });
+  v.push({ id: 'seguimientos', icon: 'ti-clipboard-check', label: 'Seguimientos' });
+  if (r === 'jefe') {
+    v.push({ id: 'conciliacion', icon: 'ti-git-compare', label: 'Conciliación' });
+    v.push({ id: 'config', icon: 'ti-settings', label: 'Ajustes' });
+  }
+  return v;
+}
+function renderNav() {
+  const M = S.M;
+  const badges = {
+    hoy: M.leads.filter(l => l.sla === 'bad' || l.citaHoy).length,
+    conciliacion: M.leads.filter(l => l.incons.length).length + M.facSinOrigen.length + M.cotHuerfanas.length
+  };
+  $('#nav').innerHTML = vistasDeRol().map(v =>
+    `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
+}
+function render() {
+  const fn = { hoy: vHoy, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, seguimientos: vSeguimientos, conciliacion: vConciliacion, config: vConfig }[S.view];
+  $('#view').innerHTML = fn();
+  if (S.view === 'embudo') bindKanban();
+}
+
+// ── Componentes ───────────────────────────────────────────────────────────
+function toast(msg, tipo) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + (tipo || '');
+  t.innerHTML = `<i class="ti ${tipo === 'bad' ? 'ti-alert-circle' : tipo === 'ok' ? 'ti-circle-check' : 'ti-info-circle'}"></i><div>${esc(msg)}</div>`;
+  $('#toasts').appendChild(t);
+  setTimeout(() => t.remove(), tipo === 'bad' ? 6500 : 3200);
+}
+function empty(icon, txt) { return `<div class="empty"><i class="ti ${icon}"></i>${txt}</div>`; }
+function pillEstado(e) {
+  const c = { Nuevo: 'pill-info', Contactado: '', Cotizado: 'pill-warn', Facturado: 'pill-ok', Perdido: 'pill-bad', Retenido: 'pill-dark' }[e] || '';
+  return `<span class="pill ${c}">${esc(e)}</span>`;
+}
+function pillTemp(t, pref) { return t ? `<span class="pill t-${norm(t)}">${pref || ''}${esc(t)}</span>` : ''; }
+function kpi(l, v, s, cls) { return `<div class="kpi ${cls || ''}"><div class="k-l">${l}</div><div class="k-v">${v}</div>${s ? `<div class="k-s">${s}</div>` : ''}</div>`; }
+function bars(items, opts = {}) {
+  if (!items.length) return empty('ti-chart-bar-off', opts.vacio || 'Sin datos en el período.');
+  const max = Math.max(...items.map(i => i.v), 1);
+  return `<div class="bars">${items.map(i => `<div class="bar-row"><span class="lbl" title="${esc(i.l)}">${esc(i.l)}</span><div class="bar-track"><div class="bar-fill ${i.cls || opts.cls || ''}" style="width:${Math.max(2, i.v / max * 100)}%"></div></div><span class="num r small">${i.t !== undefined ? i.t : i.v}</span></div>`).join('')}</div>`;
+}
+function contar(arr, fn) {
+  const m = {}; arr.forEach(x => { const k = fn(x) || 'Sin dato'; m[k] = (m[k] || 0) + 1; });
+  return Object.entries(m).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v);
+}
+function opts(list, sel, todos) {
+  return (todos ? `<option value="">${todos}</option>` : '') + list.map(o => { const v = typeof o === 'object' ? o.v : o, t = typeof o === 'object' ? o.t : o; return `<option value="${esc(v)}" ${String(v) === String(sel) ? 'selected' : ''}>${esc(t)}</option>`; }).join('');
+}
+function contactoTxt(l) {
+  if (l.tel) return `<span><i class="ti ti-phone"></i>${esc(l.tel.replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3'))}</span>`;
+  return `<span class="muted"><i class="ti ti-brand-whatsapp"></i>Solo usuario de WhatsApp${l.usuario ? ' (' + esc(l.usuario) + ')' : ''}</span>`;
+}
+function waLink(l) { return l.tel ? `https://wa.me/57${l.tel}` : ''; }
+function puedeEditar(l) {
+  const u = S.data.user;
+  if (u.rol === 'jefe') return true;
+  if (u.rol === 'admin') return l.sede === u.sede;
+  return norm(l.asesor) === norm(u.nombre);
+}
+
+function leadCard(l) {
+  const timerCls = l.sla || (l.sinCotizar ? 'warn' : '');
+  let timer = '';
+  if (l.estado === 'Nuevo' && l.hAsign !== null) timer = `<span class="timer ${timerCls}" title="Tiempo hábil sin contacto"><i class="ti ti-clock"></i> ${fmtHoras(l.hAsign)}</span>`;
+  else if (l.sinCotizar) timer = `<span class="timer warn" title="Contactado sin cotizar"><i class="ti ti-clock-exclamation"></i> ${fmtHoras(l.hAsign)} sin cotizar</span>`;
+  else if (l.cotSinAvance) timer = `<span class="timer warn"><i class="ti ti-hourglass"></i> ${Math.floor(l.diasSinAvance)} d sin avance</span>`;
+  const s = l.sla === 'bad' ? 's-bad' : l.citaHoy ? 's-info' : (l.sla === 'warn' || l.sinCotizar || l.cotSinAvance) ? 's-warn' : '';
+  const ed = puedeEditar(l);
+  const r = l.raw;
+  const acciones = [];
+  if (ed && l.estado === 'Nuevo') acciones.push(`<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}"><i class="ti ti-phone-check"></i> Contactado</button>`);
+  if (ed && (l.estado === 'Nuevo' || l.estado === 'Contactado')) acciones.push(`<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}"><i class="ti ti-file-dollar"></i> Cotizado</button>`);
+  if (ed && !['Facturado', 'Perdido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="perdido" data-id="${esc(l.id)}"><i class="ti ti-x"></i> Perdido</button>`);
+  if (l.tel) acciones.push(`<a class="btn btn-sm btn-wa" href="${waLink(l)}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> WhatsApp</a>`);
+  return `<article class="lead ${s}">
+    <div class="lead-top"><div><div class="lead-name" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</div>
+      <div class="lead-sub">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div>
+      <div class="row" style="flex-direction:column;align-items:flex-end;gap:4px">${pillEstado(l.estado)}${timer}</div></div>
+    <div class="lead-facts">${contactoTxt(l)}
+      ${r.modelo_interes ? `<span><i class="ti ti-motorbike"></i>${esc(r.modelo_interes)}</span>` : ''}
+      ${r.zona ? `<span><i class="ti ti-map-pin"></i>${esc(r.zona)}</span>` : ''}
+      ${r.intencion_compra ? `<span><i class="ti ti-target-arrow"></i>${esc(r.intencion_compra)}</span>` : ''}
+      ${r.forma_pago ? `<span><i class="ti ti-credit-card"></i>${esc(r.forma_pago)}</span>` : ''}
+      ${l.cita ? `<span class="${l.citaHoy ? '' : 'muted'}"><i class="ti ti-calendar-event"></i>${l.citaHoy ? '<b>Cita hoy</b> ' + esc(horaTxt(r.cita_hora) || '') : fmtFecha(l.cita, !!r.cita_hora)}</span>` : ''}
+    </div>
+    ${l.incons.length ? `<div class="notice bad small" style="padding:6px 10px"><i class="ti ti-alert-triangle"></i><div>${l.incons.map(esc).join('<br>')}</div></div>` : ''}
+    <div class="row between wrap"><div class="tags">${l.tempIA ? pillTemp(l.tempIA, 'IA: ') : '<span class="pill">IA: sin etiqueta</span>'}
+      ${ed ? TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${l.temp === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('') : pillTemp(l.temp, 'Asesor: ')}</div></div>
+    ${acciones.length ? `<div class="lead-actions">${acciones.join('')}</div>` : ''}
+  </article>`;
+}
+
+// ── Vista: Hoy ────────────────────────────────────────────────────────────
+function leadsAlcance() {
+  const u = S.data.user;
+  let ls = S.M.leads;
+  if (u.rol !== 'asesor' && S.hoyAsesor) ls = ls.filter(l => norm(l.asesor) === norm(S.hoyAsesor));
+  return ls;
+}
+function vHoy() {
+  const u = S.data.user, ls = leadsAlcance(), M = S.M;
+  const abiertos = ls.filter(l => !['Facturado', 'Perdido'].includes(l.estado));
+  const grupos = [
+    { t: 'SLA vencido', icon: 'ti-alarm', items: abiertos.filter(l => l.sla === 'bad'), cls: 'pill-bad' },
+    { t: 'Cita de hoy', icon: 'ti-calendar-event', items: abiertos.filter(l => l.citaHoy && l.sla !== 'bad') },
+    { t: 'Por vencer (1 h hábil sin contacto)', icon: 'ti-clock-exclamation', items: abiertos.filter(l => l.sla === 'warn' && !l.citaHoy) },
+    { t: 'Cotizado sin avance', icon: 'ti-hourglass', items: abiertos.filter(l => l.cotSinAvance && !l.citaHoy) },
+    { t: 'Leads nuevos', icon: 'ti-sparkles', items: abiertos.filter(l => l.sla === 'ok' && !l.citaHoy) },
+    { t: 'Contactados sin cotizar', icon: 'ti-file-off', items: abiertos.filter(l => l.sinCotizar && !l.citaHoy) },
+    { t: 'En gestión', icon: 'ti-progress', items: abiertos.filter(l => !l.citaHoy && !l.sla && !l.sinCotizar && !l.cotSinAvance && l.estado !== 'Nuevo') },
+    { t: 'Sin fecha de asignación', icon: 'ti-help', items: abiertos.filter(l => l.estado === 'Nuevo' && l.hAsign === null && !l.citaHoy) }
+  ];
+  grupos.forEach(g => g.items.sort((a, b) => (b.hAsign || 0) - (a.hAsign || 0)));
+  const vencidos = grupos[0].items.length;
+  const alertas = M.alertasAbiertas.filter(a => ls.some(l => [String(l.raw.id_lead), String(l.raw.id_contacto)].includes(String(a.id_lead || a.id_contacto))));
+  const avisos = [];
+  if (!S.data.hojas.Gestion_Asesor) avisos.push('No existe la hoja Gestion_Asesor; no se pueden registrar gestiones.');
+  if (u.rol === 'jefe') {
+    const sinCed = M.personas.filter(p => p.rolApp && !cedulaDe(p)).map(p => p.nombre);
+    if (sinCed.length) avisos.push(`En la hoja Equipo falta la cédula de: ${sinCed.join(', ')}. Sin cédula no pueden entrar.`);
+  }
+  const sinGestion = ls.filter(l => !l.g && l.raw.id_lead).length;
+  if (sinGestion) avisos.push(`${sinGestion} lead(s) aún no tienen fila en Gestion_Asesor (la crea n8n). Hasta entonces no se pueden marcar.`);
+
+  return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
+    ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
+    ${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><div>${esc(a)}</div></div>`).join('')}
+    <div class="grid g-kpi">
+      ${kpi('SLA vencido', vencidos, `≥ ${M.cfg.sla_vencida_h} h hábiles sin contacto`, vencidos ? 'bad' : 'ok')}
+      ${kpi('Citas hoy', grupos[1].items.length + abiertos.filter(l => l.citaHoy && l.sla === 'bad').length, '')}
+      ${kpi('Nuevos', abiertos.filter(l => l.estado === 'Nuevo').length, 'sin contactar')}
+      ${kpi('Alertas abiertas', alertas.length, S.data.hojas.Alertas_Log ? 'de Alertas_Log (n8n)' : 'falta la hoja Alertas_Log', alertas.length ? 'warn' : '')}
+    </div>
+    ${grupos.filter(g => g.items.length).map(g => `<div class="section-title"><i class="ti ${g.icon}"></i>${g.t}<span class="count">${g.items.length}</span></div>
+      <div class="list">${g.items.map(leadCard).join('')}</div>`).join('') || `<div style="margin-top:16px">${empty('ti-mood-check', 'No tienes leads pendientes. ¡Todo al día!')}</div>`}`;
+}
+
+// ── Detalle del lead ──────────────────────────────────────────────────────
+function abrirSheet(html, modal) {
+  const p = $('#sheet-panel');
+  p.className = 'sheet-panel' + (modal ? ' modal' : '');
+  p.innerHTML = html;
+  $('#sheet').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function cerrarSheet() { $('#sheet').hidden = true; document.body.style.overflow = ''; S.leadAbierto = null; }
+// Un modal abierto desde el detalle del lead vuelve al detalle al cerrarse.
+function cerrarModal() { S._modalCancel = null; if (S.leadAbierto) abrirLead(S.leadAbierto); else cerrarSheet(); }
+
+const PERFIL = [
+  ['modelo_interes', 'Modelo de interés'], ['zona', 'Zona'], ['intencion_compra', 'Intención de compra'], ['moto_entrega', 'Moto para entregar'],
+  ['forma_pago', 'Forma de pago'], ['cuota_aprox', 'Cuota aproximada'], ['tipo_consulta', 'Tipo de consulta'], ['producto_cotizado', 'Producto cotizado'],
+  ['origen', 'Origen'], ['anuncio_origen', 'Anuncio'], ['etapa', 'Etapa (IA)'], ['comentario_cliente', 'Comentario del cliente'],
+  ['cliente_respuesta_satisfaccion', 'Respuesta satisfacción'], ['telefono_contacto', 'Teléfono dicho en el chat']
+];
+function abrirLead(id) {
+  const l = S.M.byId[id];
+  if (!l) return;
+  S.leadAbierto = id;
+  const r = l.raw, g = l.g || {}, u = S.data.user, ed = puedeEditar(l);
+  const perfil = PERFIL.filter(([k]) => r[k] !== undefined && r[k] !== '').map(([k, t]) => `<dt>${t}</dt><dd>${esc(r[k])}</dd>`).join('');
+  const eventos = [];
+  if (r.fecha_primer_contacto) eventos.push({ f: parseFecha(r.fecha_primer_contacto), t: 'Primer mensaje al bot' });
+  if (l.asign) eventos.push({ f: l.asign, t: 'Asignado a ' + (l.asesor || '—') });
+  (S.data.bitacora || []).filter(b => String(b.llave) === l.id || String(b.llave) === String(r.id_lead)).forEach(b =>
+    eventos.push({ f: parseFecha(b.fecha_hora), t: `${b.campo}: ${b.valor_anterior || 'vacío'} → <b>${esc(b.valor_nuevo || 'vacío')}</b>`, s: b.usuario, html: true }));
+  l.alertas.forEach(a => eventos.push({ f: parseFecha(a.fecha_hora), t: `Alerta ${a.tipo || ''} ${a.nivel ? '(' + a.nivel + ')' : ''}`, s: (a.destinatario || '') + (si(a.atendida) || a.fecha_atendida ? ' · atendida' : ''), al: true }));
+  if (r.fecha_cierre) eventos.push({ f: parseFecha(r.fecha_cierre), t: 'Cierre' });
+  eventos.sort((a, b) => (b.f || 0) - (a.f || 0));
+
+  const asesores = S.M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede);
+  abrirSheet(`<div class="sheet-h"><div><h2>${esc(l.nombre)}</h2><div class="muted small">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')} · ID ${esc(l.id)}</div></div>
+      <button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
+    <div class="sheet-b">
+      <div class="row wrap">${pillEstado(l.estado)}${pillTemp(l.tempIA, 'IA: ')}${pillTemp(l.temp, 'Asesor: ')}
+        ${l.hPrimera !== null ? `<span class="pill ${l.aTiempo ? 'pill-ok' : 'pill-bad'}">1ª respuesta: ${fmtHoras(l.hPrimera)}</span>` : l.estado === 'Nuevo' && l.hAsign !== null ? `<span class="pill pill-${l.sla === 'bad' ? 'bad' : l.sla === 'warn' ? 'warn' : 'ok'}">${fmtHoras(l.hAsign)} sin contacto</span>` : ''}</div>
+      ${l.incons.length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div><b>Inconsistencia</b><br>${l.incons.map(esc).join('<br>')}</div></div>` : ''}
+      <div class="card"><div class="row wrap">${contactoTxt(l)}<span class="grow"></span>${l.tel ? `<a class="btn btn-sm btn-wa" href="${waLink(l)}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp</a>` : ''}</div>
+        ${l.cita ? `<p class="small" style="margin:8px 0 0"><i class="ti ti-calendar-event"></i> Cita: <b>${fmtFecha(l.cita, !!r.cita_hora)}</b></p>` : ''}</div>
+
+      ${ed ? `<div class="card"><div class="card-h"><h3>Gestión</h3>${l.g ? `<span class="tiny muted">Últ. act. ${fmtFecha(l.ultimaAct)}</span>` : ''}</div>
+        ${!l.g ? `<div class="notice"><i class="ti ti-info-circle"></i><div>n8n aún no creó la fila de este lead en Gestion_Asesor. Puedes cambiar la etiqueta, pero no la gestión.</div></div>` : `
+        <div class="grid g2">
+          <div><label class="f">Contactado</label><div class="row"><span class="pill ${l.contactado ? 'pill-ok' : ''}">${l.contactado ? 'Sí' + (l.contactadoEn ? ' · ' + fmtFecha(l.contactadoEn) : '') : 'No'}</span>${!l.contactado ? `<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}">Marcar contactado</button>` : ''}</div></div>
+          <div><label class="f">Cotizado</label><div class="row"><span class="pill ${l.cotizado ? 'pill-warn' : ''}">${l.cotizado ? 'Sí' : 'No'}</span>${!l.cotizado && !['Facturado', 'Perdido'].includes(l.estado) ? `<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}">Marcar cotizado</button>` : ''}</div></div>
+          <div><label class="f">Resultado</label><select class="sel w100" data-act-ch="resultado" data-id="${esc(l.id)}">${opts([{ v: '', t: 'En proceso' }, { v: 'ganado', t: 'Ganado (facturado)' }, { v: 'perdido', t: 'Perdido' }, { v: 'retenido', t: 'Retenido' }], norm(g.resultado) === 'perdido' ? 'perdido' : norm(g.resultado).startsWith('gan') ? 'ganado' : norm(g.resultado).startsWith('ret') ? 'retenido' : '')}</select></div>
+          <div><label class="f">Motivo de pérdida</label><div class="row"><span class="small">${esc(g.motivo_perdida || '—')}</span></div></div>
+        </div>
+        <div style="margin-top:10px"><label class="f">Respuesta del cliente</label><textarea class="inp" id="resp-cli" maxlength="500" placeholder="¿Qué respondió el cliente?">${esc(g.respuesta_cliente || '')}</textarea>
+          <div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn btn-sm" data-act="respuesta" data-id="${esc(l.id)}">Guardar respuesta</button></div></div>`}
+        <div style="margin-top:10px"><label class="f">Temperatura (decisión del asesor · la IA propone: ${esc(l.tempIA || 'sin etiqueta')})</label>
+          <div class="tags">${TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${l.temp === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('')}</div></div>
+        ${u.rol !== 'asesor' ? `<div style="margin-top:12px"><label class="f">Reasignar asesor</label><div class="row"><select class="sel grow" id="reasignar">${opts(asesores.map(p => p.nombre), l.asesor, '— Elegir —')}</select><button class="btn btn-sm" data-act="reasignar" data-id="${esc(l.id)}">Reasignar</button></div></div>` : ''}
+      </div>` : ''}
+
+      <div class="card"><h3 style="margin-bottom:8px">Perfil</h3>${perfil ? `<dl class="kv">${perfil}</dl>` : '<p class="muted small">El bot aún no ha capturado datos de perfil.</p>'}</div>
+      <div class="card"><h3 style="margin-bottom:8px">Memoria de la IA</h3><p class="small" style="margin:0;white-space:pre-wrap">${esc(r.memoria_resumen || 'Sin resumen todavía.')}</p></div>
+      <div class="card"><h3 style="margin-bottom:8px">Evidencia</h3>
+        <h4 class="muted" style="margin:6px 0">Cotizaciones (${l.cot.length})</h4>
+        ${l.cot.length ? l.cot.map(q => `<div class="small">${esc(q.id_cotizacion || '')} · ${esc(q.modelo || '')} · ${money(num(q.precio_cotizado))} · ${fmtFecha(parseFecha(q.fecha), false)} ${q.estado_cotizacion ? '· ' + esc(q.estado_cotizacion) : ''}</div>`).join('') : '<p class="small muted" style="margin:0">Sin cotización vinculada (se cruza por teléfono o id_contacto).</p>'}
+        <h4 class="muted" style="margin:10px 0 6px">Facturas (${l.fac.length})</h4>
+        ${!S.data.hojas.Facturas ? '<p class="small muted" style="margin:0">La hoja Facturas aún no existe (solicitud al Sheet).</p>' : l.fac.length ? l.fac.map(f => `<div class="small">${esc(f.id_factura || '')} · ${esc(f.modelo || '')} · ${money(num(f.valor))} · ${fmtFecha(parseFecha(f.fecha), false)}</div>`).join('') : '<p class="small muted" style="margin:0">Sin factura vinculada.</p>'}
+      </div>
+      <div class="card"><h3 style="margin-bottom:8px">Línea de tiempo</h3>${eventos.length ? `<ul class="timeline">${eventos.map(e => `<li class="${e.al ? 'al' : ''}">${e.html ? e.t : esc(e.t)}<small>${fmtFecha(e.f)}${e.s ? ' · ' + esc(e.s) : ''}</small></li>`).join('')}</ul>` : '<p class="small muted" style="margin:0">Sin eventos.</p>'}</div>
+      <div class="card"><div class="card-h"><h3>Conversación reciente</h3><span class="tiny muted">Solo lectura</span></div><div id="chat" class="chat"><div class="muted small"><i class="ti ti-loader-2 spin"></i> Cargando…</div></div></div>
+    </div>`);
+  api('chats', { id_lead: l.id }).then(r2 => {
+    if (S.leadAbierto !== id) return;
+    const ms = r2.mensajes || [];
+    $('#chat').innerHTML = ms.length ? ms.map(m => {
+      const bot = /bot|ia|asistente|agente/.test(norm(m.remitente));
+      return `<div class="msg ${bot ? 'bot' : 'cli'}">${esc(m.mensaje)}<small>${esc(m.remitente || '')} · ${fmtFecha(parseFecha(m.fecha_hora))}</small></div>`;
+    }).join('') : '<p class="small muted">Sin mensajes en Historial_Chats para este contacto.</p>';
+    const c = $('#chat'); c.scrollTop = c.scrollHeight;
+  }).catch(e => { if ($('#chat')) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; });
+}
+
+// ── Escrituras ────────────────────────────────────────────────────────────
+async function setCampo(l, hoja, campo, valor) {
+  const fila = hoja === 'Leads' ? l.raw : l.g;
+  if (hoja === 'Gestion_Asesor' && !l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return false; }
+  const expected = fila ? String(fila[campo] ?? '') : undefined;
+  try {
+    const r = await api('update', { sheet: hoja, key: l.id, field: campo, value: valor, expected });
+    if (r.conflict) { toast(r.error, 'bad'); await cargar(true); return false; }
+    if (!r.sinCambio) {
+      fila[campo] = valor;
+      if (l.g && hoja === 'Gestion_Asesor') l.g.fecha_ultima_actualizacion = r.fecha || new Date().toISOString();
+      (S.data.bitacora = S.data.bitacora || []).push({ fecha_hora: r.fecha || new Date().toISOString(), usuario: S.data.user.usuario, hoja, llave: l.id, campo, valor_anterior: expected, valor_nuevo: valor });
+    }
+    return true;
+  } catch (e) { toast(e.message, 'bad'); return false; }
+}
+function refrescar() {
+  construirModelo(); renderNav(); render();
+  if (S.leadAbierto) abrirLead(S.leadAbierto);
+}
+function confirmar(titulo, cuerpo, ok = 'Continuar', peligro) {
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>${titulo}</h3><div class="small">${cuerpo}</div>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn ${peligro ? 'btn-primary' : 'btn-dark'}" id="c-si">${ok}</button></div></div>`, true);
+    $('#c-no').onclick = () => { cerrarModal(); res(false); };
+    $('#c-si').onclick = () => { cerrarModal(); res(true); };
+    S._modalCancel = () => res(false);
+  });
+}
+function pedirMotivo(l) {
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>Marcar como perdido</h3><p class="small muted" style="margin:0">${esc(l.nombre)} · el motivo es obligatorio.</p>
+      <div class="stack-sm">${MOTIVOS.map(m => `<label class="row small" style="padding:8px;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer"><input type="radio" name="motivo" value="${m}"> ${cap(m)}</label>`).join('')}</div>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-primary" id="c-si" disabled>Marcar perdido</button></div></div>`, true);
+    $$('input[name=motivo]').forEach(i => { i.onchange = () => { $('#c-si').disabled = false; }; });
+    $('#c-no').onclick = () => { cerrarModal(); res(null); };
+    $('#c-si').onclick = () => { const v = ($('input[name=motivo]:checked') || {}).value; cerrarModal(); res(v || null); };
+    S._modalCancel = () => res(null);
+  });
+}
+
+async function moverA(l, destino) {
+  if (destino === l.estado) return;
+  if (!puedeEditar(l)) { toast('Solo puedes mover tus propios leads.', 'bad'); return; }
+  const orden = ESTADOS.indexOf.bind(ESTADOS);
+  if (destino === 'Nuevo' || (orden(destino) < orden(l.estado) && ['Contactado', 'Cotizado'].includes(destino)) || ['Facturado', 'Perdido'].includes(l.estado) && destino !== 'Retenido') {
+    if (!(l.estado === 'Retenido' && ['Cotizado', 'Facturado', 'Perdido'].includes(destino))) {
+      toast('No se puede devolver un lead a una etapa anterior desde la app. Pídelo al Jefe Comercial.', 'bad'); return;
+    }
+  }
+  if (!l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return; }
+  const leadTxt = `<b>${esc(l.nombre)}</b>`;
+  if (destino === 'Contactado') {
+    await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí');
+  } else if (destino === 'Cotizado') {
+    if (!l.cot.length && !(await confirmar('Sin cotización en el CRM', `No hay una cotización cargada para ${leadTxt}. Si continúas, el lead queda marcado como <b>Inconsistencia</b> y el Jefe Comercial lo verá en Conciliación.`, 'Marcar igual'))) return;
+    if (!l.contactado && !(await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí'))) return refrescar();
+    await setCampo(l, 'Gestion_Asesor', 'cotizado', 'Sí');
+  } else if (destino === 'Facturado') {
+    if (!l.fac.length && !(await confirmar('Sin factura', `No hay factura vinculada a ${leadTxt}. Quedará como <b>pendiente de facturar</b> hasta que el Jefe cargue la factura.`, 'Marcar ganado'))) return;
+    await setCampo(l, 'Gestion_Asesor', 'resultado', 'ganado');
+  } else if (destino === 'Perdido') {
+    const m = await pedirMotivo(l);
+    if (!m) return;
+    if (await setCampo(l, 'Gestion_Asesor', 'motivo_perdida', m)) await setCampo(l, 'Gestion_Asesor', 'resultado', 'perdido');
+  } else if (destino === 'Retenido') {
+    if (!(await confirmar('Marcar como retenido', `La definición de "Retenido" está pendiente del Jefe Comercial. ¿Marcar ${leadTxt} como retenido?`, 'Marcar retenido'))) return;
+    await setCampo(l, 'Gestion_Asesor', 'resultado', 'retenido');
+  }
+  toast(`${l.nombre} → ${destino}`, 'ok');
+  refrescar();
+}
+
+// ── Vista: Embudo (Kanban) ────────────────────────────────────────────────
+function periodoDesde(p) {
+  const now = new Date(), b = bparts(now);
+  if (p === 'mes') return [bog(b.y, b.m, 1), null];
+  if (p === 'mesant') return [bog(b.m === 1 ? b.y - 1 : b.y, b.m === 1 ? 12 : b.m - 1, 1), bog(b.y, b.m, 1)];
+  if (p === 'todo') return [null, null];
+  return [new Date(now - Number(p) * 864e5), null];
+}
+function filtrar(ls, f) {
+  const [desde, hasta] = periodoDesde(f.periodo);
+  return ls.filter(l => (!f.punto || l.sede === f.punto) && (!f.asesor || norm(l.asesor) === norm(f.asesor)) && (!f.origen || l.origen === f.origen) &&
+    (!desde || (l.asign && l.asign >= desde)) && (!hasta || (l.asign && l.asign < hasta)));
+}
+function filtrosHTML(conOrigen = true) {
+  const u = S.data.user, M = S.M, f = S.f;
+  const sedes = uniq(M.leads.map(l => l.sede).concat(M.personas.map(p => p.sedeCanon))).filter(s => s === 'Itagüí' || s === 'Los Colores' || M.leads.some(l => l.sede === s));
+  return `<div class="filters">
+    ${u.rol === 'jefe' ? `<select class="sel" data-f="punto">${opts(sedes, f.punto, 'Todos los puntos')}</select>` : ''}
+    ${u.rol !== 'asesor' ? `<select class="sel" data-f="asesor">${opts(uniq(M.asesores.filter(p => !f.punto || p.sedeCanon === f.punto).map(p => p.nombre).concat(M.leads.map(l => l.asesor))).sort(), f.asesor, 'Todos los asesores')}</select>` : ''}
+    ${conOrigen ? `<select class="sel" data-f="origen">${opts(uniq(M.leads.map(l => l.origen)).sort(), f.origen, 'Todos los orígenes')}</select>` : ''}
+    <select class="sel" data-f="periodo">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
+  </div>`;
+}
+function vEmbudo() {
+  const ls = filtrar(S.M.leads, S.f);
+  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). Cotizado y Facturado exigen evidencia.</p></div></div>
+    ${filtrosHTML()}
+    <div class="kanban">${ESTADOS.map(e => {
+      const items = ls.filter(l => l.estado === e);
+      return `<div class="col" data-col="${e}"><div class="col-h">${e} <small>${items.length}</small></div>
+        ${items.slice(0, 150).map(l => `<div class="kcard ${l.incons.length ? 'incons' : ''}" draggable="${puedeEditar(l)}" data-drag="${esc(l.id)}">
+          <b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b>
+          <div class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')}</div>
+          <div class="row wrap" style="margin-top:4px;gap:4px">${pillTemp(l.temp || l.tempIA)}${l.incons.length ? '<span class="pill pill-bad">Inconsistencia</span>' : ''}${l.sla === 'bad' ? '<span class="pill pill-bad">SLA vencido</span>' : ''}</div>
+          ${puedeEditar(l) && !['Facturado', 'Perdido'].includes(e) ? `<select class="sel" data-mover="${esc(l.id)}"><option value="">Mover a…</option>${ESTADOS.filter(x => x !== e && x !== 'Nuevo').map(x => `<option>${x}</option>`).join('')}</select>` : ''}
+        </div>`).join('')}
+        ${items.length > 150 ? `<div class="tiny muted">+${items.length - 150} más (usa filtros)</div>` : ''}
+        ${!items.length ? '<div class="tiny muted" style="text-align:center;padding:12px">Vacío</div>' : ''}</div>`;
+    }).join('')}</div>`;
+}
+function bindKanban() {
+  $$('.kcard[draggable=true]').forEach(c => {
+    c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', c.dataset.drag); });
+  });
+  $$('.col').forEach(col => {
+    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop'); });
+    col.addEventListener('dragleave', () => col.classList.remove('drop'));
+    col.addEventListener('drop', e => {
+      e.preventDefault(); col.classList.remove('drop');
+      const l = S.M.byId[e.dataTransfer.getData('text/plain')];
+      if (l) moverA(l, col.dataset.col);
+    });
+  });
+}
+
+// ── Vista: Tablero de analista ────────────────────────────────────────────
+function vAnalista() {
+  const ls = filtrar(S.M.leads, S.f), M = S.M;
+  const tot = ls.length;
+  const contact = ls.filter(l => l.contactado || ['Cotizado', 'Facturado'].includes(l.estado));
+  const conTiempo = ls.filter(l => l.hPrimera !== null);
+  const aTiempo = conTiempo.filter(l => l.aTiempo).length;
+  const tiempos = conTiempo.map(l => l.hPrimera).sort((a, b) => a - b);
+  const mediana = tiempos.length ? tiempos[Math.floor(tiempos.length / 2)] : null;
+  const cotiz = ls.filter(l => l.cotizado || ['Cotizado', 'Facturado'].includes(l.estado));
+  const fact = ls.filter(l => l.estado === 'Facturado');
+  const perd = ls.filter(l => l.estado === 'Perdido');
+
+  // Leads por día
+  const [desde] = periodoDesde(S.f.periodo);
+  const dias = {}; ls.forEach(l => { if (l.asign) { const k = ymd(l.asign); dias[k] = (dias[k] || 0) + 1; } });
+  const ks = Object.keys(dias).sort();
+  const serie = [];
+  if (ks.length) {
+    let d = parseFecha(desde ? ymd(desde) : ks[0]); const fin = parseFecha(ymd(new Date()));
+    for (let i = 0; d <= fin && i < 120; i++, d = new Date(d.getTime() + 864e5)) serie.push({ k: ymd(d), v: dias[ymd(d)] || 0 });
+  }
+  const maxD = Math.max(1, ...serie.map(s => s.v));
+
+  // Embudo
+  const etapas = [['Recibidos', tot], ['Contactados', contact.length], ['Cotizados', cotiz.length], ['Facturados', fact.length]];
+
+  // Calidad del dato
+  const campos = [['Teléfono', l => !!l.tel], ['Nombre', l => !!l.raw.nombre_completo], ['Modelo de interés', l => !!l.raw.modelo_interes], ['Zona', l => !!l.raw.zona], ['Forma de pago', l => !!l.raw.forma_pago], ['Origen', l => !!l.raw.origen], ['Asesor asignado', l => !!l.asesor]];
+
+  // Inventario vs demanda
+  const inv = S.data.inventario || [];
+  const demanda = contar(ls.filter(l => l.raw.modelo_interes), l => String(l.raw.modelo_interes).trim());
+  const invRow = m => inv.find(i => norm(i.modelo) === norm(m)) || inv.find(i => norm(m).includes(norm(i.modelo)) && norm(i.modelo).length > 3);
+  const cel = v => v === '' || v === null || v === undefined ? '<span class="muted">sin dato</span>' : esc(v);
+
+  // eNPS (respuesta 0–10 del cliente)
+  const notas = ls.map(l => num(l.raw.cliente_respuesta_satisfaccion)).filter(v => v !== null && v >= 0 && v <= 10);
+  const prom = notas.filter(v => v >= 9).length, det = notas.filter(v => v <= 6).length;
+  const enps = notas.length ? Math.round((prom - det) / notas.length * 100) : null;
+
+  return `<div class="page-h"><div><h2>Tablero</h2><p class="muted small">${tot} leads en el período · tiempos en horas hábiles</p></div></div>
+    ${filtrosHTML()}
+    <div class="grid g-kpi">
+      ${kpi('Leads recibidos', tot)}
+      ${kpi('Contacto ≤ ' + M.cfg.sla_preventiva_h + ' h hábil', fmtPct(pct(aTiempo, tot)), `${aTiempo} de ${tot} asignados`, pct(aTiempo, tot) === null ? '' : pct(aTiempo, tot) >= 80 ? 'ok' : pct(aTiempo, tot) >= 50 ? 'warn' : 'bad')}
+      ${kpi('1ª respuesta (mediana)', fmtHoras(mediana), conTiempo.length + ' con fecha de contacto')}
+      ${kpi('Conversión a factura', fmtPct(pct(fact.length, tot)), fact.length + ' facturados')}
+      ${kpi('Perdidos', perd.length, fmtPct(pct(perd.length, tot)) + ' del total')}
+      ${kpi('eNPS', enps === null ? '—' : enps, notas.length ? notas.length + ' respuestas' : 'sin respuestas 0–10')}
+    </div>
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card"><h3>Leads por día</h3>${serie.length ? `<div class="cols-chart">${serie.map(s => `<div class="c" style="height:${s.v / maxD * 100}%" title="${s.k}: ${s.v}"></div>`).join('')}</div><div class="row between tiny muted"><span>${serie[0].k}</span><span>${serie[serie.length - 1].k}</span></div>` : empty('ti-chart-bar-off', 'Sin leads en el período.')}</div>
+      <div class="card"><h3 style="margin-bottom:10px">Embudo y conversión por etapa</h3><div class="funnel">${etapas.map((e, i) => `${i ? `<div class="conv">↓ ${fmtPct(pct(e[1], etapas[i - 1][1]))}</div>` : ''}<div class="st" style="width:${Math.max(45, 100 - i * 14)}%"><span>${e[0]}</span><b>${e[1]}</b></div>`).join('')}</div></div>
+      <div class="card"><h3 style="margin-bottom:10px">Por origen</h3>${bars(contar(ls, l => l.origen))}</div>
+      <div class="card"><h3 style="margin-bottom:10px">Por anuncio</h3>${bars(contar(ls.filter(l => l.anuncio), l => l.anuncio).slice(0, 10), { cls: 'alt', vacio: 'Ningún lead trae anuncio_origen.' })}</div>
+      <div class="card"><h3 style="margin-bottom:10px">Por zona</h3>${bars(contar(ls, l => l.raw.zona).slice(0, 10), { cls: 'alt' })}</div>
+      <div class="card"><h3 style="margin-bottom:10px">Perdidos por motivo</h3>${bars(contar(perd, l => l.motivo ? cap(l.motivo) : 'Sin motivo'), { vacio: 'Sin perdidos en el período.' })}</div>
+      <div class="card"><h3 style="margin-bottom:10px">Cumplimiento de contacto por asesor</h3>${bars(contar(ls, l => l.asesor || 'Sin asesor').map(x => {
+        const mis = ls.filter(l => (l.asesor || 'Sin asesor') === x.l); const ok = mis.filter(l => l.aTiempo).length;
+        return { l: x.l, v: pct(ok, mis.length) || 0, t: `${ok}/${mis.length}`, cls: (pct(ok, mis.length) || 0) >= 80 ? 'ok' : 'warn' };
+      }))}</div>
+      <div class="card"><h3 style="margin-bottom:10px">Calidad del dato</h3>${tot ? bars(campos.map(([n, fn]) => { const c = ls.filter(fn).length; return { l: n, v: pct(c, tot), t: pct(c, tot) + '%', cls: pct(c, tot) >= 80 ? 'ok' : 'warn' }; })) : empty('ti-database-off', 'Sin leads.')}
+        <p class="tiny muted" style="margin:8px 0 0">${ls.filter(l => !l.tel).length} lead(s) llegan solo con usuario de WhatsApp (sin teléfono).</p></div>
+    </div>
+    <div class="section-title"><i class="ti ti-building-warehouse"></i>Inventario vs demanda</div>
+    ${demanda.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modelo pedido</th><th class="r">Leads</th><th class="r">Disp. Itagüí</th><th class="r">Disp. Los Colores</th></tr></thead><tbody>
+      ${demanda.map(d => { const i = invRow(d.l); return `<tr><td>${esc(d.l)}${i ? '' : ' <span class="pill">no está en Inventarios</span>'}</td><td class="r num">${d.v}</td><td class="r num">${i ? cel(i.disponible_itagui) : '—'}</td><td class="r num">${i ? cel(i.disponible_los_colores) : '—'}</td></tr>`; }).join('')}
+    </tbody></table></div><p class="tiny muted">Existencias de la hoja Inventarios. Las celdas vacías no se completan: falta el dato (p. ej. Los Colores).</p>` : empty('ti-motorbike', 'Ningún lead del período tiene modelo de interés.')}`;
+}
+
+// ── Vista: Comisiones ─────────────────────────────────────────────────────
+function mesesRecientes(n) {
+  const b = bparts(new Date()); const out = [];
+  for (let i = 0; i < n; i++) { let m = b.m - i, y = b.y; while (m < 1) { m += 12; y--; } out.push(`${y}-${pad(m)}`); }
+  return out;
+}
+function metricasPersona(nombre, mes) {
+  const M = S.M;
+  const mis = M.leads.filter(l => norm(l.asesor) === norm(nombre) && l.asign && ym(l.asign) === mes);
+  const facts = (S.data.facturas || []).filter(f => norm(f.asesor) === norm(nombre) && mesKey(f.fecha) === mes);
+  const meta = (S.data.metas || []).find(m => norm(m.persona) === norm(nombre) && mesKey(m.mes) === mes);
+  return {
+    asignados: mis.length,
+    aTiempo: mis.filter(l => l.aTiempo).length,
+    contactados: mis.filter(l => l.contactado || ['Cotizado', 'Facturado'].includes(l.estado)).length,
+    cotizados: mis.filter(l => l.cotizado || ['Cotizado', 'Facturado'].includes(l.estado)).length,
+    facturados: facts.length,
+    marcadosGanados: mis.filter(l => l.estado === 'Facturado').length,
+    valor: facts.reduce((s, f) => s + (num(f.valor) || 0), 0),
+    meta: meta ? num(meta.meta_motos) : null,
+    perdidos: mis.filter(l => l.estado === 'Perdido').length,
+    mis
+  };
+}
+function vComisiones() {
+  const u = S.data.user, M = S.M;
+  S.mes = S.mes || mesesRecientes(1)[0];
+  let personas = u.rol === 'asesor' ? [{ nombre: u.nombre, sedeCanon: u.sede, rolApp: 'asesor' }] :
+    M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede);
+  const filas = personas.map(p => Object.assign({ p }, metricasPersona(p.nombre, S.mes)));
+  const sinFact = !S.data.hojas.Facturas, sinMetas = !S.data.hojas.Metas;
+  return `<div class="page-h"><div><h2>Comisiones</h2><p class="muted small">Por asesor y mes. Las motos facturadas salen de la hoja Facturas.</p></div>
+      <select class="sel" data-ch="mes">${opts(mesesRecientes(12).map(m => ({ v: m, t: fmtMes(m) })), S.mes)}</select></div>
+    <div class="notice" style="margin-bottom:10px"><i class="ti ti-info-circle"></i><div><b>La comisión queda en blanco</b> hasta que el Jefe Comercial entregue la regla numérica (valor o porcentaje, escalas por meta, bonos por modelo, ventas fuera del bot y fecha de inicio).<br>
+      <span class="small">Referencias dadas: meta de 40 motos por punto; la meta del administrador es una moto menos que la del asesor. No se aplican automáticamente.</span></div></div>
+    ${sinFact ? '<div class="notice bad" style="margin-bottom:10px"><i class="ti ti-file-off"></i><div>Falta la hoja <b>Facturas</b>: facturados y valor se muestran en 0 hasta que exista (solicitud al Sheet).</div></div>' : ''}
+    ${sinMetas ? '<div class="notice" style="margin-bottom:10px"><i class="ti ti-target-off"></i><div>Falta la hoja <b>Metas</b>: la meta se muestra en blanco.</div></div>' : ''}
+    ${filas.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th class="r">Asignados</th><th class="r">Contactados a tiempo</th><th class="r">Cotizados</th><th class="r">Facturados</th><th class="r">Meta</th><th class="r">% meta</th><th class="r">Valor facturado</th><th class="r">Comisión</th></tr></thead><tbody>
+      ${filas.map(f => `<tr><td><b>${esc(f.p.nombre)}</b>${f.p.rolApp === 'admin' ? ' <span class="pill">Admin</span>' : ''}</td><td>${esc(f.p.sedeCanon || '')}</td>
+        <td class="r num">${f.asignados}</td><td class="r num">${f.aTiempo} <span class="muted tiny">${fmtPct(pct(f.aTiempo, f.asignados))}</span></td><td class="r num">${f.cotizados}</td>
+        <td class="r num">${f.facturados}${f.marcadosGanados > f.facturados ? ` <span class="pill pill-warn" title="Marcados ganados sin factura">+${f.marcadosGanados - f.facturados} sin factura</span>` : ''}</td>
+        <td class="r num">${f.meta === null ? '<span class="muted">—</span>' : f.meta}</td><td class="r num">${f.meta ? fmtPct(pct(f.facturados, f.meta)) : '—'}</td>
+        <td class="r num">${money(f.valor)}</td><td class="r muted">Pendiente de regla</td></tr>`).join('')}
+    </tbody></table></div>` : empty('ti-users', 'No hay asesores en la hoja Equipo para este alcance.')}
+    ${u.rol !== 'asesor' ? `<div class="section-title"><i class="ti ti-building-store"></i>Por punto</div><div class="grid g2">${['Itagüí', 'Los Colores'].filter(s => u.rol === 'jefe' || s === u.sede).map(s => {
+      const fs = (S.data.facturas || []).filter(f => sedeCanon(f.sede) === s && mesKey(f.fecha) === S.mes);
+      const meta = (S.data.metas || []).find(m => sedeCanon(m.persona) === s && mesKey(m.mes) === S.mes) || (S.data.metas || []).find(m => sedeCanon(m.sede) === s && norm(m.rol) === 'punto' && mesKey(m.mes) === S.mes);
+      const mv = meta ? num(meta.meta_motos) : null;
+      return `<div class="kpi"><div class="k-l">${s}</div><div class="k-v">${fs.length}${mv ? ' / ' + mv : ''} motos</div><div class="k-s">${mv ? fmtPct(pct(fs.length, mv)) + ' de la meta' : 'Meta del punto sin cargar en Metas'} · ${money(fs.reduce((a, f) => a + (num(f.valor) || 0), 0))}</div></div>`;
+    }).join('')}</div>` : ''}`;
+}
+
+// ── Vista: Seguimientos comerciales ───────────────────────────────────────
+const EVAL_ASESOR = [
+  ['atencion', 'Atención por WhatsApp (velocidad y calidad)'], ['producto', 'Conocimiento del portafolio de motos'],
+  ['financiacion', 'Manejo de financiación y medios de pago'], ['objeciones', 'Manejo de objeciones'],
+  ['cierre', 'Técnica de cierre y seguimiento a cotizaciones'], ['registro', 'Registro de la gestión en el CRM al día'],
+  ['presentacion', 'Presentación personal y actitud']
+];
+const EVAL_PUNTO = [
+  ['exhibicion', 'Exhibición de motos y orden del punto'], ['precios', 'Precios y material POP visibles'],
+  ['inventario', 'Inventario disponible vs demanda'], ['equipo', 'Trabajo en equipo y cubrimiento de horarios'],
+  ['experiencia', 'Experiencia del cliente en el punto'], ['crm', 'Disciplina del equipo con el CRM']
+];
+const ESCALA = ['', 'Deficiente', 'Requiere refuerzo', 'Aceptable', 'Bueno', 'Excelente'];
+function parseJSON(s, def) { try { return s ? JSON.parse(s) : def; } catch (e) { return def; } }
+function segsDe(nombre) {
+  return (S.data.seguimientos || []).filter(s => norm(s.evaluado) === norm(nombre)).sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+}
+function indicadoresDe(tipo, evaluado, sede, mes) {
+  const cfg = S.M.cfg;
+  const ls = S.M.leads.filter(l => l.asign && ym(l.asign) === mes && (tipo === 'Asesor' ? norm(l.asesor) === norm(evaluado) : l.sede === sede));
+  const facts = (S.data.facturas || []).filter(f => mesKey(f.fecha) === mes && (tipo === 'Asesor' ? norm(f.asesor) === norm(evaluado) : sedeCanon(f.sede) === sede));
+  const meta = (S.data.metas || []).find(m => mesKey(m.mes) === mes && (tipo === 'Asesor' ? norm(m.persona) === norm(evaluado) : sedeCanon(m.persona) === sede));
+  const con = ls.filter(l => l.hPrimera !== null);
+  const t = con.map(l => l.hPrimera).sort((a, b) => a - b);
+  const perd = ls.filter(l => l.estado === 'Perdido');
+  const motivo = contar(perd, l => l.motivo || 'Sin motivo')[0];
+  const cot = ls.filter(l => l.cotizado || ['Cotizado', 'Facturado'].includes(l.estado)).length;
+  return [
+    { k: 'asignados', t: 'Leads asignados', v: ls.length },
+    { k: 'contacto', t: `Contactados ≤ ${cfg.sla_preventiva_h} h hábil`, v: fmtPct(pct(con.filter(l => l.aTiempo).length, ls.length)), s: semaPct(pct(con.filter(l => l.aTiempo).length, ls.length)) },
+    { k: 'primera', t: '1ª respuesta (mediana)', v: fmtHoras(t.length ? t[Math.floor(t.length / 2)] : null) },
+    { k: 'vencidos', t: 'Leads con SLA vencido hoy', v: ls.filter(l => l.sla === 'bad').length, s: ls.filter(l => l.sla === 'bad').length ? 'bad' : 'ok' },
+    { k: 'cotizados', t: 'Cotizados / conversión', v: `${cot} · ${fmtPct(pct(cot, ls.length))}` },
+    { k: 'facturados', t: 'Motos facturadas vs meta', v: `${facts.length}${meta ? ' / ' + num(meta.meta_motos) : ' / sin meta'}`, s: meta ? semaPct(pct(facts.length, num(meta.meta_motos))) : 'na' },
+    { k: 'perdidos', t: 'Perdidos (motivo principal)', v: `${perd.length}${motivo ? ' · ' + motivo.l : ''}` },
+    { k: 'incons', t: 'Inconsistencias abiertas', v: ls.filter(l => l.incons.length).length, s: ls.filter(l => l.incons.length).length ? 'warn' : 'ok' }
+  ];
+}
+function semaPct(p) { return p === null ? 'na' : p >= 80 ? 'ok' : p >= 50 ? 'warn' : 'bad'; }
+
+function vSeguimientos() {
+  const u = S.data.user, M = S.M, F = S.segFiltro;
+  const existe = !!S.data.hojas.Seguimientos;
+  const todos = (S.data.seguimientos || []).slice().sort((a, b) => (parseFecha(b.fecha) || 0) - (parseFecha(a.fecha) || 0));
+  const lista = todos.filter(s => (!F.tipo || s.tipo === F.tipo) && (!F.mes || mesKey(s.fecha) === F.mes) && (!F.sede || sedeCanon(s.sede) === F.sede) && (!F.evaluado || s.evaluado === F.evaluado));
+  const freq = M.cfg.seguimiento_frecuencia_dias;
+  const equipo = M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede);
+  // Un compromiso se cierra cuando el seguimiento siguiente lo califica como cumplido.
+  const cerrados = new Set();
+  todos.forEach(s => { const ev = parseJSON(s.evaluacion_json, {}); (ev.compromisos_previos || []).forEach(c => { if (c.estado === 'cumplido') cerrados.add(ev.seguimiento_anterior + '|' + c.accion); }); });
+  const revisados = new Set(todos.map(s => parseJSON(s.evaluacion_json, {}).seguimiento_anterior).filter(Boolean));
+  const compromisosPend = [];
+  todos.forEach(s => parseJSON(s.compromisos_json, []).forEach(c => {
+    if (!c.cumplido && !cerrados.has(s.id_seguimiento + '|' + c.accion)) compromisosPend.push(Object.assign({ evaluado: s.evaluado, seg: s.id_seguimiento, revisado: revisados.has(s.id_seguimiento) }, c));
+  }));
+  const vencidos = compromisosPend.filter(c => c.fecha && parseFecha(c.fecha) < new Date());
+
+  return `<div class="page-h"><div><h2>Seguimientos comerciales</h2><p class="muted small">Acompañamiento a asesores y puntos de venta: indicadores del CRM, evaluación, compromisos y plan de acción.</p></div>
+      ${u.rol !== 'asesor' ? `<button class="btn btn-primary" data-act="nuevoSeg" ${existe ? '' : 'disabled'}><i class="ti ti-plus"></i> Nuevo seguimiento</button>` : ''}</div>
+    ${!existe ? `<div class="notice bad" style="margin-bottom:12px"><i class="ti ti-table-off"></i><div>Falta la hoja <b>Seguimientos</b> en el Sheet. Es una solicitud al Sheet (columnas en Ajustes → Estado del Sheet). Hasta que exista no se pueden guardar seguimientos.</div></div>` : ''}
+    ${u.rol !== 'asesor' ? `<div class="section-title"><i class="ti ti-users"></i>Estado del equipo</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th>Último seguimiento</th><th class="r">Días</th><th class="r">Calificación</th><th class="r">Compromisos abiertos</th><th></th></tr></thead><tbody>
+      ${equipo.map(p => {
+        const ss = segsDe(p.nombre); const ul = ss[0]; const f = ul && parseFecha(ul.fecha);
+        const dias = f ? Math.floor((new Date() - f) / 864e5) : null;
+        const sem = dias === null ? 'na' : freq ? (dias > freq ? 'bad' : dias > freq * .8 ? 'warn' : 'ok') : 'na';
+        const ab = compromisosPend.filter(c => norm(c.evaluado) === norm(p.nombre)).length;
+        return `<tr><td><span class="sema ${sem}"></span>${esc(p.nombre)}</td><td>${esc(p.sedeCanon)}</td><td>${f ? fmtFecha(f, false) : '<span class="muted">Nunca</span>'}</td><td class="r num">${dias ?? '—'}</td><td class="r num">${ul && ul.calificacion ? esc(ul.calificacion) + '/10' : '—'}</td><td class="r num">${ab}</td>
+          <td>${existe ? `<button class="btn btn-sm" data-act="nuevoSeg" data-tipo="Asesor" data-ev="${esc(p.nombre)}">Hacer</button>` : ''}</td></tr>`;
+      }).join('') || '<tr><td colspan="7" class="muted">Sin asesores en la hoja Equipo.</td></tr>'}
+    </tbody></table></div>
+    <p class="tiny muted">${freq ? `Semáforo: rojo si pasan más de ${freq} días sin seguimiento.` : 'Semáforo inactivo: define la frecuencia de seguimientos en Ajustes → Umbrales.'}</p>` : ''}
+    ${vencidos.length ? `<div class="notice bad" style="margin-top:12px"><i class="ti ti-calendar-x"></i><div><b>${vencidos.length} compromiso(s) vencido(s)</b><br>${vencidos.slice(0, 6).map(c => `${esc(c.evaluado)}: ${esc(c.accion)} (${esc(c.fecha)})`).join('<br>')}</div></div>` : ''}
+    <div class="section-title"><i class="ti ti-history"></i>Historial<span class="count">${lista.length}</span></div>
+    <div class="filters">
+      <select class="sel" data-sf="tipo">${opts(['Asesor', 'Punto de venta'], F.tipo, 'Todos los tipos')}</select>
+      <select class="sel" data-sf="mes">${opts(uniq(todos.map(s => mesKey(s.fecha))).map(m => ({ v: m, t: fmtMes(m) })), F.mes, 'Todos los meses')}</select>
+      ${u.rol === 'jefe' ? `<select class="sel" data-sf="sede">${opts(['Itagüí', 'Los Colores'], F.sede, 'Todos los puntos')}</select>` : ''}
+      ${u.rol !== 'asesor' ? `<select class="sel" data-sf="evaluado">${opts(uniq(todos.map(s => s.evaluado)).sort(), F.evaluado, 'Todos')}</select>` : ''}
+    </div>
+    ${lista.length ? `<div class="list">${lista.map(s => {
+      const comp = parseJSON(s.compromisos_json, []);
+      return `<article class="lead" style="cursor:pointer" data-act="verSeg" data-id="${esc(s.id_seguimiento)}">
+        <div class="lead-top"><div><div class="lead-name">${esc(s.evaluado)}</div><div class="lead-sub">${esc(s.tipo)} · ${esc(sedeCanon(s.sede))} · ${fmtMes(mesKey(s.periodo) || mesKey(s.fecha))}</div></div>
+        <span class="pill ${num(s.calificacion) >= 8 ? 'pill-ok' : num(s.calificacion) >= 6 ? 'pill-warn' : s.calificacion ? 'pill-bad' : ''}">${s.calificacion ? esc(s.calificacion) + '/10' : 'Sin nota'}</span></div>
+        <div class="small muted">${fmtFecha(parseFecha(s.fecha))} · por ${esc(s.evaluador || '')}</div>
+        ${s.oportunidades ? `<div class="small"><b>Por mejorar:</b> ${esc(String(s.oportunidades).slice(0, 140))}</div>` : ''}
+        <div class="small">${comp.length} compromiso(s) · ${comp.filter(c => c.cumplido).length} cumplido(s)</div></article>`;
+    }).join('')}</div>` : empty('ti-clipboard-off', u.rol === 'asesor' ? 'Aún no tienes seguimientos registrados.' : 'Sin seguimientos con estos filtros.')}`;
+}
+
+function formSeguimiento(tipo, evaluado) {
+  const u = S.data.user, M = S.M;
+  tipo = tipo || 'Asesor';
+  const equipo = M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede);
+  const sedes = u.rol === 'jefe' ? ['Itagüí', 'Los Colores'] : [u.sede];
+  if (!evaluado) evaluado = tipo === 'Asesor' ? (equipo[0] || {}).nombre || '' : sedes[0];
+  const sede = tipo === 'Asesor' ? ((equipo.find(p => p.nombre === evaluado) || {}).sedeCanon || '') : evaluado;
+  const mes = S.segMes || mesesRecientes(1)[0];
+  const ind = indicadoresDe(tipo, evaluado, sede, mes);
+  const items = tipo === 'Asesor' ? EVAL_ASESOR : EVAL_PUNTO;
+  const previo = segsDe(evaluado)[0];
+  const prevComp = previo ? parseJSON(previo.compromisos_json, []) : [];
+  S.segDraft = { tipo, evaluado, sede, mes, ind, prevId: previo && previo.id_seguimiento, prevComp };
+
+  abrirSheet(`<div class="sheet-h"><div><h2>Nuevo seguimiento</h2><div class="muted small">Se guarda en la hoja Seguimientos con tu nombre como evaluador.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
+  <div class="sheet-b">
+    <div class="card grid g3">
+      <div><label class="f">Tipo</label><select class="sel w100" id="sg-tipo">${opts(['Asesor', 'Punto de venta'], tipo)}</select></div>
+      <div><label class="f">${tipo === 'Asesor' ? 'Asesor' : 'Punto'}</label><select class="sel w100" id="sg-ev">${opts(tipo === 'Asesor' ? equipo.map(p => p.nombre) : sedes, evaluado)}</select></div>
+      <div><label class="f">Período</label><select class="sel w100" id="sg-mes">${opts(mesesRecientes(6).map(m => ({ v: m, t: fmtMes(m) })), mes)}</select></div>
+    </div>
+    <div class="card"><div class="card-h"><h3>1. Indicadores del CRM</h3><span class="tiny muted">Autollenados · ${esc(sede)}</span></div>
+      ${ind.map(i => `<div class="ind"><span>${i.s ? `<span class="sema ${i.s}"></span>` : ''}${esc(i.t)}</span><span class="v">${esc(i.v)}</span>
+        <div class="x"><select class="sel" data-ind="${i.k}"><option value="">Evaluar…</option><option>Buena práctica</option><option>Requiere mejora</option><option>En riesgo</option></select>
+        <input class="inp" data-indobs="${i.k}" placeholder="Causa / acción inmediata (48 h)"></div></div>`).join('')}</div>
+    ${prevComp.length ? `<div class="card"><h3 style="margin-bottom:6px">2. Compromisos del seguimiento anterior</h3><p class="tiny muted" style="margin:0 0 8px">${fmtFecha(parseFecha(previo.fecha), false)} · por ${esc(previo.evaluador)}</p>
+      ${prevComp.map((c, i) => `<div class="eval-row"><div class="small"><b>${esc(c.accion)}</b><br><span class="muted">${esc(c.responsable || '')} · ${esc(c.fecha || 'sin fecha')}</span></div>
+        <select class="sel" data-prev="${i}"><option value="">¿Se cumplió?</option><option value="cumplido">Cumplido</option><option value="parcial">Parcial</option><option value="no">No cumplido</option></select></div>`).join('')}</div>` : ''}
+    <div class="card"><h3 style="margin-bottom:4px">${prevComp.length ? 3 : 2}. Evaluación</h3><p class="tiny muted" style="margin:0 0 6px">1 = deficiente · 5 = excelente</p>
+      ${items.map(([k, t]) => `<div class="eval-row"><div class="small">${t}</div><div class="score" data-score="${k}">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-n="${n}" title="${ESCALA[n]}">${n}</button>`).join('')}</div></div>`).join('')}</div>
+    <div class="card stack"><h3>Plan de acción y compromisos</h3>
+      <div><label class="f">Fortalezas identificadas</label><textarea class="inp" id="sg-fort"></textarea></div>
+      <div><label class="f">Oportunidades de mejora prioritarias</label><textarea class="inp" id="sg-opor"></textarea></div>
+      <div><label class="f">Compromisos (acción · responsable · fecha límite)</label><div id="sg-comp" class="stack-sm"></div>
+        <button class="btn btn-sm" type="button" data-act="addComp" style="margin-top:6px"><i class="ti ti-plus"></i> Agregar compromiso</button></div>
+      <div><label class="f">Observaciones generales</label><textarea class="inp" id="sg-obs"></textarea></div>
+      <div class="grid g2"><div><label class="f">Calificación general (1–10)</label><input type="number" min="1" max="10" class="inp w100" id="sg-cal"></div>
+        <div><label class="f">Próximo seguimiento</label><input type="date" class="inp w100" id="sg-prox"></div></div>
+    </div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-act="guardarSeg"><i class="ti ti-device-floppy"></i> Guardar seguimiento</button></div>
+  </div>`);
+  agregarCompromiso();
+  $('#sg-tipo').onchange = e => formSeguimiento(e.target.value, '');
+  $('#sg-ev').onchange = e => formSeguimiento(tipo, e.target.value);
+  $('#sg-mes').onchange = e => { S.segMes = e.target.value; formSeguimiento(tipo, evaluado); };
+}
+function agregarCompromiso() {
+  const div = document.createElement('div');
+  div.className = 'grid g3';
+  div.dataset.comp = '1';
+  div.innerHTML = `<input class="inp" data-c="accion" placeholder="Acción comprometida"><input class="inp" data-c="responsable" placeholder="Responsable"><input class="inp" type="date" data-c="fecha">`;
+  $('#sg-comp').appendChild(div);
+}
+async function guardarSeguimiento(btn) {
+  const D = S.segDraft;
+  const evaluacion = { items: {}, indicadores_eval: {}, compromisos_previos: [] };
+  $$('[data-score]').forEach(s => { const on = $('button.on', s); if (on) evaluacion.items[s.dataset.score] = Number(on.dataset.n); });
+  D.ind.forEach(i => {
+    const e = $(`[data-ind="${i.k}"]`).value, o = $(`[data-indobs="${i.k}"]`).value.trim();
+    if (e || o) evaluacion.indicadores_eval[i.k] = { evaluacion: e, observacion: o };
+  });
+  D.prevComp.forEach((c, i) => { const v = $(`[data-prev="${i}"]`).value; evaluacion.compromisos_previos.push({ accion: c.accion, estado: v }); });
+  evaluacion.seguimiento_anterior = D.prevId || '';
+  const compromisos = $$('[data-comp]').map(r => ({
+    accion: $('[data-c=accion]', r).value.trim(), responsable: $('[data-c=responsable]', r).value.trim(), fecha: $('[data-c=fecha]', r).value, cumplido: false
+  })).filter(c => c.accion);
+  const cal = num($('#sg-cal').value);
+  if (cal !== null && (cal < 1 || cal > 10)) { toast('La calificación va de 1 a 10.', 'bad'); return; }
+  if (!Object.keys(evaluacion.items).length && !compromisos.length && !$('#sg-obs').value.trim()) { toast('Completa al menos la evaluación, un compromiso u observaciones.', 'bad'); return; }
+  btn.disabled = true;
+  try {
+    const indicadores = {}; D.ind.forEach(i => { indicadores[i.k] = { titulo: i.t, valor: i.v }; });
+    await api('seguimiento', { seguimiento: {
+      tipo: D.tipo, evaluado: D.evaluado, sede: D.sede, periodo: D.mes, calificacion: cal ?? '',
+      indicadores, evaluacion, fortalezas: $('#sg-fort').value.trim(), oportunidades: $('#sg-opor').value.trim(),
+      compromisos, observaciones: $('#sg-obs').value.trim(), proximo_seguimiento: $('#sg-prox').value
+    } });
+    cerrarSheet(); toast('Seguimiento guardado', 'ok'); await cargar(true);
+  } catch (e) { toast(e.message, 'bad'); btn.disabled = false; }
+}
+function verSeguimiento(id) {
+  const s = (S.data.seguimientos || []).find(x => x.id_seguimiento === id);
+  if (!s) return;
+  const ind = parseJSON(s.indicadores_json, {}), ev = parseJSON(s.evaluacion_json, {}), comp = parseJSON(s.compromisos_json, []);
+  const items = s.tipo === 'Asesor' ? EVAL_ASESOR : EVAL_PUNTO;
+  abrirSheet(`<div class="sheet-h"><div><h2>${esc(s.evaluado)}</h2><div class="muted small">${esc(s.tipo)} · ${esc(sedeCanon(s.sede))} · ${fmtMes(mesKey(s.periodo) || mesKey(s.fecha))}</div></div>
+    <div class="row"><button class="icon-btn no-print" data-act="imprimir" title="Imprimir / PDF"><i class="ti ti-printer"></i></button><button class="icon-btn no-print" data-close><i class="ti ti-x"></i></button></div></div>
+  <div class="sheet-b">
+    <div class="row wrap"><span class="pill pill-dark">${s.calificacion ? esc(s.calificacion) + '/10' : 'Sin calificación'}</span><span class="pill">${fmtFecha(parseFecha(s.fecha))}</span><span class="pill">Evaluador: ${esc(s.evaluador)}</span>${s.proximo_seguimiento ? `<span class="pill pill-info">Próximo: ${esc(String(s.proximo_seguimiento).slice(0, 10))}</span>` : ''}</div>
+    <div class="card"><h3 style="margin-bottom:6px">Indicadores al momento del seguimiento</h3>${Object.keys(ind).map(k => { const e = (ev.indicadores_eval || {})[k] || {}; return `<div class="ind"><span>${esc(ind[k].titulo)}</span><span class="v">${esc(ind[k].valor)}</span>${e.evaluacion || e.observacion ? `<div class="x small"><span class="pill ${e.evaluacion === 'Buena práctica' ? 'pill-ok' : e.evaluacion === 'En riesgo' ? 'pill-bad' : 'pill-warn'}">${esc(e.evaluacion || '—')}</span><span>${esc(e.observacion || '')}</span></div>` : ''}</div>`; }).join('') || '<p class="small muted">Sin indicadores.</p>'}</div>
+    ${(ev.compromisos_previos || []).length ? `<div class="card"><h3 style="margin-bottom:6px">Compromisos anteriores</h3>${ev.compromisos_previos.map(c => `<div class="small" style="padding:4px 0">${esc(c.accion)} — <b>${esc({ cumplido: 'Cumplido', parcial: 'Parcial', no: 'No cumplido' }[c.estado] || 'Sin revisar')}</b></div>`).join('')}</div>` : ''}
+    <div class="card"><h3 style="margin-bottom:6px">Evaluación</h3>${items.filter(([k]) => (ev.items || {})[k]).map(([k, t]) => `<div class="eval-row"><span class="small">${t}</span><b class="small">${ev.items[k]} · ${ESCALA[ev.items[k]]}</b></div>`).join('') || '<p class="small muted">Sin evaluación cualitativa.</p>'}</div>
+    <div class="card stack-sm">${s.fortalezas ? `<div><h4>Fortalezas</h4><p class="small" style="margin:4px 0;white-space:pre-wrap">${esc(s.fortalezas)}</p></div>` : ''}${s.oportunidades ? `<div><h4>Oportunidades de mejora</h4><p class="small" style="margin:4px 0;white-space:pre-wrap">${esc(s.oportunidades)}</p></div>` : ''}${s.observaciones ? `<div><h4>Observaciones</h4><p class="small" style="margin:4px 0;white-space:pre-wrap">${esc(s.observaciones)}</p></div>` : ''}</div>
+    <div class="card"><h3 style="margin-bottom:6px">Compromisos</h3>${comp.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Acción</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody>${comp.map(c => `<tr><td style="white-space:normal">${esc(c.accion)}</td><td>${esc(c.responsable)}</td><td>${esc(c.fecha)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">Sin compromisos.</p>'}</div>
+  </div>`);
+}
+
+// ── Vista: Conciliación (Jefe) ────────────────────────────────────────────
+function vConciliacion() {
+  const M = S.M;
+  const incons = M.leads.filter(l => l.incons.some(i => i.startsWith('Marcado cotizado') || i.startsWith('Inconsistencia')));
+  const pendFact = M.leads.filter(l => l.estado === 'Facturado' && !l.fac.length);
+  const tabs = [
+    ['incons', 'Inconsistencias', incons.length], ['pendfact', 'Pendientes de facturar', pendFact.length],
+    ['sinorigen', 'Facturas sin origen', M.facSinOrigen.length], ['huerfanas', 'Cotizaciones huérfanas', M.cotHuerfanas.length]
+  ];
+  const leadOpts = M.leads.slice().sort((a, b) => a.nombre.localeCompare(b.nombre)).map(l => ({ v: l.id, t: `${l.nombre} · ${l.tel || l.usuario || l.id}` }));
+  let body = '';
+  if (S.concTab === 'incons') body = incons.length ? `<div class="list">${incons.map(leadCard).join('')}</div>` : empty('ti-circle-check', 'Sin inconsistencias.');
+  if (S.concTab === 'pendfact') body = pendFact.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lead</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th>Marcado</th><th></th></tr></thead><tbody>${pendFact.map(l => `<tr><td><a href="#" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</a></td><td>${esc(l.asesor)}</td><td>${esc(l.sede)}</td><td>${esc(l.raw.modelo_interes || '')}</td><td>${fmtFecha(l.ultimaAct, false)}</td>
+      <td><button class="btn btn-sm" data-act="cargarFactura" data-id="${esc(l.id)}">Cargar factura</button></td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo marcado como vendido tiene factura.');
+  if (S.concTab === 'sinorigen') body = !S.data.hojas.Facturas ? empty('ti-table-off', 'La hoja Facturas aún no existe (solicitud al Sheet).') : M.facSinOrigen.length ? `<p class="small muted">Ventas que no vinieron del bot o sin id_lead. Vincúlalas a un lead si sí vinieron del bot.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Factura</th><th>Fecha</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th class="r">Valor</th><th>Vincular a lead</th></tr></thead><tbody>${M.facSinOrigen.map(f => `<tr><td>${esc(f.id_factura)}</td><td>${fmtFecha(parseFecha(f.fecha), false)}</td><td>${esc(f.asesor)}</td><td>${esc(f.sede)}</td><td>${esc(f.modelo)}</td><td class="r num">${money(num(f.valor))}</td>
+      <td><div class="row"><select class="sel" data-vinc="fac-${f._row}" style="max-width:220px">${opts(leadOpts, '', '— Lead —')}</select><button class="btn btn-sm" data-act="vincularFac" data-row="${f._row}">Vincular</button></div></td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todas las facturas tienen lead de origen.');
+  if (S.concTab === 'huerfanas') {
+    const colLead = (S.data.hojas.Cotizaciones || []).includes('id_contacto') ? 'id_contacto' : 'telefono_lead';
+    body = M.cotHuerfanas.length ? `<p class="small muted">Cotizaciones del CRM que no cruzan con ningún lead (por teléfono${colLead === 'id_contacto' ? ' o id_contacto' : ''}). Al vincular se escribe <code>${colLead}</code> en Cotizaciones.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cotización</th><th>Fecha</th><th>Cliente</th><th>Teléfono</th><th>Asesor</th><th>Modelo</th><th>Vincular a lead</th></tr></thead><tbody>${M.cotHuerfanas.map(q => `<tr><td>${esc(q.id_cotizacion)}</td><td>${fmtFecha(parseFecha(q.fecha), false)}</td><td>${esc(q.nombre_cliente)}</td><td>${esc(q.telefono_lead)}</td><td>${esc(q.asesor)}</td><td>${esc(q.modelo)}</td>
+      <td><div class="row"><select class="sel" data-vinc="cot-${q._row}" style="max-width:220px">${opts(leadOpts, '', '— Lead —')}</select><button class="btn btn-sm" data-act="vincularCot" data-row="${q._row}" data-col="${colLead}">Vincular</button></div></td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Sin cotizaciones huérfanas.');
+  }
+  return `<div class="page-h"><div><h2>Conciliación</h2><p class="muted small">Cruce entre lo que marca el asesor y la evidencia del CRM de la empresa.</p></div></div>
+    <div class="seg" style="margin-bottom:12px">${tabs.map(t => `<button class="${S.concTab === t[0] ? 'on' : ''}" data-tab="concTab" data-v="${t[0]}">${t[1]} (${t[2]})</button>`).join('')}</div>${body}`;
+}
+
+// ── Vista: Configuración (Jefe) ───────────────────────────────────────────
+const UMBRALES = [
+  ['sla_preventiva_h', 'Alerta preventiva sin contacto (horas hábiles)', '1 (brief)'],
+  ['sla_vencida_h', 'SLA vencido sin contacto (horas hábiles)', '3 (brief)'],
+  ['sin_cotizar_h', 'Contactado sin cotizar (horas hábiles)', '20 (brief)'],
+  ['cotizado_sin_avance_dias', 'Cotizado sin avance (días)', 'pendiente de definir'],
+  ['escalamiento_horas', 'Escalar al Jefe a las (horas hábiles)', 'pendiente de definir'],
+  ['escalamiento_destinatario', 'Escalar a (correo o nombre)', 'pendiente de definir'],
+  ['seguimiento_frecuencia_dias', 'Frecuencia de seguimientos comerciales (días)', 'pendiente de definir']
+];
+const COLS_OPCIONALES = {
+  Leads: ['telefono_contacto', 'estado_crm'], Gestion_Asesor: ['fecha_contactado'], Cotizaciones: ['id_contacto']
+};
+const CARGAS = {
+  Cotizaciones: { req: ['id_cotizacion', 'fecha'], uno: ['telefono_lead', 'id_contacto'] },
+  Facturas: { req: ['id_factura', 'fecha', 'valor', 'asesor', 'sede'], uno: [] },
+  Metas: { req: ['persona', 'mes', 'meta_motos'], uno: [] }
+};
+function vConfig() {
+  const d = S.data, tab = S.cfgTab;
+  const tabs = [['sheet', 'Estado del Sheet'], ['umbrales', 'Umbrales'], ['equipo', 'Equipo y accesos'], ['metas', 'Metas'], ['carga', 'Carga masiva'], ['catalogos', 'Catálogos']];
+  let body = '';
+  if (tab === 'sheet') {
+    const sol = d.solicitudes || {};
+    body = `<div class="notice info" style="margin-bottom:12px"><i class="ti ti-info-circle"></i><div>La app no crea hojas ni columnas. Lo que falta aquí es una <b>solicitud al Sheet</b>: créalo en el Sheet (o corre <code>crearHojasSolicitadas()</code> desde el editor de Apps Script si lo apruebas).</div></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Hoja</th><th>Estado</th><th>Columnas solicitadas</th></tr></thead><tbody>
+    ${Object.keys(sol).map(h => { const hs = d.hojas[h]; const falt = hs ? sol[h].filter(c => !hs.includes(c)) : sol[h];
+      return `<tr><td><b>${h}</b></td><td>${!hs ? '<span class="pill pill-bad">No existe</span>' : falt.length ? '<span class="pill pill-warn">Faltan columnas</span>' : '<span class="pill pill-ok">OK</span>'}</td><td style="white-space:normal" class="small">${(hs ? falt : sol[h]).map(esc).join(', ') || '—'}</td></tr>`; }).join('')}
+    ${Object.keys(COLS_OPCIONALES).map(h => { const hs = d.hojas[h] || []; const falt = COLS_OPCIONALES[h].filter(c => !hs.includes(c));
+      return falt.length ? `<tr><td><b>${h}</b></td><td><span class="pill">Opcional</span></td><td style="white-space:normal" class="small">${falt.join(', ')}</td></tr>` : ''; }).join('')}
+    </tbody></table></div>
+    <p class="tiny muted">Opcionales: <code>Leads.telefono_contacto</code> (teléfono dicho en el chat), <code>Leads.estado_crm</code> (estado calculado por n8n; si existe, la app lo muestra en vez de calcularlo), <code>Gestion_Asesor.fecha_contactado</code> (hora exacta de contacto), <code>Cotizaciones.id_contacto</code> (cruce sin teléfono).</p>`;
+  }
+  if (tab === 'umbrales') {
+    const raw = S.M.cfg.raw;
+    body = `${!d.hojas.Config_App ? '<div class="notice bad" style="margin-bottom:12px"><i class="ti ti-table-off"></i><div>Falta la hoja <b>Config_App</b>: se usan los valores del brief y los pendientes quedan inactivos.</div></div>' : ''}
+    <div class="card stack">${UMBRALES.map(([k, t, ref]) => `<div class="grid g2" style="align-items:center"><div><b class="small">${t}</b><div class="tiny muted">Referencia: ${ref}</div></div><input class="inp" data-cfg="${k}" value="${esc(raw[k] ?? '')}" placeholder="${ref.includes('pendiente') ? 'Sin definir' : ref.split(' ')[0]}"></div>`).join('')}
+      <p class="tiny muted" style="margin:0">Los cálculos de alertas los hace n8n cada 30 min; estos valores los usa la app para ordenar y resaltar, y quedan en Config_App para que n8n los lea.</p>
+      <div class="row" style="justify-content:flex-end"><button class="btn btn-primary" data-act="guardarCfg" ${d.hojas.Config_App ? '' : 'disabled'}>Guardar umbrales</button></div></div>`;
+  }
+  if (tab === 'equipo') {
+    const ps = S.M.personas;
+    const cols = (d.hojas.Equipo || ['CEDULA', 'nombre', 'cargo', 'nombre_punto', 'direccion', 'whatsapp', 'activo']).filter(c => c && !['marca'].includes(norm(c)));
+    const avisos = [];
+    const ced = {}; ps.forEach(p => { const c = cedulaDe(p); if (c) (ced[c] = ced[c] || []).push(p.nombre); });
+    Object.values(ced).filter(v => v.length > 1).forEach(v => avisos.push('Cédula repetida (no podrán entrar): ' + v.join(', ')));
+    const sinCed = ps.filter(p => !cedulaDe(p)).map(p => p.nombre);
+    if (sinCed.length) avisos.push('Sin cédula (no pueden entrar): ' + sinCed.join(', '));
+    const wa = {}; ps.forEach(p => { if (p.whatsapp) (wa[digits(p.whatsapp)] = wa[digits(p.whatsapp)] || []).push(p.nombre); });
+    Object.values(wa).filter(v => v.length > 1).forEach(v => avisos.push('Comparten WhatsApp (las alertas llegan al mismo número): ' + v.join(', ')));
+    if (!ps.some(p => p.rolApp === 'admin')) avisos.push('No hay administradores de punto en Equipo (cargo que contenga “administrador”).');
+    (d.sedes || []).filter(s => !s.direccion).forEach(s => avisos.push(`El punto ${s.nombre_punto} no tiene dirección en Equipo.`));
+    body = `${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><div>${esc(a)}</div></div>`).join('')}
+      <div class="notice info" style="margin-bottom:10px"><i class="ti ti-key"></i><div><b>Acceso:</b> usuario = número de cédula · contraseña = la de la app (se cambia en Propiedades del script, <code>APP_PASSWORD</code>). Solo entran personas con <code>activo</code> = Si y un cargo que contenga “asesor”, “administrador” o “jefe” (o cuya cédula esté en <code>JEFE_CEDULAS</code>).</div></div>
+      <p class="small muted">Haz clic en una celda para editarla; se guarda al salir de la celda y queda en la bitácora.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Rol en la app</th></tr></thead><tbody>
+      ${ps.map(p => `<tr>${cols.map(c => `<td contenteditable="true" data-edit="Equipo" data-row="${p._row}" data-field="${esc(c)}" data-orig="${esc(p[c] ?? '')}" style="min-width:90px">${esc(p[c] ?? '')}</td>`).join('')}<td>${p.rolApp && norm(p.activo || 'si').startsWith('si') ? `<span class="pill">${p.rolApp}</span>` : '<span class="muted tiny">sin acceso</span>'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  if (tab === 'metas') {
+    const ms = d.metas || [];
+    body = !d.hojas.Metas ? empty('ti-table-off', 'La hoja Metas aún no existe (solicitud al Sheet).') : `<p class="small muted">Meta mensual por persona o punto. Para el punto, usa el nombre del punto en <code>persona</code>. Carga nuevas metas en “Carga masiva”.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${d.hojas.Metas.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
+      ${ms.map(m => `<tr>${d.hojas.Metas.map(c => `<td contenteditable="true" data-edit="Metas" data-row="${m._row}" data-field="${esc(c)}" data-orig="${esc(m[c] ?? '')}">${esc(m[c] ?? '')}</td>`).join('')}</tr>`).join('') || `<tr><td class="muted" colspan="5">Sin metas cargadas.</td></tr>`}
+      </tbody></table></div>`;
+  }
+  if (tab === 'carga') {
+    const hoja = S.cargaHoja || 'Cotizaciones';
+    body = `<div class="card stack"><div class="grid g2"><div><label class="f">Hoja destino</label><select class="sel w100" data-ch="cargaHoja">${opts(Object.keys(CARGAS), hoja)}</select></div>
+        <div class="small muted" style="align-self:end">${d.hojas[hoja] ? 'Columnas: ' + d.hojas[hoja].map(esc).join(', ') : `<span class="pill pill-bad">La hoja ${hoja} no existe</span>`}</div></div>
+      <div><label class="f">Pega aquí desde Excel o el CRM (primera fila = encabezados con los mismos nombres de columna)</label><textarea class="inp" id="carga-txt" style="min-height:160px;font-family:monospace;font-size:.78rem" placeholder="${(d.hojas[hoja] || []).join('\t')}">${esc(S.cargaTxt || '')}</textarea></div>
+      <div class="row" style="justify-content:flex-end"><button class="btn" data-act="validarCarga">Validar</button></div>
+      <div id="carga-prev">${S.cargaPrev || ''}</div></div>`;
+  }
+  if (tab === 'catalogos') {
+    body = `<div class="grid g2"><div class="card"><h3 style="margin-bottom:8px">Motivos de pérdida</h3>${MOTIVOS.map(m => `<span class="pill" style="margin:2px">${cap(m)}</span>`).join('')}<p class="tiny muted">Lista fija del brief (la API solo acepta estos valores).</p></div>
+      <div class="card"><h3 style="margin-bottom:8px">Estados del embudo</h3>${(d.estados || []).length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr>${(d.hojas.Estados || []).map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${d.estados.map(e => `<tr>${d.hojas.Estados.map(c => `<td contenteditable="true" data-edit="Estados" data-row="${e._row}" data-field="${esc(c)}" data-orig="${esc(e[c] ?? '')}">${esc(e[c] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `${ESTADOS.map(e => pillEstado(e)).join(' ')}<p class="tiny muted">${d.hojas.Estados ? 'La hoja Estados está vacía' : 'Falta la hoja Estados'}; se usa el embudo del brief. “Retenido” no tiene reglas hasta que se defina.</p>`}</div></div>`;
+  }
+  return `<div class="page-h"><div><h2>Ajustes</h2><p class="muted small">Solo el Jefe Comercial. Cada cambio queda en la bitácora.</p></div></div>
+    <div class="seg" style="margin-bottom:12px">${tabs.map(t => `<button class="${tab === t[0] ? 'on' : ''}" data-tab="cfgTab" data-v="${t[0]}">${t[1]}</button>`).join('')}</div>${body}`;
+}
+
+function parsePegado(txt) {
+  const lineas = txt.replace(/\r/g, '').split('\n').filter(x => x.trim());
+  if (lineas.length < 2) return { error: 'Pega al menos la fila de encabezados y una fila de datos.' };
+  const sep = lineas[0].includes('\t') ? '\t' : lineas[0].includes(';') ? ';' : ',';
+  const hs = lineas[0].split(sep).map(h => h.trim());
+  const rows = lineas.slice(1).map(l => { const v = l.split(sep); const o = {}; hs.forEach((h, i) => { o[h] = (v[i] || '').trim(); }); return o; });
+  return { hs, rows };
+}
+function validarCarga() {
+  const hoja = S.cargaHoja || 'Cotizaciones', d = S.data;
+  S.cargaTxt = $('#carga-txt').value;
+  const p = parsePegado(S.cargaTxt);
+  const errores = [];
+  if (p.error) errores.push(p.error);
+  else {
+    const cols = d.hojas[hoja];
+    if (!cols) errores.push(`La hoja ${hoja} no existe en el Sheet.`);
+    else {
+      const extra = p.hs.filter(h => !cols.includes(h)); if (extra.length) errores.push('Columnas que no existen en ' + hoja + ': ' + extra.join(', '));
+    }
+    const R = CARGAS[hoja];
+    R.req.filter(c => !p.hs.includes(c)).forEach(c => errores.push('Falta la columna obligatoria ' + c));
+    if (R.uno.length && !R.uno.some(c => p.hs.includes(c))) errores.push('Incluye al menos una de: ' + R.uno.join(', '));
+    p.rows.forEach((r, i) => {
+      R.req.forEach(c => { if (p.hs.includes(c) && !r[c]) errores.push(`Fila ${i + 2}: ${c} vacío`); });
+      if (r.fecha && !parseFecha(r.fecha)) errores.push(`Fila ${i + 2}: fecha no reconocida (${r.fecha})`);
+      if (r.mes && !mesKey(r.mes)) errores.push(`Fila ${i + 2}: mes no reconocido (${r.mes}); usa AAAA-MM`);
+      ['valor', 'precio_cotizado', 'meta_motos'].forEach(c => { if (r[c] && num(r[c]) === null) errores.push(`Fila ${i + 2}: ${c} no es número`); });
+    });
+  }
+  // Normaliza para que el Sheet guarde números y fechas, no texto ("5.490.000", "01/10/2026").
+  S.cargaRows = errores.length ? null : p.rows.map(r => {
+    const o = Object.assign({}, r);
+    ['valor', 'precio_cotizado', 'meta_motos'].forEach(c => { if (o[c]) o[c] = num(o[c]); });
+    if (o.fecha) { const f = parseFecha(o.fecha); const b = bparts(f); o.fecha = `${ymd(f)}${b.h || b.mi ? ` ${pad(b.h)}:${pad(b.mi)}` : ''}`; }
+    if (o.mes) o.mes = mesKey(o.mes);
+    return o;
+  });
+  S.cargaPrev = errores.length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${errores.slice(0, 15).map(esc).join('<br>')}${errores.length > 15 ? `<br>…y ${errores.length - 15} más` : ''}</div></div>` :
+    `<div class="notice ok"><i class="ti ti-circle-check"></i><div>${p.rows.length} fila(s) válidas. Las que repitan la llave (${(CARGAS[hoja].req[0])}) se omiten.</div></div>
+     <div class="tbl-wrap" style="margin-top:8px;max-height:260px"><table class="tbl"><thead><tr>${p.hs.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${p.rows.slice(0, 10).map(r => `<tr>${p.hs.map(h => `<td>${esc(r[h])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+     <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn btn-primary" data-act="subirCarga">Cargar ${p.rows.length} fila(s) a ${hoja}</button></div>`;
+  $('#carga-prev').innerHTML = S.cargaPrev;
+}
+
+// ── Eventos ───────────────────────────────────────────────────────────────
+document.addEventListener('click', async e => {
+  const nav = e.target.closest('[data-nav]');
+  if (nav) { S.view = nav.dataset.nav; renderNav(); render(); window.scrollTo(0, 0); return; }
+  if (e.target.closest('[data-close]')) {
+    if (S._modalCancel) { const c = S._modalCancel; cerrarModal(); c(); } else cerrarSheet();
+    return;
+  }
+  const tab = e.target.closest('[data-tab]');
+  if (tab) { S[tab.dataset.tab] = tab.dataset.v; render(); return; }
+  const sc = e.target.closest('.score button');
+  if (sc) { $$('button', sc.parentNode).forEach(b => b.classList.toggle('on', b === sc)); return; }
+  const a = e.target.closest('[data-act]');
+  if (!a) return;
+  const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
+  if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
+  if (act === 'abrir' && l) return abrirLead(l.id);
+  if (act === 'contactado' && l) { a.disabled = true; if (await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí')) toast('Marcado como contactado', 'ok'); return refrescar(); }
+  if (act === 'cotizado' && l) return moverA(l, 'Cotizado');
+  if (act === 'perdido' && l) return moverA(l, 'Perdido');
+  if (act === 'temp' && l) { const v = l.temp === a.dataset.v ? '' : a.dataset.v; await setCampo(l, 'Leads', 'etiqueta_asesor', v); return refrescar(); }
+  if (act === 'respuesta' && l) { if (await setCampo(l, 'Gestion_Asesor', 'respuesta_cliente', $('#resp-cli').value.trim())) toast('Respuesta guardada', 'ok'); return refrescar(); }
+  if (act === 'reasignar' && l) {
+    const v = $('#reasignar').value;
+    if (!v || norm(v) === norm(l.asesor)) return;
+    if (!(await confirmar('Reasignar lead', `¿Pasar <b>${esc(l.nombre)}</b> de ${esc(l.asesor || 'sin asesor')} a <b>${esc(v)}</b>?`, 'Reasignar'))) return abrirLead(l.id);
+    if (await setCampo(l, 'Leads', 'nombre_asesor', v)) { if (l.g) await setCampo(l, 'Gestion_Asesor', 'nombre_asesor', v); toast('Lead reasignado a ' + v, 'ok'); }
+    S.leadAbierto = l.id; return refrescar();
+  }
+  if (act === 'nuevoSeg') return formSeguimiento(a.dataset.tipo, a.dataset.ev);
+  if (act === 'addComp') return agregarCompromiso();
+  if (act === 'guardarSeg') return guardarSeguimiento(a);
+  if (act === 'verSeg') return verSeguimiento(a.dataset.id);
+  if (act === 'imprimir') { document.body.classList.add('printing-sheet'); window.print(); document.body.classList.remove('printing-sheet'); return; }
+  if (act === 'guardarCfg') {
+    const valores = {}; $$('[data-cfg]').forEach(i => { if (i.value.trim() !== String(S.M.cfg.raw[i.dataset.cfg] ?? '')) valores[i.dataset.cfg] = i.value.trim(); });
+    const malos = Object.entries(valores).filter(([k, v]) => k !== 'escalamiento_destinatario' && v !== '' && (num(v) === null || num(v) < 0));
+    if (malos.length) return toast('Valores no numéricos: ' + malos.map(m => m[0]).join(', '), 'bad');
+    if (!Object.keys(valores).length) return toast('No hay cambios.');
+    a.disabled = true;
+    try { await api('config', { valores }); toast('Umbrales guardados', 'ok'); await cargar(true); } catch (err) { toast(err.message, 'bad'); a.disabled = false; }
+    return;
+  }
+  if (act === 'validarCarga') return validarCarga();
+  if (act === 'subirCarga') {
+    a.disabled = true;
+    try {
+      const r = await api('append', { sheet: S.cargaHoja || 'Cotizaciones', rows: S.cargaRows });
+      toast(`${r.agregadas} fila(s) cargadas${r.repetidas.length ? ` · ${r.repetidas.length} repetidas omitidas` : ''}`, 'ok');
+      S.cargaTxt = ''; S.cargaPrev = ''; S.cargaRows = null; await cargar(true);
+    } catch (err) { toast(err.message, 'bad'); a.disabled = false; }
+    return;
+  }
+  if (act === 'cargarFactura' && l) {
+    S.view = 'config'; S.cfgTab = 'carga'; S.cargaHoja = 'Facturas';
+    const cols = S.data.hojas.Facturas || CARGAS.Facturas.req.concat(['id_lead', 'modelo']);
+    const v = { id_lead: l.raw.id_lead, asesor: l.asesor, sede: l.sede, modelo: l.raw.modelo_interes || '', telefono_cliente: l.tel || '' };
+    S.cargaTxt = cols.join('\t') + '\n' + cols.map(c => v[c] || '').join('\t'); S.cargaPrev = '';
+    renderNav(); render(); toast('Completa id_factura, fecha y valor, y valida.'); return;
+  }
+  if (act === 'vincularFac' || act === 'vincularCot') {
+    const tipo = act === 'vincularFac' ? 'fac' : 'cot';
+    const lid = $(`[data-vinc="${tipo}-${a.dataset.row}"]`).value; const lead = S.M.byId[lid];
+    if (!lead) return toast('Elige un lead.', 'bad');
+    const sheet = tipo === 'fac' ? 'Facturas' : 'Cotizaciones';
+    const field = tipo === 'fac' ? 'id_lead' : a.dataset.col;
+    const value = tipo === 'fac' ? lead.raw.id_lead : (field === 'id_contacto' ? lead.raw.id_contacto : lead.tel);
+    if (!value) return toast(`El lead no tiene ${field === 'id_lead' ? 'id_lead' : field === 'id_contacto' ? 'id_contacto' : 'teléfono'} para vincular.`, 'bad');
+    const fila = (tipo === 'fac' ? S.data.facturas : S.data.cotizaciones).find(x => String(x._row) === a.dataset.row);
+    a.disabled = true;
+    try {
+      const r = await api('adminUpdate', { sheet, row: Number(a.dataset.row), field, value, expected: String(fila[field] ?? '') });
+      if (r.conflict) toast(r.error, 'bad'); else toast('Vinculado a ' + lead.nombre, 'ok');
+      await cargar(true);
+    } catch (err) { toast(err.message, 'bad'); a.disabled = false; }
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
+  if (t.dataset.sf !== undefined) { S.segFiltro[t.dataset.sf] = t.value; render(); return; }
+  if (t.dataset.ch) { S[t.dataset.ch] = t.value; if (t.dataset.ch === 'cargaHoja') { S.cargaPrev = ''; } render(); return; }
+  if (t.dataset.mover) { const l = S.M.byId[t.dataset.mover]; if (l && t.value) moverA(l, t.value); t.value = ''; return; }
+  if (t.dataset.actCh === 'resultado') {
+    const l = S.M.byId[t.dataset.id]; const v = t.value;
+    const destino = { ganado: 'Facturado', perdido: 'Perdido', retenido: 'Retenido' }[v];
+    if (destino) moverA(l, destino).then(() => S.leadAbierto && abrirLead(l.id));
+    else toast('Para devolver un lead a “En proceso”, pídelo al Jefe Comercial.', 'bad');
+  }
+});
+document.addEventListener('focusout', async e => {
+  const td = e.target.closest && e.target.closest('[data-edit]');
+  if (!td) return;
+  const nuevo = td.textContent.trim(), orig = td.dataset.orig;
+  if (nuevo === orig) return;
+  try {
+    const r = await api('adminUpdate', { sheet: td.dataset.edit, row: Number(td.dataset.row), field: td.dataset.field, value: nuevo, expected: orig });
+    if (r.conflict) { toast(r.error, 'bad'); await cargar(true); return; }
+    td.dataset.orig = nuevo; toast(`${td.dataset.edit}: ${td.dataset.field} guardado`, 'ok');
+    await cargar(true);
+  } catch (err) { toast(err.message, 'bad'); td.textContent = orig; }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('#sheet').hidden) {
+    if (S._modalCancel) { const c = S._modalCancel; cerrarModal(); c(); } else cerrarSheet();
+  }
+  if (e.key === 'Enter' && e.target.dataset && e.target.dataset.edit) { e.preventDefault(); e.target.blur(); }
+});
+$('#btn-refresh').onclick = () => cargar();
+$('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
+$('#demo-role').onchange = e => { S.demoRole = e.target.value; S.hoyAsesor = ''; S.f.asesor = ''; S.f.punto = ''; cargar(); };
+
+// ── Arranque ──────────────────────────────────────────────────────────────
+window.AKT_TEST = { horasHabiles, festivos, parseFecha, bog, mesKey };
+if (DEMO) arrancar();
+else {
+  $('#login-form').addEventListener('submit', entrar);
+  $('#login-eye').onclick = () => { const p = $('#login-pass'); p.type = p.type === 'password' ? 'text' : 'password'; };
+  const t = read('akt_ses');
+  if (t && tokenVigente(t)) { S.token = t; arrancar(); } else mostrarLogin();
+}
+})();

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<!--
+  CRM Leads Motos — puntos Itagüí y Los Colores
+  Versión: akt-crm-1.1.0 (identidad sin logos de marca: azul rey, rojo y blanco)
+  App estática (GitHub Pages) + API en Google Apps Script (backend/Code.gs).
+  Configuración en config.js. Modo demo con datos ficticios: ?demo=1
+-->
+<html lang="es-CO">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b2e6e">
+<title>CRM Leads Motos</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link href="styles.css" rel="stylesheet">
+</head>
+<body>
+
+<!-- ═══════════ LOGIN ═══════════ -->
+<section id="login" class="login" hidden>
+  <div class="login-card">
+    <div class="emblem"><i class="ti ti-motorbike"></i></div>
+    <h1>CRM <span>Leads</span> Motos</h1>
+    <p class="muted">Puntos de venta Itagüí y Los Colores</p>
+    <form id="login-form" class="login-form" autocomplete="on" hidden>
+      <label class="f" for="login-ced">Usuario (número de cédula)</label>
+      <div class="inp-ico"><i class="ti ti-id"></i><input id="login-ced" class="inp" name="username" inputmode="numeric" autocomplete="username" placeholder="Ej. 1036123456" required></div>
+      <label class="f" for="login-pass">Contraseña</label>
+      <div class="inp-ico"><i class="ti ti-lock"></i><input id="login-pass" class="inp" name="password" type="password" autocomplete="current-password" required>
+        <button type="button" class="eye" id="login-eye" title="Mostrar contraseña"><i class="ti ti-eye"></i></button></div>
+      <button id="login-btn" class="btn btn-primary" type="submit"><i class="ti ti-login-2"></i> Entrar</button>
+    </form>
+    <p id="login-msg" class="login-msg" hidden></p>
+    <a id="demo-link" class="btn btn-ghost btn-sm" href="?demo=1"><i class="ti ti-flask"></i> Ver modo demo (datos ficticios)</a>
+  </div>
+</section>
+
+<!-- ═══════════ APP ═══════════ -->
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>CRM <span>Leads</span> Motos</b><small id="tb-sub"></small></div></div>
+    <div class="topbar-actions">
+      <span id="demo-badge" class="pill pill-warn" hidden>MODO DEMO · datos ficticios</span>
+      <select id="demo-role" class="sel sel-dark" hidden title="Ver como"></select>
+      <span id="sync-state" class="sync" title="Última actualización"></span>
+      <button id="btn-refresh" class="icon-btn" title="Actualizar"><i class="ti ti-refresh"></i></button>
+      <button id="btn-logout" class="icon-btn" title="Cerrar sesión"><i class="ti ti-logout"></i></button>
+    </div>
+  </header>
+  <nav id="nav" class="nav"></nav>
+  <main id="view" class="view"></main>
+</div>
+
+<div id="sheet" class="sheet" hidden><div class="sheet-backdrop" data-close></div><div class="sheet-panel" id="sheet-panel"></div></div>
+<div id="toasts" class="toasts"></div>
+
+<script src="config.js"></script>
+<script src="demo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
