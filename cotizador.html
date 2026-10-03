@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cotiza tu moto · Moto Racing</title>
+<meta name="description" content="Simula la cuota de tu moto AKT en Moto Racing Itagüí y Los Colores.">
+<meta name="theme-color" content="#07416a">
+<link rel="icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef1f7; --surface:#fff; --surface-2:#e7ebf3; --ink:#10131c; --ink-soft:#4c5568; --ink-faint:#848da0;
+    --accent:#e2231a; --accent-2:#b8160f; --accent-ink:#fff; --navy:#07416a; --line:#dde2ec;
+    --good:#1f8a4c; --good-bg:#e5f4ec; --shadow:0 1px 2px rgba(10,20,50,.06),0 8px 24px -12px rgba(10,20,50,.20);
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0a1122; --surface:#111a2e; --surface-2:#182338; --ink:#eef2fa; --ink-soft:#aab4c8; --ink-faint:#76839c;
+      --accent:#ff473c; --accent-2:#d1281e; --accent-ink:#fff; --navy:#9fb6e6; --line:#26314a;
+      --good:#3ecb7e; --good-bg:#122a1e; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 28px -12px rgba(0,0,0,.65); color-scheme:dark;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Barlow",system-ui,sans-serif;font-size:15px;padding:24px 16px 48px}
+  h1,h2,.num,.tag{font-family:"Rajdhani",system-ui,sans-serif}
+  .wrap{max-width:640px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .brand svg{width:42px;height:42px;flex:none}
+  .tag{font-weight:700;font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 11px}
+  h1{font-size:30px;line-height:1.08;margin:0 0 6px}
+  header p{margin:0 0 20px;color:var(--ink-soft);max-width:48ch}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+  .card h2{font-size:19px;font-weight:600;margin:0 0 14px;display:flex;align-items:center}
+  .step{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:13px;margin-right:8px;font-family:"Rajdhani",sans-serif}
+  label{display:block;font-size:12.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+  .field{margin-bottom:16px}
+  select,input{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  select:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:420px){.row2{grid-template-columns:1fr}}
+  .price{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .cat{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint)}
+  .strike{color:var(--ink-faint);text-decoration:line-through;font-size:13px;margin-right:6px}
+  .now{font-weight:700;font-size:18px;font-variant-numeric:tabular-nums}
+  .now small{display:block;font-weight:500;font-size:11px;color:var(--ink-soft)}
+  .plazos{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+  @media (max-width:420px){.plazos{grid-template-columns:repeat(3,1fr)}}
+  .plazo{font-family:"Rajdhani",sans-serif;font-weight:600;font-size:14px;text-align:center;padding:9px 2px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-soft)}
+  .plazo[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .result{background:linear-gradient(155deg,var(--accent),var(--accent-2));color:var(--accent-ink);border:none}
+  .result h2{color:var(--accent-ink)}
+  .rtop{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  .rlabel{font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;opacity:.85;margin-bottom:4px}
+  .num{font-size:44px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+  .rmeta{text-align:right;font-size:13px;opacity:.9;line-height:1.5}
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13.5px}
+  th,td{padding:7px 4px;text-align:right;font-variant-numeric:tabular-nums;border-top:1px solid rgba(255,255,255,.25)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{border-top:none;opacity:.85}
+  tr[data-on="true"] td{font-weight:700}
+  .note{font-size:12px;opacity:.85;margin-top:8px;line-height:1.5}
+  .norate{background:rgba(255,255,255,.14);border-radius:10px;padding:12px 14px;font-size:13.5px;line-height:1.5}
+  .disc{font-size:12px;opacity:.82;line-height:1.55;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.25)}
+  .check{display:flex;gap:10px;align-items:flex-start;margin-top:4px}
+  .check input{width:auto;margin-top:3px;accent-color:var(--accent)}
+  .check label{text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:400;color:var(--ink-soft)}
+  button.btn{width:100%;font-family:"Rajdhani",sans-serif;font-weight:700;font-size:17px;padding:14px;border-radius:11px;border:none;cursor:pointer;background:var(--ink);color:var(--bg);margin-top:16px}
+  button.btn:disabled{opacity:.45;cursor:not-allowed}
+  .link{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:0}
+  .ok{text-align:center}
+  .ok .ic{width:52px;height:52px;border-radius:50%;background:var(--good-bg);color:var(--good);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:26px}
+  .ok h2{justify-content:center}
+  .ok p{color:var(--ink-soft);max-width:40ch;margin:0 auto}
+  .msg{padding:14px;border-radius:12px;background:var(--surface-2);color:var(--ink-soft);font-size:14px}
+  footer{text-align:center;margin-top:22px;font-size:12px;color:var(--ink-faint)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="23" fill="#07416a"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="31" r="6"/><circle cx="35" cy="31" r="6"/><path d="M14 31l7-10h8l6 10M21 21l-3-4h-4M29 21l3-5h4"/></g><path d="M21 31h6" stroke="#e2231a" stroke-width="3" stroke-linecap="round"/></svg>
+      <span class="tag">Moto Racing · Antioquia</span>
+    </div>
+    <h1>Cotiza tu moto AKT</h1>
+    <p>Elige tu moto y mira de inmediato la cuota mensual estimada. Atendemos en Itagüí y Los Colores (Medellín).</p>
+  </header>
+
+  <div id="cargando" class="msg">Cargando precios vigentes…</div>
+  <div id="errorCat" class="msg" hidden>No pudimos cargar los precios en este momento. Escríbenos por WhatsApp y un asesor te cotiza de inmediato.</div>
+
+  <form id="form" hidden>
+    <section class="card" id="paso1">
+      <h2><span class="step">1</span>Tus datos y tu moto</h2>
+      <div class="field"><label for="modelo">Moto</label><select id="modelo" required></select></div>
+      <div class="field"><label for="nombre">Nombre completo</label><input id="nombre" required autocomplete="name"></div>
+      <div class="row2">
+        <div class="field"><label for="celular">Celular (WhatsApp)</label><input id="celular" type="tel" inputmode="tel" required autocomplete="tel"></div>
+        <div class="field"><label for="email">Correo (opcional)</label><input id="email" type="email" autocomplete="email"></div>
+      </div>
+      <div class="field"><label for="ciudad">¿Dónde vives?</label>
+        <select id="ciudad">
+          <option>Itagüí</option><option>Envigado</option><option>Sabaneta</option><option>La Estrella</option><option>Caldas</option>
+          <option>Medellín</option><option>Bello</option><option>Copacabana</option><option>Girardota</option><option>Otra ciudad de Antioquia</option>
+        </select>
+      </div>
+      <div class="check"><input type="checkbox" id="acepto" required><label for="acepto">Autorizo a Moto Racing / AKT Motos a contactarme y a tratar mis datos personales para esta simulación y la cotización formal (Ley 1581 de 2012). Este simulador es de referencia y no implica aprobación de crédito.</label></div>
+      <button type="button" class="btn" id="verBtn">Ver mi cotización</button>
+    </section>
+
+    <div id="sim" hidden>
+      <section class="card">
+        <h2><span class="step">2</span>Tu moto</h2>
+        <div class="price" id="precio"></div>
+        <button type="button" class="link" id="cambiarBtn">← Cambiar moto o mis datos</button>
+      </section>
+      <section class="card">
+        <h2><span class="step">3</span>Condiciones del crédito</h2>
+        <div class="row2">
+          <div class="field"><label for="inicial">Cuota inicial (COP)</label><input id="inicial" type="number" min="0" step="50000" value="0" inputmode="numeric"></div>
+          <div class="field"><label for="fin">Financiera</label><select id="fin"></select></div>
+        </div>
+        <label>Plazo (meses)</label>
+        <div class="plazos" id="plazos"></div>
+      </section>
+      <section class="card result">
+        <h2><span class="step" style="background:#fff;color:var(--accent)">4</span>Tu cuota estimada</h2>
+        <div id="conTasa">
+          <div class="rtop">
+            <div><div class="rlabel">Cuota mensual aprox.</div><div class="num" id="cuota">$0</div></div>
+            <div class="rmeta" id="meta"></div>
+          </div>
+          <table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table>
+        </div>
+        <div class="norate" id="sinTasa" hidden></div>
+        <p class="note" id="fuente"></p>
+        <p class="disc"><strong>Simulación de referencia, no es una oferta ni aprobación de crédito.</strong> La tasa, el plazo y la aprobación los define cada entidad según su estudio. Precios sujetos a la vigencia del bono.</p>
+        <button type="submit" class="btn" id="enviarBtn">Quiero que un asesor me contacte</button>
+      </section>
+    </div>
+
+    <div class="card ok" id="listo" hidden>
+      <div class="ic">✓</div>
+      <h2>¡Listo, <span id="okNombre"></span>!</h2>
+      <p>Guardamos tu simulación de la <strong id="okModelo"></strong>. Un asesor del punto <strong id="okPunto"></strong> te escribe por WhatsApp para confirmar disponibilidad y la cuota real con la financiera.</p>
+    </div>
+  </form>
+
+  <footer>Moto Racing · AKT Motos Antioquia — Itagüí &amp; Los Colores</footer>
+</div>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var API = (window.AKT_CONFIG || {}).API_URL;
+  var qs = new URLSearchParams(location.search);
+  var REF = { contacto: (qs.get('c') || '').replace(/\D/g, ''), nombre: qs.get('n') || '', modelo: qs.get('m') || '', zona: qs.get('z') || '' };
+
+  // Financieras aliadas (fuentes públicas, verificadas 2026-09-20; ver hoja Financiadoras)
+  var PLAZOS = [12, 24, 36, 48, 60, 72];
+  var FINS = [
+    { id: 'progresar', nombre: 'Progresar (ProgreSER)', tasaEA: 0.2923, plazoMin: 3, plazoMax: 72, montoMin: 1000000,
+      fuente: 'Datos confirmados por AKT Motos: tasa mensual 2,16 %, plazos de 3 a 72 meses, monto mínimo $1.000.000.', nota: 'Puede incluir seguros opcionales que se suman al costo total.' },
+    { id: 'sufi', nombre: 'Sufi (Bancolombia)', tasaEAmin: 0.1016, tasaEAmax: 0.1349,
+      fuente: 'Tasas "desde" publicadas para crédito vehicular.', nota: 'La tasa final depende de tu perfil; puede ser mayor.' },
+    { id: 'addi', nombre: 'Addi', tasaEAmin: 0, tasaEAmax: 0.25, plazoMin: 3, plazoMax: 24,
+      fuente: 'Rango de tasa 0 %–25 % E.A. según perfil.', nota: 'Cupo inicial limitado; puede no cubrir el valor completo.' },
+    { id: 'sistecredito', nombre: 'Sistecrédito', fuente: 'No publica su tasa exacta.', nota: 'El asesor te confirma la tasa.' },
+    { id: 'bancodebogota', nombre: 'Banco de Bogotá', tasaEA: 0.2534, plazoMin: 24, plazoMax: 72,
+      fuente: 'Tasa de libre inversión general.', nota: 'Monto máximo publicado $10.000.000.' },
+    { id: 'galgo', nombre: 'Galgo', plazoMin: 12, plazoMax: 36, fuente: 'Publica el plazo pero no la tasa.', nota: 'El asesor te confirma la tasa.' }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var cop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
+  var CATALOGO = [], plazo = 24, simId = null, confirmado = false, tGuardar = null;
+
+  function api(action, data) {
+    return fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action: action }, data || {})) }).then(function (r) { return r.json(); });
+  }
+  function cuotaMes(monto, meses, ea) {
+    if (monto <= 0 || ea == null) return 0;
+    var i = Math.pow(1 + ea, 1 / 12) - 1;
+    return i <= 0 ? monto / meses : monto * i / (1 - Math.pow(1 + i, -meses));
+  }
+  function fin() { return FINS.filter(function (f) { return f.id === $('fin').value; })[0] || FINS[0]; }
+  function plazosDe(f) { return PLAZOS.filter(function (p) { return p >= (f.plazoMin || 12) && p <= (f.plazoMax || 72); }); }
+  function moto() { return CATALOGO.filter(function (m) { return m.modelo === $('modelo').value; })[0] || CATALOGO[0]; }
+  function monto() { return Math.max(moto().precio_final - (Number($('inicial').value) || 0), 0); }
+  function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  function punto(c) { return /itag|envigad|sabanet|estrella|caldas/.test(norm(c)) ? 'Itagüí' : 'Los Colores'; }
+
+  function pintarPlazos() {
+    var ps = plazosDe(fin());
+    if (ps.indexOf(plazo) < 0) plazo = ps[Math.min(1, ps.length - 1)];
+    $('plazos').innerHTML = '';
+    ps.forEach(function (p) {
+      var b = document.createElement('div');
+      b.className = 'plazo'; b.textContent = p; b.setAttribute('role', 'button'); b.setAttribute('aria-pressed', String(p === plazo));
+      b.onclick = function () { plazo = p; recalcular(); };
+      $('plazos').appendChild(b);
+    });
+  }
+
+  function recalcular() {
+    var m = moto(), f = fin(), mt = monto(), ps;
+    $('precio').innerHTML = '<span class="cat">' + m.categoria + ' · ' + m.modelo + '</span><div style="text-align:right">' +
+      (m.bono > 0 ? '<span class="strike">$' + cop.format(m.precio_publico) + '</span>' : '') +
+      '<div class="now">$' + cop.format(m.precio_final) + '<small>' + (m.bono > 0 ? 'Precio con bono vigente' : 'Precio de venta') + '</small></div></div>';
+    pintarPlazos(); ps = plazosDe(f);
+    var tasa = f.tasaEA != null || (f.tasaEAmin != null && f.tasaEAmax != null), cuotaG = 0;
+    if (f.montoMin && mt > 0 && mt < f.montoMin) {
+      $('conTasa').hidden = true; $('sinTasa').hidden = false;
+      $('sinTasa').innerHTML = '<strong>' + f.nombre + '</strong> financia desde <strong>$' + cop.format(f.montoMin) + '</strong>. Prueba con una cuota inicial menor u otra financiera.';
+    } else if (tasa) {
+      $('conTasa').hidden = false; $('sinTasa').hidden = true; $('tbody').innerHTML = '';
+      if (f.tasaEA != null) {
+        cuotaG = cuotaMes(mt, plazo, f.tasaEA);
+        $('cuota').textContent = '$' + cop.format(Math.round(cuotaG));
+        $('thead').innerHTML = '<th>Meses</th><th>Cuota mensual</th>';
+        ps.forEach(function (p) { $('tbody').insertAdjacentHTML('beforeend', '<tr data-on="' + (p === plazo) + '"><td>' + p + '</td><td>$' + cop.format(Math.round(cuotaMes(mt, p, f.tasaEA))) + '</td></tr>'); });
+      } else {
+        var a = cuotaMes(mt, plazo, f.tasaEAmin), b = cuotaMes(mt, plazo, f.tasaEAmax); cuotaG = b;
+        $('cuota').innerHTML = '<span style="font-size:26px">$' + cop.format(Math.round(a)) + ' – $' + cop.format(Math.round(b)) + '</span>';
+        $('thead').innerHTML = '<th>Meses</th><th>Mín.</th><th>Máx.</th>';
+        ps.forEach(function (p) { $('tbody').insertAdjacentHTML('beforeend', '<tr data-on="' + (p === plazo) + '"><td>' + p + '</td><td>$' + cop.format(Math.round(cuotaMes(mt, p, f.tasaEAmin))) + '</td><td>$' + cop.format(Math.round(cuotaMes(mt, p, f.tasaEAmax))) + '</td></tr>'); });
+      }
+      $('meta').innerHTML = 'Financias<br><strong>$' + cop.format(mt) + '</strong><br>a ' + plazo + ' meses';
+    } else {
+      $('conTasa').hidden = true; $('sinTasa').hidden = false;
+      $('sinTasa').innerHTML = '<strong>' + f.nombre + '</strong> no publica una tasa fija. Financiarías <strong>$' + cop.format(mt) + '</strong> a ' + plazo + ' meses; el asesor te confirma la cuota exacta.';
+    }
+    $('fuente').textContent = 'Fuente de la tasa: ' + f.fuente + (f.nota ? ' ' + f.nota : '');
+    if (confirmado) { clearTimeout(tGuardar); tGuardar = setTimeout(function () { guardar(false, cuotaG); }, 800); }
+    return cuotaG;
+  }
+
+  function guardar(completado, cuota) {
+    if (!simId) simId = 'sim_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    var m = moto(), f = fin();
+    return api('simulacion', { sim: {
+      id: simId, nombre: $('nombre').value.trim(), celular: $('celular').value.trim(), email: $('email').value.trim(),
+      modelo: m.modelo, categoria: m.categoria, valor_moto: m.precio_final, cuota_inicial: Number($('inicial').value) || 0,
+      monto_financiar: monto(), plazo_meses: plazo, ciudad: $('ciudad').value, financiador: f.nombre,
+      cuota_mensual_estim: Math.round(cuota || 0), completado: !!completado,
+      fuente: REF.contacto ? 'cotizador_whatsapp' : 'cotizador_web', id_contacto: REF.contacto
+    } }).catch(function () { return { ok: false }; });
+  }
+
+  function iniciar(modelos) {
+    CATALOGO = modelos;
+    var porCat = {};
+    modelos.forEach(function (m) { (porCat[m.categoria] = porCat[m.categoria] || []).push(m); });
+    Object.keys(porCat).forEach(function (c) {
+      var og = document.createElement('optgroup'); og.label = c;
+      porCat[c].forEach(function (m) { var o = document.createElement('option'); o.value = o.textContent = m.modelo; og.appendChild(o); });
+      $('modelo').appendChild(og);
+    });
+    FINS.forEach(function (f) { var o = document.createElement('option'); o.value = f.id; o.textContent = f.nombre; $('fin').appendChild(o); });
+    // Datos que llegan en el enlace enviado por WhatsApp
+    if (REF.nombre) $('nombre').value = REF.nombre;
+    if (REF.contacto) $('celular').value = REF.contacto;
+    if (REF.modelo) {
+      var q = norm(REF.modelo), hit = modelos.filter(function (m) { return norm(m.modelo) === q; })[0] || modelos.filter(function (m) { return norm(m.modelo).indexOf(q) >= 0 || q.indexOf(norm(m.modelo)) >= 0; })[0];
+      if (hit) $('modelo').value = hit.modelo;
+    }
+    if (REF.zona) { var z = norm(REF.zona); Array.prototype.forEach.call($('ciudad').options, function (o) { if (z.indexOf(norm(o.value)) >= 0) $('ciudad').value = o.value; }); }
+    $('cargando').hidden = true; $('form').hidden = false;
+    recalcular();
+  }
+
+  $('verBtn').onclick = function () {
+    var req = [$('modelo'), $('nombre'), $('celular'), $('acepto')];
+    for (var i = 0; i < req.length; i++) if (!req[i].checkValidity()) { req[i].reportValidity(); return; }
+    if ($('celular').value.replace(/\D/g, '').length < 10) { $('celular').setCustomValidity('Escribe tu celular de 10 dígitos'); $('celular').reportValidity(); $('celular').setCustomValidity(''); return; }
+    confirmado = true; $('paso1').hidden = true; $('sim').hidden = false;
+    guardar(false, recalcular());
+    $('sim').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  $('cambiarBtn').onclick = function () { $('sim').hidden = true; $('paso1').hidden = false; };
+  ['modelo', 'fin', 'ciudad'].forEach(function (id) { $(id).addEventListener('change', recalcular); });
+  $('inicial').addEventListener('input', recalcular);
+  $('form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    $('enviarBtn').disabled = true; $('enviarBtn').textContent = 'Enviando…';
+    clearTimeout(tGuardar);
+    guardar(true, recalcular()).then(function () {
+      $('sim').hidden = true;
+      $('okNombre').textContent = $('nombre').value.trim().split(' ')[0];
+      $('okModelo').textContent = $('modelo').value;
+      $('okPunto').textContent = punto($('ciudad').value);
+      $('listo').hidden = false;
+      $('listo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  if (!API) { $('cargando').hidden = true; $('errorCat').hidden = false; return; }
+  api('catalogoPublico').then(function (r) {
+    if (!r || !r.ok || !r.modelos || !r.modelos.length) throw new Error('sin catálogo');
+    iniciar(r.modelos);
+  }).catch(function () { $('cargando').hidden = true; $('errorCat').hidden = false; });
+})();
+</script>
+</body>
+</html>

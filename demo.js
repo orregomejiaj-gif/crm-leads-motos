@@ -138,7 +138,14 @@
   const cotSin = Array.from({ length: 40 }, (_, i) => ({ _lote: ymdB(hace(24)), 'Fecha': ymdB(hace(24 * rnd() * 70)), 'Nit/Cedula': String(7000000 + i), 'Nombre cliente': 'Cotizado Demo ' + pad(i), 'Celular': i % 3 === 0 && telLead[i] ? telLead[i] : '3155' + pad(100000 + i).slice(-6), 'Vendedor': pick(ASESORES).nombre, 'Articulo': pick(MODELOS), 'Bodega': rnd() < 0.5 ? 'MOTOS  ITAGUI' : 'MOTOS LOS COLORES', 'Valor': 7000000 }));
   const cotCrm = cotSin.filter(() => rnd() < 0.65).map(r => ({ _lote: ymdB(hace(24)), fecha_creacion: r.Fecha, documento: r['Nit/Cedula'], cliente: r['Nombre cliente'], telefono: r.Celular, asesor: r.Vendedor }))
     .concat(Array.from({ length: 5 }, (_, i) => ({ _lote: ymdB(hace(24)), fecha_creacion: ymdB(hace(24 * i)), documento: String(6000000 + i), cliente: 'Solo CRM Demo ' + i, telefono: '3177' + pad(100000 + i).slice(-6), asesor: pick(ASESORES).nombre })));
-  const REPO = { seguimientos: { daily, checklist, compromisos }, posventa: { interesados, ingresos }, inventario: { motosIt, motosLc, repIt, repLc, pendiente, facturacion, conteos }, cotizaciones: { sintesis: cotSin, crm: cotCrm } };
+  const FINS_D = ['Progresar (ProgreSER)', 'Sufi (Bancolombia)', 'Addi', 'Banco de Bogotá'];
+  const CIUD_D = ['Itagüí', 'Envigado', 'Sabaneta', 'Medellín', 'Bello', 'La Estrella'];
+  const simulaciones = Array.from({ length: 26 }, (_, i) => { const m = pick(MODELOS), v = 5490000 + Math.floor(rnd() * 12) * 500000, ini = Math.floor(rnd() * 4) * 500000, c = pick(CIUD_D), comp = rnd() < 0.55;
+    return { id: 'sim_demo_' + i, fecha: fmtB(hace(24 * rnd() * 25)), nombre: 'Cotizador Demo ' + pad(i), celular: '57315' + pad(1000000 + i).slice(-7), email: i % 2 ? 'demo' + i + '@correo.com' : '',
+      modelo: m, categoria: 'Calle', valor_moto: v, cuota_inicial: ini, monto_financiar: v - ini, plazo_meses: pick([24, 36, 48]), ciudad: c, financiador: pick(FINS_D),
+      cuota_mensual_estim: Math.round((v - ini) / 30), completado: comp ? 'SI' : 'NO', fuente: rnd() < 0.35 ? 'cotizador_whatsapp' : 'cotizador_web',
+      punto_sugerido: /itag|envigad|sabanet|estrella/i.test(c.normalize('NFD').replace(/[\u0300-\u036f]/g, '')) ? 'Itagüí' : 'Los Colores', id_lead: 'L-DEMO-SIM-' + i }; });
+  const REPO = { seguimientos: { daily, checklist, compromisos }, posventa: { interesados, ingresos }, inventario: { motosIt, motosLc, repIt, repLc, pendiente, facturacion, conteos }, cotizaciones: { sintesis: cotSin, crm: cotCrm, simulaciones } };
   const REPO_HOJA = { Daily_Asesor: ['seguimientos', 'daily'], Checklist_Semanal: ['seguimientos', 'checklist'], Compromisos_Semana: ['seguimientos', 'compromisos'], Interesados: ['posventa', 'interesados'],
     Ingresos_Taller: ['posventa', 'ingresos'], Motos_Itagui: ['inventario', 'motosIt'], Motos_Los_Colores: ['inventario', 'motosLc'], Repuestos_Itagui: ['inventario', 'repIt'],
     Repuestos_Los_Colores: ['inventario', 'repLc'], Pendiente_por_Llegar: ['inventario', 'pendiente'], Facturacion: ['inventario', 'facturacion'], Conteo_Fisico: ['inventario', 'conteos'], Cotizaciones_Sintesis: ['cotizaciones', 'sintesis'], Cotizaciones_CRM: ['cotizaciones', 'crm'] };
@@ -280,7 +287,7 @@
           repuestos: tag(R.inventario.repIt, 'Repuestos_Itagui').concat(tag(R.inventario.repLc, 'Repuestos_Los_Colores')), pendiente: R.inventario.pendiente,
           facturacion: R.inventario.facturacion, conteos: R.inventario.conteos, equivalencias: [] };
       }
-      if (p.m === 'cotizaciones') return { ok: true, repoOk: true, sintesis: R.cotizaciones.sintesis, crm: R.cotizaciones.crm };
+      if (p.m === 'cotizaciones') return { ok: true, repoOk: true, sintesis: R.cotizaciones.sintesis, crm: R.cotizaciones.crm, simulaciones: R.cotizaciones.simulaciones };
     }
     if (action === 'registrar') {
       const [rk, arr] = REPO_HOJA[p.hoja] || [];

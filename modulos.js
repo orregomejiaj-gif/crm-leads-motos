@@ -11,7 +11,7 @@ const render = () => H.render();
 
 const D = {};            // datos cargados por módulo
 const cargando = {};
-const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'cruce', cfgRepos: null };
+const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'sim', cfgRepos: null };
 const F = { fecha: '', semana: '', punto: '', asesor: '', dias: '30', cobertura: '30', quieto: '90', estado: '', tipo: '', periodoCot: '60', buscar: '' };
 let IMP = null;          // estado del cargador de exportes
 let REPOS = null;        // estado de repositorios (Ajustes)
@@ -676,12 +676,52 @@ async function guardarConteo(btn) {
 }
 
 // ═══════════════════════════════ COTIZACIONES ════════════════════════════
+const URL_COTIZADOR = 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador.html';
+
+/** Simulaciones del cotizador web: van aparte de las cotizaciones de Síntesis/CRM. */
+function vSimulador(d) {
+  const sims = (d.simulaciones || []).slice();
+  const desde = F.periodoCot === 'todo' ? null : new Date(Date.now() - Number(F.periodoCot) * 864e5);
+  const pSel = esJefe() ? F.punto : u().sede;
+  const lista = sims.filter(r => { const f = parseFecha(r.fecha); return (!desde || !f || f >= desde) && (!pSel || !r.punto_sugerido || sedeCanon(r.punto_sugerido) === pSel); })
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const si = v => /^(si|sí|true)$/i.test(String(v).trim());
+  const completas = lista.filter(r => si(r.completado));
+  const conLead = lista.filter(r => r.id_lead);
+  const deWa = lista.filter(r => /whatsapp/i.test(r.fuente || ''));
+  const top = (k) => { const m = {}; lista.forEach(r => { const v = String(r[k] || '—'); m[v] = (m[v] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+  const ticket = lista.length ? lista.reduce((s, r) => s + (num(r.valor_moto) || 0), 0) / lista.length : null;
+  const fila = r => `<tr><td>${esc(fechaTxt(r.fecha))}</td><td><b>${esc(r.nombre || '—')}</b>${r.email ? `<div class="small muted">${esc(r.email)}</div>` : ''}</td>
+    <td>${r.celular ? `<a href="https://wa.me/${esc(digits(r.celular))}" target="_blank" rel="noopener">${esc(r.celular)}</a>` : '—'}</td>
+    <td>${esc(r.modelo || '—')}</td><td class="r num">${money(num(r.valor_moto))}</td><td class="r num">${money(num(r.cuota_inicial))}</td>
+    <td class="r num">${num(r.cuota_mensual_estim) ? money(num(r.cuota_mensual_estim)) + ` <span class="small muted">× ${esc(r.plazo_meses)}</span>` : '—'}</td>
+    <td>${esc(r.financiador || '—')}</td><td>${esc(r.ciudad || '—')}<div class="small muted">${esc(r.punto_sugerido || '')}</div></td>
+    <td>${si(r.completado) ? '<span class="pill pill-ok">Pidió contacto</span>' : '<span class="pill">Solo simuló</span>'}${r.id_lead ? `<div class="small muted">${esc(r.id_lead)}</div>` : ''}</td>
+    <td class="small">${/whatsapp/i.test(r.fuente || '') ? 'Enlace WhatsApp' : 'Web / redes'}</td></tr>`;
+  return `<div class="notice"><i class="ti ti-link"></i><div><b>Enlace del cotizador para redes y WhatsApp:</b><br><a href="${URL_COTIZADOR}" target="_blank" rel="noopener">${URL_COTIZADOR}</a>
+      <div style="margin-top:8px"><button class="btn btn-sm btn-dark" data-act="m-copiar-cotizador"><i class="ti ti-copy"></i> Copiar enlace</button>
+      <a class="btn btn-sm" href="${URL_COTIZADOR}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir simulador</a></div></div></div>
+    <div class="filters"><select class="sel" data-mch="f" data-k="periodoCot">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '60', t: 'Últimos 60 días' }, { v: 'todo', t: 'Todo' }], F.periodoCot)}</select>
+      ${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}</div>
+    <div class="grid g-kpi">${kpi('Simulaciones', lista.length)}${kpi('Pidieron contacto', completas.length, fmtPct(pct(completas.length, lista.length)) + ' de las simulaciones', 'ok')}
+      ${kpi('Leads creados / vinculados', conLead.length, 'asignados a un asesor')}${kpi('Desde enlace de WhatsApp', deWa.length, (lista.length - deWa.length) + ' desde web / redes')}
+      ${kpi('Ticket promedio', ticket === null ? '—' : money(ticket), 'valor de la moto simulada')}</div>
+    <div class="grid g2" style="margin-top:12px">
+      <div><div class="section-title"><i class="ti ti-motorbike"></i>Motos más simuladas</div>${bars(top('modelo').slice(0, 8).map(([l, v]) => ({ l, v })))}</div>
+      <div><div class="section-title"><i class="ti ti-building-bank"></i>Financieras elegidas</div>${bars(top('financiador').slice(0, 8).map(([l, v]) => ({ l, v })))}</div>
+    </div>
+    <div class="section-title"><i class="ti ti-list-details"></i>Simulaciones<span class="count">${lista.length}</span></div>
+    ${lista.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Celular</th><th>Moto</th><th class="r">Valor</th><th class="r">Inicial</th><th class="r">Cuota</th><th>Financiera</th><th>Ciudad / punto</th><th>Estado</th><th>Origen</th></tr></thead>
+      <tbody>${lista.slice(0, 300).map(fila).join('')}</tbody></table></div>` : empty('ti-calculator', 'Todavía no hay simulaciones en el período.')}`;
+}
+
 function vCotizaciones() {
-  const lista = [['cruce', 'Cruce Síntesis vs CRM'], ['cargar', 'Cargar exportes']];
+  const lista = [['sim', 'Simulador web'], ['cruce', 'Cruce Síntesis vs CRM'], ['cargar', 'Cargar exportes']];
   const d = datos('cotizaciones');
-  const head = cabecera('Cotizaciones', 'Exporte de Síntesis vs importación del CRM, cruzados por cédula, celular o correo.', 'cotizaciones');
+  const head = cabecera('Cotizaciones', 'Simulaciones del cotizador web y cruce de Síntesis vs CRM (por cédula, celular o correo).', 'cotizaciones');
   if (!d) return head + tabs('cot', lista) + loading();
   if (d.error) return head + tabs('cot', lista) + errorMod(d);
+  if (T.cot === 'sim') return head + tabs('cot', lista) + vSimulador(d);
   if (!d.repoOk) return head + tabs('cot', lista) + sinRepo('Cotizaciones');
   if (T.cot === 'cargar') return head + tabs('cot', lista) + importador('cotizaciones', [['Cotizaciones_Sintesis', 'Cotizaciones exportadas de Síntesis'], ['Cotizaciones_CRM', 'Cotizaciones importadas del CRM']]);
   const desde = F.periodoCot === 'todo' ? null : new Date(Date.now() - Number(F.periodoCot) * 864e5);
@@ -815,6 +855,7 @@ async function onClick(act, el) {
   if (act === 'm-conteo-guardar') return guardarConteo(el);
   if (act === 'm-imp-leer') { const p = H.parsePegado($('#imp-txt').value); if (p.error) return toast(p.error, 'bad'); IMP.filas = p.rows; return render(); }
   if (act === 'm-imp-subir') return subirImport(el);
+  if (act === 'm-copiar-cotizador') { try { await navigator.clipboard.writeText(URL_COTIZADOR); toast('Enlace del cotizador copiado'); } catch (e) { toast(URL_COTIZADOR); } return; }
   if (act === 'm-ir-repos') { S.view = 'config'; S.cfgTab = 'repos'; H.renderNav(); return render(); }
   if (act === 'm-repos-crear') {
     if (!(await confirmar('Crear repositorios', 'Se crearán los archivos faltantes en el Google Drive de la cuenta dueña del script, con sus hojas y encabezados. Financieras y Bonos se copian del libro principal.', 'Crear'))) return;
