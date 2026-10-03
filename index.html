@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   CRM Leads Motos — puntos Itagüí y Los Colores
-  Versión: akt-crm-2.0.0 (etapa 2: repositorios, seguimiento comercial, posventa, inventario, cotizaciones)
+  Versión: ver window.AKT_VERSION al final del archivo (se muestra en el encabezado y en el login).
   App estática (GitHub Pages) + API en Google Apps Script (backend/Code.gs).
   Configuración en config.js. Modo demo con datos ficticios: ?demo=1
 -->
@@ -15,7 +15,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" rel="stylesheet">
-<link href="styles.css" rel="stylesheet">
+<link href="styles.css?v=2.6.0" rel="stylesheet">
 </head>
 <body>
 
@@ -35,13 +35,14 @@
     </form>
     <p id="login-msg" class="login-msg" hidden></p>
     <a id="demo-link" class="btn btn-ghost btn-sm" href="?demo=1"><i class="ti ti-flask"></i> Ver modo demo (datos ficticios)</a>
+    <p class="ver-tag" id="login-ver"></p>
   </div>
 </section>
 
 <!-- ═══════════ APP ═══════════ -->
 <div id="app" class="app" hidden>
   <header class="topbar">
-    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>CRM <span>Leads</span> Motos</b><small id="tb-sub"></small></div></div>
+    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>CRM <span>Leads</span> Motos <em class="ver-badge" id="tb-ver" title="Versión de la app · versión del servidor (API)"></em></b><small id="tb-sub"></small></div></div>
     <div class="topbar-actions">
       <span id="demo-badge" class="pill pill-warn" hidden>MODO DEMO · datos ficticios</span>
       <select id="demo-role" class="sel sel-dark" hidden title="Ver como"></select>
@@ -57,9 +58,11 @@
 <div id="sheet" class="sheet" hidden><div class="sheet-backdrop" data-close></div><div class="sheet-panel" id="sheet-panel"></div></div>
 <div id="toasts" class="toasts"></div>
 
-<script src="config.js"></script>
-<script src="demo.js"></script>
-<script src="modulos.js"></script>
-<script src="app.js"></script>
+<!-- Versión de la app: súbela en cada cambio (también los ?v=) para confirmar que GitHub sirve la versión correcta. -->
+<script>window.AKT_VERSION = '2.6.0';</script>
+<script src="config.js?v=2.6.0"></script>
+<script src="demo.js?v=2.6.0"></script>
+<script src="modulos.js?v=2.6.0"></script>
+<script src="app.js?v=2.6.0"></script>
 </body>
 </html>

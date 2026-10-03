@@ -177,6 +177,7 @@ function mostrarLogin(msg) {
   $('#app').hidden = true; $('#login').hidden = false;
   const box = $('#login-msg');
   box.hidden = !msg; box.textContent = msg || '';
+  $('#login-ver').textContent = 'Versión ' + (window.AKT_VERSION || '?');
   if (DEMO) { $('#demo-link').hidden = true; return; }
   if (!CFG.API_URL) {
     $('#login-form').hidden = true;
@@ -237,6 +238,7 @@ async function cargar(silencioso) {
     S.lastLoad = new Date();
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
     $('#tb-sub').textContent = `${S.data.user.nombre} · ${({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
+    $('#tb-ver').textContent = `v${window.AKT_VERSION || '?'}${S.data.version ? ' · API ' + S.data.version : ''}`;
     const vistas = vistasDeRol();
     if (!vistas.some(v => v.id === S.view)) S.view = vistas[0].id;
     renderNav(); render();
