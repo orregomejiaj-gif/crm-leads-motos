@@ -676,8 +676,6 @@ async function guardarConteo(btn) {
 }
 
 // ═══════════════════════════════ COTIZACIONES ════════════════════════════
-const URL_COTIZADOR = 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador.html';
-
 /** Simulaciones del cotizador web: van aparte de las cotizaciones de Síntesis/CRM. */
 function vSimulador(d) {
   const sims = (d.simulaciones || []).slice();
@@ -698,10 +696,7 @@ function vSimulador(d) {
     <td>${esc(r.financiador || '—')}</td><td>${esc(r.ciudad || '—')}<div class="small muted">${esc(r.punto_sugerido || '')}</div></td>
     <td>${si(r.completado) ? '<span class="pill pill-ok">Pidió contacto</span>' : '<span class="pill">Solo simuló</span>'}${r.id_lead ? `<div class="small muted">${esc(r.id_lead)}</div>` : ''}</td>
     <td class="small">${/whatsapp/i.test(r.fuente || '') ? 'Enlace WhatsApp' : 'Web / redes'}</td></tr>`;
-  return `<div class="notice"><i class="ti ti-link"></i><div><b>Enlace del cotizador para redes y WhatsApp:</b><br><a href="${URL_COTIZADOR}" target="_blank" rel="noopener">${URL_COTIZADOR}</a>
-      <div style="margin-top:8px"><button class="btn btn-sm btn-dark" data-act="m-copiar-cotizador"><i class="ti ti-copy"></i> Copiar enlace</button>
-      <a class="btn btn-sm" href="${URL_COTIZADOR}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir simulador</a></div></div></div>
-    <div class="filters"><select class="sel" data-mch="f" data-k="periodoCot">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '60', t: 'Últimos 60 días' }, { v: 'todo', t: 'Todo' }], F.periodoCot)}</select>
+  return `<div class="filters"><select class="sel" data-mch="f" data-k="periodoCot">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '60', t: 'Últimos 60 días' }, { v: 'todo', t: 'Todo' }], F.periodoCot)}</select>
       ${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}</div>
     <div class="grid g-kpi">${kpi('Simulaciones', lista.length)}${kpi('Pidieron contacto', completas.length, fmtPct(pct(completas.length, lista.length)) + ' de las simulaciones', 'ok')}
       ${kpi('Leads creados / vinculados', conLead.length, 'asignados a un asesor')}${kpi('Desde enlace de WhatsApp', deWa.length, (lista.length - deWa.length) + ' desde web / redes')}
@@ -855,7 +850,6 @@ async function onClick(act, el) {
   if (act === 'm-conteo-guardar') return guardarConteo(el);
   if (act === 'm-imp-leer') { const p = H.parsePegado($('#imp-txt').value); if (p.error) return toast(p.error, 'bad'); IMP.filas = p.rows; return render(); }
   if (act === 'm-imp-subir') return subirImport(el);
-  if (act === 'm-copiar-cotizador') { try { await navigator.clipboard.writeText(URL_COTIZADOR); toast('Enlace del cotizador copiado'); } catch (e) { toast(URL_COTIZADOR); } return; }
   if (act === 'm-ir-repos') { S.view = 'config'; S.cfgTab = 'repos'; H.renderNav(); return render(); }
   if (act === 'm-repos-crear') {
     if (!(await confirmar('Crear repositorios', 'Se crearán los archivos faltantes en el Google Drive de la cuenta dueña del script, con sus hojas y encabezados. Financieras y Bonos se copian del libro principal.', 'Crear'))) return;

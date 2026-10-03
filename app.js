@@ -378,6 +378,7 @@ function vistasDeRol() {
   v.push({ id: 'comisiones', icon: 'ti-coin', label: 'Comisiones' });
   if (r === 'jefe') {
     v.push({ id: 'conciliacion', icon: 'ti-git-compare', label: 'Conciliación' });
+    v.push({ id: 'accesos', icon: 'ti-link', label: 'Accesos' });
     v.push({ id: 'config', icon: 'ti-settings', label: 'Ajustes' });
   }
   return v;
@@ -392,7 +393,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { hoy: vHoy, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, config: vConfig };
+  const base = { hoy: vHoy, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   $('#view').innerHTML = fn();
   if (S.view === 'embudo') bindKanban();
@@ -1076,6 +1077,23 @@ const CARGAS = {
   Facturas: { req: ['id_factura', 'fecha', 'valor', 'asesor', 'sede'], uno: [] },
   Metas: { req: ['persona', 'mes', 'meta_motos'], uno: [] }
 };
+// ═══════════════════════════════ ACCESOS (solo Jefe Comercial) ═══════════
+// Enlaces a las plataformas del proyecto. Para agregar uno nuevo, añade una línea aquí.
+const ACCESOS = [
+  { grupo: 'Para clientes', icon: 'ti-calculator', nombre: 'Cotizador de motos (público)', desc: 'Enlace para publicaciones en redes y para enviar por WhatsApp. Quien cotiza entra como lead caliente "cotizado".', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador.html' }
+];
+function vAccesos() {
+  if (S.data.user.rol !== 'jefe') return empty('ti-lock', 'Solo el Jefe Comercial ve los accesos.');
+  const grupos = uniq(ACCESOS.map(a => a.grupo));
+  return `<div class="page-h"><div><h2>Accesos</h2><p class="muted small">Enlaces a las plataformas del proyecto. Solo los ve el Jefe Comercial.</p></div></div>
+    ${grupos.map(g => `<div class="section-title"><i class="ti ti-folder"></i>${esc(g)}</div>
+      <div class="grid g2">${ACCESOS.filter(a => a.grupo === g).map(a => `<div class="card"><div class="row" style="gap:10px;align-items:flex-start"><i class="ti ${a.icon}" style="font-size:1.4rem;color:var(--brand,#0b2e6e)"></i>
+        <div style="min-width:0;flex:1"><b>${esc(a.nombre)}</b><p class="small muted" style="margin:2px 0 8px">${esc(a.desc)}</p>
+        <div class="small" style="word-break:break-all;margin-bottom:8px">${esc(a.url)}</div>
+        <div class="row wrap" style="gap:6px"><a class="btn btn-sm btn-dark" href="${esc(a.url)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir</a>
+        <button class="btn btn-sm" data-act="copiar-acceso" data-url="${esc(a.url)}"><i class="ti ti-copy"></i> Copiar enlace</button></div></div></div></div>`).join('')}</div>`).join('')}`;
+}
+
 function vConfig() {
   const d = S.data, tab = S.cfgTab;
   const tabs = [['sheet', 'Estado del Sheet'], ['repos', 'Repositorios'], ['umbrales', 'Umbrales'], ['equipo', 'Equipo y accesos'], ['metas', 'Metas'], ['carga', 'Carga masiva'], ['catalogos', 'Catálogos']];
@@ -1203,6 +1221,7 @@ document.addEventListener('click', async e => {
   if (MOD && a.dataset.act.startsWith('m-')) { if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault(); return MOD.onClick(a.dataset.act, a, e); }
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
+  if (act === 'copiar-acceso') { try { await navigator.clipboard.writeText(a.dataset.url); toast('Enlace copiado', 'ok'); } catch (err) { toast(a.dataset.url); } return; }
   if (act === 'abrir' && l) return abrirLead(l.id);
   if (act === 'contactado' && l) { a.disabled = true; if (await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí')) toast('Marcado como contactado', 'ok'); return refrescar(); }
   if (act === 'cotizado' && l) return moverA(l, 'Cotizado');
