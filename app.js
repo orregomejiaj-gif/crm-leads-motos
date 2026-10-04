@@ -10,7 +10,8 @@ const CFG = Object.assign({ API_URL: '', REFRESH_MS: 90000 }, window.AKT_CONFIG 
 const DEMO = /[?&]demo=1\b/.test(location.search);
 
 const ESTADOS = ['Nuevo', 'Contactado', 'Cotizado', 'Facturado', 'Perdido', 'Retenido'];
-const MOTIVOS = ['precio', 'financiación negada', 'compró en otro lado', 'no contesta', 'otro'];
+const MOTIVOS = ['precio', 'financiación negada', 'compró en otro lado', 'no contesta', 'atención', 'aún no decide', 'otro'];
+const ETAPAS_MANUALES = ['Visitó', 'Crédito en estudio', 'Crédito aprobado', 'Crédito negado', 'Entregado'];
 const TEMPS = ['caliente', 'tibio', 'frío'];
 
 const S = {
@@ -206,7 +207,8 @@ async function entrar(ev) {
 }
 
 function salir(msg) {
-  S.token = null; store('akt_ses', null);
+  S.token = null; store('akt_ses', null); S.bienvenidaVista = false;
+  const w = $('#welcome'); if (w) w.hidden = true;
   clearInterval(S.timer);
   mostrarLogin(msg);
 }
@@ -243,6 +245,8 @@ async function cargar(silencioso) {
     const vistas = vistasDeRol();
     if (!vistas.some(v => v.id === S.view)) S.view = vistas[0].id;
     renderNav(); render();
+    // Ventana grande de bienvenida: una vez por ingreso (no en las actualizaciones automáticas)
+    if (!S.bienvenidaVista) { S.bienvenidaVista = true; try { mostrarBienvenida(); } catch (e2) { console.error(e2); } }
     return true;
   } catch (e) {
     if (['AUTH', 'NOUSER'].includes(e.code)) { salir(e.message); return false; }
@@ -368,7 +372,10 @@ function vistasDeRol() {
   const v = [
     { id: 'hoy', icon: 'ti-checklist', label: 'Hoy' },
     { id: 'chats', icon: 'ti-messages', label: 'Chats' },
-    { id: 'embudo', icon: 'ti-layout-kanban', label: 'Embudo' }
+    { id: 'embudo', icon: 'ti-layout-kanban', label: 'Embudo' },
+    { id: 'metas', icon: 'ti-target', label: 'Metas' },
+    { id: 'ventas', icon: 'ti-report-money', label: 'Cifras' },
+    { id: 'indicadores', icon: 'ti-chart-dots', label: 'Indicadores' }
   ];
   if (r !== 'asesor') v.push({ id: 'analista', icon: 'ti-chart-histogram', label: 'Tablero' });
   v.push({ id: 'seguimientos', icon: 'ti-clipboard-check', label: 'Seguimiento' });
@@ -396,7 +403,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
+  const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   $('#view').innerHTML = fn();
   if (S.view === 'embudo') bindKanban();
@@ -546,7 +553,9 @@ function abrirLead(id) {
   if (!l) return;
   S.leadAbierto = id;
   const r = l.raw, g = l.g || {}, u = S.data.user, ed = puedeEditar(l);
-  const perfil = PERFIL.filter(([k]) => r[k] !== undefined && r[k] !== '').map(([k, t]) => `<dt>${t}</dt><dd>${esc(r[k])}</dd>`).join('');
+  const perIA = ((S.data.fase2 || {}).perfiles || []).find(p => String(p.id_lead) === f2Key(l)) || {};
+  const perfil = PERFIL.filter(([k]) => r[k] !== undefined && r[k] !== '').map(([k, t]) => `<dt>${t}</dt><dd>${esc(r[k])}</dd>`).join('')
+    + [['uso_moto', 'Uso de la moto'], ['objecion_principal', 'Objeción principal'], ['siguiente_paso', 'Siguiente paso']].filter(([k]) => perIA[k]).map(([k, t]) => `<dt>${t}</dt><dd>${esc(perIA[k])}</dd>`).join('');
   const eventos = [];
   if (r.fecha_primer_contacto) eventos.push({ f: parseFecha(r.fecha_primer_contacto), t: 'Primer mensaje al bot' });
   if (l.asign) eventos.push({ f: l.asign, t: 'Asignado a ' + (l.asesor || '—') });
@@ -581,6 +590,8 @@ function abrirLead(id) {
         ${u.rol !== 'asesor' ? `<div style="margin-top:12px"><label class="f">Reasignar asesor</label><div class="row"><select class="sel grow" id="reasignar">${opts(asesores.map(p => p.nombre), l.asesor, '— Elegir —')}</select><button class="btn btn-sm" data-act="reasignar" data-id="${esc(l.id)}">Reasignar</button></div></div>` : ''}
       </div>` : ''}
 
+      ${cardAvance(l, ed)}
+
       <div class="card"><h3 style="margin-bottom:8px">Perfil</h3>${perfil ? `<dl class="kv">${perfil}</dl>` : '<p class="muted small">El bot aún no ha capturado datos de perfil.</p>'}</div>
       <div class="card"><h3 style="margin-bottom:8px">Memoria de la IA</h3><p class="small" style="margin:0;white-space:pre-wrap">${esc(r.memoria_resumen || 'Sin resumen todavía.')}</p></div>
       <div class="card"><h3 style="margin-bottom:8px">Evidencia</h3>
@@ -596,6 +607,92 @@ function abrirLead(id) {
         <div id="chat-box"></div></div>`}
     </div>`);
   if (S.view !== 'chats') cargarChat(id, true);
+}
+
+// ── Avance de la venta: etapas del embudo, citas y encuestas del lead ──
+function cardAvance(l, ed) {
+  const F = S.data.fase2 || {}, k = f2Key(l);
+  const et = (F.etapas || []).filter(e => String(e.id_lead) === k);
+  const citas = (F.citas || []).filter(c => String(c.id_lead) === k).sort((a, b) => String(b.fecha + b.hora).localeCompare(String(a.fecha + a.hora)));
+  const encs = (F.encuestas || []).filter(e => String(e.id_lead) === k);
+  const alcanzadas = uniq(et.map(e => e.etapa));
+  const pendientes = ETAPAS_MANUALES.filter(x => !alcanzadas.includes(x));
+  const clsCita = { 'agendada': 'pill-info', 'asistió': 'pill-ok', 'no asistió': 'pill-bad', 'cancelada': '', 'reprogramada': '' };
+  const hoy = ymd(new Date());
+  return `<div class="card"><div class="card-h"><h3>Avance de la venta</h3></div>
+    <div class="row wrap" style="gap:4px">${alcanzadas.length ? alcanzadas.map(x => { const e = et.filter(y => y.etapa === x).pop(); return `<span class="pill ${x === 'Perdido' || x === 'Crédito negado' || x === 'No asistió a la cita' ? 'pill-bad' : x === 'Facturado' || x === 'Entregado' ? 'pill-ok' : 'pill-info'}" title="${esc(fmtFecha(parseFecha(e.fecha)))}${e.por ? ' · ' + esc(e.por) : ''}">${esc(x)}</span>`; }).join('') : '<span class="small muted">Aún sin etapas registradas.</span>'}</div>
+    ${ed && pendientes.length ? `<div class="row wrap" style="gap:6px;margin-top:8px">${pendientes.map(x => `<button class="btn btn-sm" data-act="etapa" data-id="${esc(l.id)}" data-v="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>` : ''}
+    <h4 class="muted" style="margin:12px 0 6px">Citas (${citas.length})</h4>
+    ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${esc(c.punto || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
+      ${ed && c.estado === 'agendada' ? ['asistió', 'no asistió', 'cancelada'].map(s => `<button class="btn btn-sm" data-act="cita-estado" data-id="${esc(l.id)}" data-cita="${esc(c.id_cita)}" data-v="${s}">${s === 'asistió' ? 'Asistió' : s === 'no asistió' ? 'No asistió' : 'Cancelar'}</button>`).join('') : ''}</div>`).join('') : '<p class="small muted" style="margin:0">Sin citas registradas.</p>'}
+    ${ed ? `<div class="row wrap" style="gap:6px;margin-top:8px"><input class="inp" type="date" id="cita-f" min="${hoy}" style="max-width:160px"><input class="inp" type="time" id="cita-h" style="max-width:120px"><button class="btn btn-sm btn-dark" data-act="cita-nueva" data-id="${esc(l.id)}"><i class="ti ti-calendar-plus"></i> Agendar cita</button></div>
+      <p class="tiny muted" style="margin:6px 0 0">Al agendar, el cliente recibe recordatorio 24 h y 2 h antes, y tú 2 h antes.</p>` : ''}
+    ${encs.length ? `<h4 class="muted" style="margin:12px 0 6px">Encuestas</h4>${encs.map(e => `<div class="small">${e.tipo === 'nps' ? 'NPS' : '¿Por qué no compró?'} · ${e.respondida ? (e.tipo === 'nps' ? `nota <b>${esc(e.nota)}</b> (${esc(e.clasificacion)})` : `<b>${esc(e.motivo)}</b>`) : esc(e.estado)}</div>`).join('')}` : ''}
+  </div>`;
+}
+async function accionAvance(act, a) {
+  const l = S.M.byId[a.dataset.id]; if (!l) return;
+  a.disabled = true;
+  try {
+    if (act === 'etapa') { await api('etapa', { id_lead: l.id, etapa: a.dataset.v }); toast('Etapa registrada: ' + a.dataset.v, 'ok'); }
+    if (act === 'cita-estado') { await api('cita', { id_lead: l.id, id_cita: a.dataset.cita, estado: a.dataset.v }); toast('Cita: ' + a.dataset.v, 'ok'); }
+    if (act === 'cita-nueva') {
+      const f = $('#cita-f').value, h = $('#cita-h').value;
+      if (!f || !h) { toast('Elige el día y la hora de la cita.', 'bad'); a.disabled = false; return; }
+      await api('cita', { id_lead: l.id, fecha: f, hora: h }); toast('Cita agendada', 'ok');
+    }
+    await recargarLead();
+  } catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+}
+
+// ── Indicadores: embudo, asistencia a citas, cierre, NPS y calidad de datos ──
+function vIndicadores() {
+  if (!S.ind || Date.now() - (S.indT || 0) > 60000) cargarIndicadores();
+  return `<div class="page-h"><div><h2>Indicadores</h2><p class="muted small">Embudo completo, asistencia a citas, motivos de pérdida, NPS y calidad de los datos. ${S.data.user.rol === 'asesor' ? 'Solo tus leads.' : ''}</p></div>
+    <button class="btn btn-sm" data-act="ind-recargar"><i class="ti ti-refresh"></i> Actualizar</button></div>
+    <div id="ind-cuerpo">${S.ind ? pintarIndicadores(S.ind) : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Calculando indicadores…</div></div>'}</div>`;
+}
+function cargarIndicadores() {
+  if (S.indBusy) return; S.indBusy = true;
+  api('indicadores').then(r => { S.ind = r; S.indErr = ''; S.indT = Date.now(); })
+    .catch(e => { S.indErr = e.message; })
+    .finally(() => {
+      S.indBusy = false;
+      const c = $('#ind-cuerpo');
+      if (S.view === 'indicadores' && c) c.innerHTML = S.ind ? pintarIndicadores(S.ind) : `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.indErr)}</div></div>`;
+    });
+}
+function pintarIndicadores(r) {
+  const pct = (a, b) => b ? Math.round(a * 100 / b) + ' %' : '—';
+  const c = r.citas || {}, n = r.nps || {}, cal = r.calidad || {};
+  const hechas = (c.asistio || 0) + (c.no_asistio || 0);
+  const emb = (r.embudo || []).map((e, i, arr) => ({ l: e.etapa, v: e.n, t: e.n + (i > 0 && arr[0].n ? ` · ${Math.round(e.n * 100 / arr[0].n)} %` : '') }));
+  const motivos = {}; Object.entries(r.motivos_perdida || {}).forEach(([k, v]) => { motivos[k] = (motivos[k] || 0) + v; });
+  const motEnc = Object.entries(r.motivos_encuesta || {}).map(([l, v]) => ({ l, v }));
+  const asesores = (r.asesores || []).map(a => `<tr><td>${esc(a.asesor)}</td><td class="r">${a.leads}</td><td class="r">${pct(a.contactados, a.leads)}</td><td class="r">${a.t_resp_mediana_h === null || a.t_resp_mediana_h === undefined ? '—' : fmtHoras(a.t_resp_mediana_h)}</td>
+    <td class="r">${a.citas}</td><td class="r">${pct(a.asistio, a.asistio + a.no_asistio)}</td><td class="r">${a.ganados}</td><td class="r">${a.perdidos}</td><td class="r">${a.reasignados || 0}</td>
+    <td class="r">${a.nps_n ? Math.round((a.nps_prom - a.nps_det) * 100 / a.nps_n) : '—'}</td></tr>`).join('');
+  const cuenta = o => Object.entries(o || {}).map(([l, v]) => ({ l, v })).sort((x, y) => y.v - x.v).slice(0, 8);
+  const alertasCal = [['sin_zona', 'Leads sin zona (no se puede enrutar bien)'], ['sin_modelo', 'Leads sin modelo de interés'], ['sin_asesor', 'Leads sin asesor'], ['sin_etiqueta', 'Leads sin etiqueta de temperatura'], ['agendado_sin_cita', 'Marcados “agendado” sin cita registrada']].filter(([k]) => cal[k]);
+  return `<div class="grid g-kpi">${kpi('Leads', (r.resumen || {}).leads || 0)}
+      ${kpi('1ª respuesta (mediana)', (r.resumen || {}).mediana_primera_respuesta_h === null || (r.resumen || {}).mediana_primera_respuesta_h === undefined ? '—' : fmtHoras(r.resumen.mediana_primera_respuesta_h), 'Del primer mensaje al primer contacto')}
+      ${kpi('Asistencia a citas', pct(c.asistio || 0, hechas), `${c.asistio || 0} asistieron · ${c.no_asistio || 0} no · ${c.pendientes || 0} pendientes`)}
+      ${kpi('NPS', n.nps === null || n.nps === undefined ? '—' : n.nps, `${n.respondidas || 0} de ${n.enviadas || 0} respondieron`)}</div>
+    <div class="grid g2">
+      <div class="card"><h3 style="margin-bottom:8px">Embudo (leads que llegaron a cada etapa)</h3>${bars(emb)}</div>
+      <div class="card"><h3 style="margin-bottom:8px">Motivos de pérdida</h3>${bars(Object.entries(motivos).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v), { vacio: 'Aún no hay leads perdidos con motivo.' })}
+        ${motEnc.length ? `<h4 class="muted" style="margin:12px 0 6px">Según la encuesta al cliente</h4>${bars(motEnc)}` : ''}</div>
+    </div>
+    <div class="card"><h3 style="margin-bottom:8px">Desempeño por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Citas</th><th class="r">Asistencia</th><th class="r">Ganados</th><th class="r">Perdidos</th><th class="r">Reasign.</th><th class="r">NPS</th></tr></thead><tbody>${asesores || '<tr><td colspan="10" class="muted">Sin datos.</td></tr>'}</tbody></table></div></div>
+    <div class="grid g2">
+      <div class="card"><h3 style="margin-bottom:8px">Lo que dicen los clientes (IA)</h3>
+        <h4 class="muted" style="margin:0 0 6px">Uso de la moto</h4>${bars(cuenta((r.perfil || {}).uso_moto), { vacio: 'Sin datos todavía.' })}
+        <h4 class="muted" style="margin:10px 0 6px">Objeción principal</h4>${bars(cuenta((r.perfil || {}).objecion), { vacio: 'Sin datos todavía.' })}
+        <h4 class="muted" style="margin:10px 0 6px">Forma de pago</h4>${bars(cuenta((r.perfil || {}).forma_pago), { vacio: 'Sin datos todavía.' })}</div>
+      <div class="card"><h3 style="margin-bottom:8px">Calidad de los datos</h3>
+        ${alertasCal.length ? alertasCal.map(([k, t]) => `<div class="row" style="justify-content:space-between;padding:4px 0"><span class="small">${t}</span><span class="pill pill-warn">${cal[k]}</span></div>`).join('') : '<div class="notice ok"><i class="ti ti-circle-check"></i><div>Sin problemas de calidad detectados.</div></div>'}
+        ${(n.comentarios || []).length ? `<h4 class="muted" style="margin:12px 0 6px">Comentarios NPS recientes</h4>${n.comentarios.map(x => `<p class="small" style="margin:0 0 6px"><b>${esc(x.nota)}</b> · ${esc(x.comentario)} <span class="muted">(${esc(x.asesor || '')})</span></p>`).join('')}` : ''}</div>
+    </div>`;
 }
 
 // ── Bandeja de chats: todas las conversaciones (cliente, bot y asesores) dentro de la app ──
@@ -760,6 +857,24 @@ function pedirMotivo(l) {
   });
 }
 
+// Cierre atómico en el servidor: resultado + motivo (obligatorio si se pierde) + fecha + etapa del embudo + encuesta programada.
+async function cerrarLead(l, resultado, motivo) {
+  try {
+    await api('cierre', { id_lead: l.id, resultado, motivo: motivo || '' });
+    const ahora = new Date().toISOString();
+    if (l.g) { l.g.resultado = resultado; l.g.motivo_perdida = resultado === 'perdido' ? motivo : ''; l.g.fecha_ultima_actualizacion = ahora; }
+    l.raw.resultado_venta = resultado; l.raw.fecha_cierre = ahora;
+    etapaLocal(l, resultado === 'ganado' ? 'Facturado' : resultado === 'perdido' ? 'Perdido' : 'Retenido');
+    return true;
+  } catch (e) { toast(e.message, 'bad'); return false; }
+}
+function f2Key(l) { return String(l.raw.id_lead || l.id); }
+function etapaLocal(l, etapa) {
+  const F = S.data.fase2 = S.data.fase2 || { citas: [], etapas: [], perfiles: [], encuestas: [] };
+  F.etapas.push({ id_lead: f2Key(l), etapa, fecha: new Date().toISOString(), por: S.data.user.nombre });
+}
+async function recargarLead() { await cargar(true); if (S.leadAbierto) abrirLead(S.leadAbierto); }
+
 async function moverA(l, destino) {
   if (destino === l.estado) return;
   if (!puedeEditar(l)) { toast('Solo puedes mover tus propios leads.', 'bad'); return; }
@@ -779,14 +894,14 @@ async function moverA(l, destino) {
     await setCampo(l, 'Gestion_Asesor', 'cotizado', 'Sí');
   } else if (destino === 'Facturado') {
     if (!l.fac.length && !(await confirmar('Sin factura', `No hay factura vinculada a ${leadTxt}. Quedará como <b>pendiente de facturar</b> hasta que el Jefe cargue la factura.`, 'Marcar ganado'))) return;
-    await setCampo(l, 'Gestion_Asesor', 'resultado', 'ganado');
+    if (!(await cerrarLead(l, 'ganado'))) return refrescar();
   } else if (destino === 'Perdido') {
     const m = await pedirMotivo(l);
     if (!m) return;
-    if (await setCampo(l, 'Gestion_Asesor', 'motivo_perdida', m)) await setCampo(l, 'Gestion_Asesor', 'resultado', 'perdido');
+    if (!(await cerrarLead(l, 'perdido', m))) return refrescar();
   } else if (destino === 'Retenido') {
     if (!(await confirmar('Marcar como retenido', `La definición de "Retenido" está pendiente del Jefe Comercial. ¿Marcar ${leadTxt} como retenido?`, 'Marcar retenido'))) return;
-    await setCampo(l, 'Gestion_Asesor', 'resultado', 'retenido');
+    if (!(await cerrarLead(l, 'retenido'))) return refrescar();
   }
   toast(`${l.nombre} → ${destino}`, 'ok');
   refrescar();
@@ -916,6 +1031,138 @@ function vAnalista() {
     ${demanda.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modelo pedido</th><th class="r">Leads</th><th class="r">Disp. Itagüí</th><th class="r">Disp. Los Colores</th></tr></thead><tbody>
       ${demanda.map(d => { const i = invRow(d.l); return `<tr><td>${esc(d.l)}${i ? '' : ' <span class="pill">sin existencias en el último corte</span>'}</td><td class="r num">${d.v}</td><td class="r num">${i ? cel(i.disponible_itagui) : '—'}</td><td class="r num">${i ? cel(i.disponible_los_colores) : '—'}</td></tr>`; }).join('')}
     </tbody></table></div><p class="tiny muted">Existencias del repositorio de Inventario (último corte de Síntesis por punto). El detalle está en Inventario.</p>` : empty('ti-motorbike', 'Ningún lead del período tiene modelo de interés.')}`;
+}
+
+// ── Metas del mes: cómo vamos (vista "Metas" y ventana de bienvenida) ─────
+function diasDelMes(mes) {
+  const [y, m] = mes.split('-').map(Number), total = new Date(Date.UTC(y, m, 0)).getUTCDate(), hoy = bparts(new Date());
+  const actual = `${hoy.y}-${pad(hoy.m)}`;
+  const transc = mes === actual ? hoy.d : (mes < actual ? total : 0);
+  return { total, transc, rest: total - transc };
+}
+function metaDe(mes, f) { return (S.data.metas || []).find(m => mesKey(m.mes) === mes && f(m)); }
+// Resume el avance de un conjunto de leads contra su meta. Vendidas = lo mayor entre facturas cargadas y leads marcados ganados.
+function armarAvance(nombre, ls, fac, metaRow, mes, extra) {
+  // Lo vendido sale del Histórico de ventas (Síntesis, neto de notas crédito) cuando hay datos de ese mes; si no, de facturas o leads ganados.
+  const d = diasDelMes(mes), gan = ls.filter(l => l.estado === 'Facturado').length, hist = extra && extra.hist !== undefined ? extra.hist : null;
+  const motos = hist !== null ? hist : Math.max(fac, gan);
+  const meta = metaRow ? num(metaRow.meta_motos) : null;
+  const esperado = meta && d.total ? Math.round(meta * d.transc / d.total * 10) / 10 : null;
+  const proy = d.transc ? Math.round(motos / d.transc * d.total) : null;
+  const falta = meta !== null ? Math.max(meta - motos, 0) : null;
+  return Object.assign({
+    nombre, meta, motos, fac, gan, leads: ls.length, contactados: ls.filter(l => l.contactado || ['Cotizado', 'Facturado'].includes(l.estado)).length,
+    cotizados: ls.filter(l => l.cotizado || ['Cotizado', 'Facturado'].includes(l.estado)).length, perdidos: ls.filter(l => l.estado === 'Perdido').length,
+    pct: meta ? Math.round(motos * 100 / meta) : null, esperado, proy, falta,
+    porDia: falta !== null && d.rest > 0 ? Math.round(falta / d.rest * 100) / 100 : null,
+    ritmo: meta && esperado !== null ? (motos >= esperado ? 'ok' : motos >= esperado * 0.6 ? 'warn' : 'bad') : 'na', dias: d
+  }, extra || {});
+}
+function avancePunto(sede, mes) {
+  const ls = S.M.leads.filter(l => l.sede === sede && l.asign && ym(l.asign) === mes);
+  const fac = (S.data.facturas || []).filter(f => sedeCanon(f.sede) === sede && mesKey(f.fecha) === mes).length;
+  const m = metaDe(mes, x => sedeCanon(x.persona) === sede) || metaDe(mes, x => sedeCanon(x.sede) === sede && norm(x.rol) === 'punto');
+  return armarAvance(sede, ls, fac, m, mes, { tipo: 'punto', hist: histVendidas(mes, x => x.punto === sede) });
+}
+// Motos vendidas según el Histórico de ventas; null si ese mes no se ha cargado todavía.
+function histVendidas(mes, filtro) {
+  const del = (S.data.ventasMes || []).filter(v => v.mes === mes);
+  return del.length ? del.filter(filtro).reduce((s, v) => s + v.cantidad, 0) : null;
+}
+function avancePersona(p, mes) {
+  const ls = S.M.leads.filter(l => norm(l.asesor) === norm(p.nombre) && l.asign && ym(l.asign) === mes);
+  const fac = (S.data.facturas || []).filter(f => norm(f.asesor) === norm(p.nombre) && mesKey(f.fecha) === mes).length;
+  const m = metaDe(mes, x => norm(x.persona) === norm(p.nombre));
+  return armarAvance(p.nombre, ls, fac, m, mes, { tipo: 'asesor', sede: p.sedeCanon, hist: histVendidas(mes, x => norm(x.asesor) === norm(p.nombre)) });
+}
+function avanceGlobal(mes) {
+  const u = S.data.user;
+  if (u.rol === 'asesor') return { propio: avancePersona({ nombre: u.nombre, sedeCanon: u.sede }, mes), puntos: [] };
+  const sedes = u.rol === 'jefe' ? ['Itagüí', 'Los Colores'] : [u.sede];
+  const puntos = sedes.map(s => avancePunto(s, mes));
+  const mismas = puntos.filter(p => p.meta !== null);
+  const total = armarAvance(u.rol === 'jefe' ? 'Los dos puntos' : u.sede, [], 0, null, mes, { tipo: 'total' });
+  total.leads = puntos.reduce((a, p) => a + p.leads, 0); total.contactados = puntos.reduce((a, p) => a + p.contactados, 0);
+  total.cotizados = puntos.reduce((a, p) => a + p.cotizados, 0); total.perdidos = puntos.reduce((a, p) => a + p.perdidos, 0);
+  total.motos = puntos.reduce((a, p) => a + p.motos, 0);
+  total.meta = mismas.length ? mismas.reduce((a, p) => a + p.meta, 0) : null;
+  const d = total.dias; total.pct = total.meta ? Math.round(total.motos * 100 / total.meta) : null;
+  total.esperado = total.meta ? Math.round(total.meta * d.transc / d.total * 10) / 10 : null;
+  total.proy = d.transc ? Math.round(total.motos / d.transc * d.total) : null;
+  total.falta = total.meta !== null ? Math.max(total.meta - total.motos, 0) : null;
+  total.porDia = total.falta !== null && d.rest > 0 ? Math.round(total.falta / d.rest * 100) / 100 : null;
+  total.ritmo = total.meta ? (total.motos >= total.esperado ? 'ok' : total.motos >= total.esperado * 0.6 ? 'warn' : 'bad') : 'na';
+  return { propio: null, puntos, total };
+}
+function barraMeta(a, grande) {
+  if (a.meta === null) return `<div class="mt-sinmeta"><i class="ti ti-target-off"></i> Sin meta cargada para ${esc(fmtMes(a.mes || ''))} en la hoja Metas</div>`;
+  const w = Math.min(a.pct || 0, 100), e = a.meta ? Math.min(a.esperado / a.meta * 100, 100) : 0;
+  return `<div class="mt-barra ${grande ? 'grande' : ''}"><div class="mt-fill ${a.ritmo}" style="width:${w}%"></div>${a.esperado !== null ? `<div class="mt-marca" style="left:${e}%" title="Dónde deberías ir hoy"></div>` : ''}</div>
+    <div class="mt-pie"><span><b>${a.motos}</b> de ${a.meta} motos · <b>${a.pct}%</b></span><span class="muted">${a.dias.rest > 0 ? `Faltan ${a.falta} en ${a.dias.rest} día${a.dias.rest === 1 ? '' : 's'}${a.porDia ? ` (${String(a.porDia).replace('.', ',')} por día)` : ''}` : (a.falta ? `Faltaron ${a.falta}` : '¡Meta cumplida!')}</span></div>`;
+}
+function textoRitmo(a) {
+  if (a.meta === null || a.esperado === null || !a.dias.transc) return '';
+  if (a.motos >= a.meta) return '🎉 ¡Meta cumplida!';
+  if (a.ritmo === 'ok') return `Vamos al día: a hoy deberíamos llevar ${String(a.esperado).replace('.', ',')} y llevamos ${a.motos}.`;
+  return `A hoy deberíamos llevar ${String(a.esperado).replace('.', ',')} motos y llevamos ${a.motos}. ${a.proy !== null ? `Al ritmo actual cerraríamos en ${a.proy}.` : ''}`;
+}
+
+function vMetas() {
+  const u = S.data.user;
+  S.mes = S.mes || mesesRecientes(1)[0];
+  const mes = S.mes, G = avanceGlobal(mes), hojaMetas = S.data.hojas.Metas;
+  const card = a => { a.mes = mes; return `<div class="card mt-card"><div class="card-h"><h3>${esc(a.nombre)}</h3>${a.meta !== null ? `<span class="pill pill-${a.ritmo === 'na' ? '' : a.ritmo}">${a.ritmo === 'ok' ? 'Al día' : a.ritmo === 'warn' ? 'Atento' : a.ritmo === 'bad' ? 'Por debajo del ritmo' : ''}</span>` : ''}</div>
+    ${barraMeta(a)}<p class="small muted" style="margin:6px 0 10px">${esc(textoRitmo(a))}</p>
+    <div class="mt-mini"><div><b>${a.leads}</b><span>Leads</span></div><div><b>${a.contactados}</b><span>Contactados</span></div><div><b>${a.cotizados}</b><span>Cotizados</span></div><div><b>${a.motos}</b><span>Vendidas</span></div><div><b>${a.perdidos}</b><span>Perdidos</span></div></div>
+    ${a.hist !== null && a.hist !== undefined ? `<p class="tiny muted" style="margin:8px 0 0">Vendidas según el Histórico de ventas de Síntesis (neto de notas crédito).</p>` : a.fac !== a.gan ? `<p class="tiny muted" style="margin:8px 0 0">Facturas cargadas: ${a.fac} · leads marcados ganados: ${a.gan}. Se cuenta el mayor hasta cargar el Histórico de ventas.</p>` : ''}</div>`; };
+  let cuerpo;
+  if (u.rol === 'asesor') cuerpo = `<div class="grid g2">${card(G.propio)}</div>`;
+  else {
+    const personas = S.M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => avancePersona(p, mes)).sort((x, y) => (y.pct ?? -1) - (x.pct ?? -1));
+    G.total.mes = mes;
+    cuerpo = `${G.puntos.length > 1 ? `<div class="grid g2">${card(G.total)}</div>` : ''}
+      <div class="grid g2">${G.puntos.map(card).join('')}</div>
+      <div class="section-title"><i class="ti ti-users"></i>Por asesor</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th class="r">Leads</th><th class="r">Vendidas</th><th class="r">Meta</th><th style="min-width:150px">Avance</th></tr></thead><tbody>
+      ${personas.map(a => `<tr><td><b>${esc(a.nombre)}</b></td><td>${esc(a.sede || '')}</td><td class="r num">${a.leads}</td><td class="r num">${a.motos}</td><td class="r num">${a.meta === null ? '<span class="muted">—</span>' : a.meta}</td>
+        <td>${a.meta === null ? '<span class="muted small">Sin meta</span>' : `<div class="mt-barra"><div class="mt-fill ${a.ritmo}" style="width:${Math.min(a.pct, 100)}%"></div></div><span class="tiny muted">${a.pct}%</span>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin asesores.</td></tr>'}</tbody></table></div>`;
+  }
+  return `<div class="page-h"><div><h2>Metas</h2><p class="muted small">Cómo vamos con la meta del mes. La meta sale de la hoja Metas; lo vendido, de las facturas y de los leads marcados como ganados.</p></div>
+      <div class="row"><select class="sel" data-ch="mes">${opts(mesesRecientes(12).map(m => ({ v: m, t: fmtMes(m) })), mes)}</select><button class="btn btn-sm btn-dark" data-act="ver-bienvenida"><i class="ti ti-presentation"></i> Ver resumen grande</button></div></div>
+    ${!hojaMetas ? '<div class="notice"><i class="ti ti-target-off"></i><div>La hoja <b>Metas</b> aún no existe.</div></div>' : ''}${cuerpo}`;
+}
+
+// Ventana grande al entrar: cómo vamos con los leads y con la meta del mes
+function mostrarBienvenida() {
+  const u = S.data.user, mes = mesesRecientes(1)[0], G = avanceGlobal(mes), d = diasDelMes(mes);
+  const hora = bparts(new Date()).h, saludo = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
+  const principal = G.propio || G.total || G.puntos[0];
+  principal.mes = mes;
+  const kp = (n, t, c) => `<div class="wl-kpi ${c || ''}"><b data-n="${n}">0</b><span>${t}</span></div>`;
+  const secundarios = G.propio ? [] : G.puntos.length > 1 ? G.puntos : [];
+  const html = `<div class="wl-backdrop" data-wl-cerrar></div><div class="wl-card" role="dialog" aria-modal="true" aria-label="Resumen del mes">
+    <button class="icon-btn wl-x" data-wl-cerrar title="Cerrar"><i class="ti ti-x"></i></button>
+    <div class="wl-top"><div class="wl-saludo">${saludo}, ${esc(String(u.nombre).split(' ')[0])} 👋</div><div class="wl-mes">${esc(fmtMes(mes))} · día ${d.transc} de ${d.total}</div></div>
+    <div class="wl-kpis">${kp(principal.leads, 'Leads del mes')}${kp(principal.contactados, 'Contactados')}${kp(principal.cotizados, 'Cotizados')}${kp(principal.motos, 'Motos vendidas', 'wl-venta')}</div>
+    <div class="wl-meta"><div class="wl-meta-t"><i class="ti ti-target"></i> ${G.propio ? 'Tu meta del mes' : G.total && G.puntos.length > 1 ? 'Meta del mes · los dos puntos' : 'Meta del mes · ' + esc(principal.nombre)}</div>
+      ${barraMeta(principal, true)}<p class="wl-ritmo">${esc(textoRitmo(principal))}</p></div>
+    ${secundarios.length ? `<div class="wl-puntos">${secundarios.map(p => { p.mes = mes; return `<div class="wl-punto"><b>${esc(p.nombre)}</b>${barraMeta(p)}<span class="tiny muted">${p.leads} leads · ${p.contactados} contactados</span></div>`; }).join('')}</div>` : ''}
+    <div class="wl-acciones"><button class="btn" data-wl-cerrar data-wl-ir="metas"><i class="ti ti-chart-bar"></i> Ver detalle de metas</button><button class="btn btn-primary wl-entrar" data-wl-cerrar><i class="ti ti-arrow-right"></i> Entrar a la app</button></div></div>`;
+  let w = $('#welcome');
+  if (!w) { w = document.createElement('div'); w.id = 'welcome'; w.className = 'welcome'; document.body.appendChild(w); }
+  w.innerHTML = html; w.hidden = false; document.body.style.overflow = 'hidden';
+  // Los números suben de 0 al valor real
+  $$('.wl-kpi b', w).forEach(el => {
+    const fin = Number(el.dataset.n) || 0, t0 = performance.now();
+    const paso = t => { const k = Math.min((t - t0) / 700, 1); el.textContent = Math.round(fin * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(paso); };
+    requestAnimationFrame(paso);
+  });
+  setTimeout(() => { const b = $('.wl-entrar', w); if (b) b.focus(); }, 50);
+}
+function cerrarBienvenida(ir) {
+  const w = $('#welcome'); if (w) w.hidden = true;
+  document.body.style.overflow = $('#sheet').hidden ? '' : 'hidden';
+  if (ir) { S.view = ir; renderNav(); render(); window.scrollTo(0, 0); }
 }
 
 // ── Vista: Comisiones ─────────────────────────────────────────────────────
@@ -1330,6 +1577,8 @@ function validarCarga() {
 
 // ── Eventos ───────────────────────────────────────────────────────────────
 document.addEventListener('click', async e => {
+  const wl = e.target.closest('[data-wl-cerrar]');
+  if (wl) return cerrarBienvenida(wl.dataset.wlIr);
   const nav = e.target.closest('[data-nav]');
   if (nav) { S.view = nav.dataset.nav; renderNav(); render(); window.scrollTo(0, 0); return; }
   if (e.target.closest('[data-close]')) {
@@ -1345,6 +1594,9 @@ document.addEventListener('click', async e => {
   if (MOD && a.dataset.act.startsWith('m-')) { if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault(); return MOD.onClick(a.dataset.act, a, e); }
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
+  if (act === 'ver-bienvenida') return mostrarBienvenida();
+  if (['etapa', 'cita-estado', 'cita-nueva'].includes(act)) return accionAvance(act, a);
+  if (act === 'ind-recargar') { S.indT = 0; S.ind = null; cargarIndicadores(); return render(); }
   if (act === 'chat-abrir') return abrirChatBandeja(a.dataset.id);
   if (act === 'ir-chat') { cerrarSheet(); S.chatSel = a.dataset.id; S.view = 'chats'; renderNav(); return render(); }
   if (act === 'chat-volver') { S.chatSel = null; S.leadAbierto = null; return render(); }
@@ -1440,6 +1692,7 @@ document.addEventListener('focusout', async e => {
   } catch (err) { toast(err.message, 'bad'); td.textContent = orig; }
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#welcome') && !$('#welcome').hidden) return cerrarBienvenida();
   if (e.key === 'Escape' && !$('#sheet').hidden) {
     if (S._modalCancel) { const c = S._modalCancel; cerrarModal(); c(); } else cerrarSheet();
   }

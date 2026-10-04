@@ -11,8 +11,8 @@ const render = () => H.render();
 
 const D = {};            // datos cargados por módulo
 const cargando = {};
-const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'sim', cfgRepos: null };
-const F = { fecha: '', semana: '', punto: '', asesor: '', dias: '30', cobertura: '30', quieto: '90', estado: '', tipo: '', periodoCot: '60', buscar: '' };
+const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'sim', cif: 'cierre', cfgRepos: null };
+const F = { mesCif: '', fecha: '', semana: '', punto: '', asesor: '', dias: '30', cobertura: '30', quieto: '90', estado: '', tipo: '', periodoCot: '60', buscar: '' };
 let IMP = null;          // estado del cargador de exportes
 let REPOS = null;        // estado de repositorios (Ajustes)
 
@@ -750,7 +750,8 @@ const DETECTA = {
   Facturacion: [['Fecha', P.fecha], ['Modelo / artículo', P.modelo], ['Bodega / punto', P.bodega]],
   Ingresos_Taller: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Valor', P.valor]],
   Cotizaciones_Sintesis: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Asesor', P.asesor]],
-  Cotizaciones_CRM: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Asesor', P.asesor]]
+  Cotizaciones_CRM: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Asesor', P.asesor]],
+  Historico_Ventas: [['Factura', ['nrofactura']], ['Fecha', ['fechadocumento']], ['Vendedor', ['vendedor']], ['Bodega', ['bodega']], ['Referencia', ['producto']], ['Cantidad', ['cantidad']], ['Cédula', P.ced], ['Celular', P.tel]]
 };
 function importador(repo, hojas) {
   if (!IMP || IMP.repo !== repo) IMP = { repo, hoja: hojas[0][0], filas: null, lote: hoyTxt() };
@@ -767,7 +768,7 @@ function importador(repo, hojas) {
       <div><label class="f">${PUNTO_HOJA[IMP.hoja] ? 'Fecha del corte de inventario' : 'Fecha de la carga'}</label><input type="date" class="inp w100" data-mch="imp-lote" value="${IMP.lote}"></div>
       <div><label class="f">Archivo de Excel o CSV exportado</label><input type="file" class="inp w100" accept=".xlsx,.xls,.csv" data-mch="imp-file"></div></div>
     <details><summary class="small">…o pega aquí las celdas copiadas de Excel</summary><textarea class="inp" id="imp-txt" style="min-height:100px;font-family:monospace;font-size:.75rem;margin-top:6px"></textarea><button class="btn btn-sm" data-act="m-imp-leer" style="margin-top:6px">Leer lo pegado</button></details>
-    ${IMP.filas ? `<div class="notice ${faltaClave ? 'bad' : 'ok'}"><i class="ti ti-${faltaClave ? 'alert-triangle' : 'circle-check'}"></i><div><b>${IMP.filas.length} filas leídas</b> · ${cols.length} columnas.<br>Detectado: ${det.map(([t, ok]) => `${ok ? '✓' : '✗'} ${t}`).join(' · ')}${faltaClave ? '<br>No hay cédula, celular ni correo: no se podrá cruzar.' : ''}</div></div>
+    ${IMP.filas ? `<div class="notice ${faltaClave ? 'bad' : 'ok'}"><i class="ti ti-${faltaClave ? 'alert-triangle' : 'circle-check'}"></i><div><b>${IMP.filas.length} filas leídas</b> · ${cols.length} columnas.${IMP.descartadas ? `<br>Se dejaron por fuera ${IMP.descartadas} filas que no son motocicletas (repuestos, mano de obra, accesorios…).` : ''}<br>Detectado: ${det.map(([t, ok]) => `${ok ? '✓' : '✗'} ${t}`).join(' · ')}${faltaClave ? '<br>No hay cédula, celular ni correo: no se podrá cruzar.' : ''}</div></div>
       <div class="tbl-wrap" style="max-height:220px"><table class="tbl"><thead><tr>${cols.slice(0, 12).map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${IMP.filas.slice(0, 5).map(r => `<tr>${cols.slice(0, 12).map(c => `<td>${esc(/costo|serie/i.test(c) ? '•••' : r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
       ${ajenas.length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>El archivo trae la bodega <b>${esc(ajenas.join(', '))}</b>, que no es de <b>${esc(esperado)}</b>. Elige la hoja correcta arriba; si lo cargas así, el servidor lo rechazará.</div></div>` : ''}
       ${repEnMotos ? '<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>Este archivo parece de <b>repuestos</b> (bodega de repuestos) y lo vas a cargar en una hoja de motos.</div></div>' : ''}
@@ -787,8 +788,21 @@ async function leerArchivo(input) {
   try {
     await cargarScript(XLSX_URL);
     const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
-    const m = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '', dateNF: 'yyyy-mm-dd' });
+    // Los exportes de ventas traen una tabla dinámica en la primera hoja: se usa la hoja que tiene la columna «Nro Factura» (o la más grande).
+    let nombreHoja = wb.SheetNames[0];
+    if (IMP.hoja === 'Historico_Ventas') {
+      const rango = n => { const r = wb.Sheets[n]['!ref']; return r ? XLSX.utils.decode_range(r).e.r : 0; };
+      nombreHoja = wb.SheetNames.slice().sort((a, b) => rango(b) - rango(a))[0];
+    }
+    const m = XLSX.utils.sheet_to_json(wb.Sheets[nombreHoja], { header: 1, raw: false, defval: '', dateNF: 'yyyy-mm-dd' });
     IMP.filas = filasDeMatriz(m);
+    if (IMP.hoja === 'Historico_Ventas') {
+      // Solo motocicletas, y las columnas sensibles ni siquiera salen del navegador
+      const total = IMP.filas.length, SENS = /^(direccion|correo|serie|costo|usolibre|proveedor|caja|iva|inc|ivafac|incfac)$/;
+      IMP.filas = IMP.filas.filter(r => String(col(r, ['categoriaproducto']) || '').trim().toUpperCase() === 'MOTOCICLETA')
+        .map(r => { const o = {}; Object.keys(r).forEach(k => { if (!SENS.test(nkey(k))) o[k] = r[k]; }); return o; });
+      IMP.descartadas = total - IMP.filas.length;
+    }
     if (PUNTO_HOJA[IMP.hoja]) { const fc = IMP.filas.map(r => fechaTxt(r.FECHACORTE || r.fechacorte || '')).find(Boolean); if (fc) IMP.lote = fc; }
     render();
   } catch (e) { toast('No se pudo leer el archivo: ' + e.message, 'bad'); }
@@ -800,13 +814,87 @@ async function subirImport(btn) {
   try {
     for (let i = 0; i < filas.length; i += 1000) {
       btn.innerHTML = `<i class="ti ti-loader-2 spin"></i> ${Math.min(i + 1000, filas.length)}/${filas.length}`;
-      const r = await api('importar', { repo: IMP.repo, hoja: IMP.hoja, lote: IMP.lote, filas: filas.slice(i, i + 1000), continuar: i > 0 });
+      const r = await api('importar', { repo: IMP.repo, hoja: IMP.hoja, lote: IMP.lote, filas: filas.slice(i, i + 1000), continuar: i > 0, ultima: i + 1000 >= filas.length });
       agregadas += r.agregadas; repetidas += r.repetidas;
     }
     toast(`${agregadas} filas cargadas${repetidas ? ` · ${repetidas} ya existían` : ''}`, 'ok');
     IMP.filas = null;
-    await cargarMod(IMP.repo === 'posventa' ? 'posventa' : IMP.repo, true);
+    IMP.descartadas = 0;
+    D.ventas = null; // el histórico cambió: se vuelve a leer al abrir Cifras
+    await cargarMod(IMP.repo === 'posventa' ? 'posventa' : IMP.repo === 'metas' ? 'ventas' : IMP.repo, true);
+    H.cargar(true); // refresca las metas con lo vendido
   } catch (e) { toast(e.message, 'bad'); btn.disabled = false; btn.textContent = 'Reintentar'; }
+}
+
+// ═══════════════ CIFRAS COMERCIALES: cierre de mes y referencias más vendidas ═══════════════
+// Fuente: hoja Historico_Ventas del repositorio «Metas y Cifras Comerciales» (exporte de ventas de Síntesis, solo motocicletas; las notas crédito restan).
+const NIVELES_TOP = [['asesor', 'Por asesor', 'ti-user'], ['punto', 'Por punto', 'ti-building-store'], ['zona', 'Por zona', 'ti-map-2'], ['red', 'Toda la red', 'ti-world']];
+function metaPunto(punto, mes) {
+  const m = (S.data.metas || []).find(x => H.mesKey(x.mes) === mes && sedeCanon(x.persona) === punto) || (S.data.metas || []).find(x => H.mesKey(x.mes) === mes && sedeCanon(x.sede) === punto && norm(x.rol) === 'punto');
+  return m ? num(m.meta_motos) : null;
+}
+function arbolCierre(filas) {
+  const A = {};
+  filas.forEach(r => {
+    const p = A[r.punto] = A[r.punto] || { total: 0, valor: 0, zona: r.zona, asesores: {} };
+    const a = p.asesores[r.asesor] = p.asesores[r.asesor] || { total: 0, valor: 0, pagos: {} };
+    p.total += r.cantidad; a.total += r.cantidad; p.valor += r.valor; a.valor += r.valor; a.pagos[r.forma_pago] = (a.pagos[r.forma_pago] || 0) + r.cantidad;
+  });
+  return A;
+}
+function tCierre(d, mes) {
+  const filas = d.cierre.filter(r => r.mes === mes), A = arbolCierre(filas), puntos = Object.keys(A).sort((a, b) => (A[b].total - A[a].total));
+  const total = puntos.reduce((s, p) => s + A[p].total, 0), valor = puntos.reduce((s, p) => s + A[p].valor, 0);
+  if (!filas.length) return empty('ti-report-off', 'No hay ventas cargadas para ' + H.fmtMes(mes) + '.');
+  const propios = puntos.filter(p => p === 'Itagüí' || p === 'Los Colores');
+  const kp = propios.map(p => { const mt = metaPunto(p, mes); return kpi(p, A[p].total + (mt ? ' / ' + mt : ''), mt ? fmtPct(pct(A[p].total, mt)) + ' de la meta' : 'motos vendidas (neto)', mt && A[p].total >= mt ? 'ok' : ''); });
+  return `<div class="grid g-kpi">${kpi('Motos vendidas', total, 'neto de notas crédito')}${kp.join('')}${kpi('Valor facturado', money(valor), 'total de las motos')}</div>
+    <div class="row between wrap" style="margin:12px 0 6px"><div class="section-title" style="margin:0"><i class="ti ti-report"></i>Cierre de mes · ${esc(H.fmtMes(mes))}</div><button class="btn btn-sm" data-act="m-cierre-excel" data-mes="${esc(mes)}"><i class="ti ti-file-spreadsheet"></i> Descargar Excel</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto · asesor · forma de pago</th><th class="r">Motos</th><th class="r">Valor</th></tr></thead><tbody>
+    ${puntos.map(p => `<tr class="cz-p"><td><b>${esc(p)}</b> <span class="tiny muted">${esc(A[p].zona)}</span></td><td class="r num"><b>${A[p].total}</b></td><td class="r num">${money(A[p].valor)}</td></tr>
+      ${Object.keys(A[p].asesores).sort((x, y) => A[p].asesores[y].total - A[p].asesores[x].total).map(a => { const g = A[p].asesores[a];
+        return `<tr><td style="padding-left:22px"><b>${esc(a)}</b></td><td class="r num"><b>${g.total}</b></td><td class="r num">${money(g.valor)}</td></tr>
+        ${Object.keys(g.pagos).sort((x, y) => g.pagos[y] - g.pagos[x]).map(f => `<tr class="small muted"><td style="padding-left:44px">${esc(f)}</td><td class="r num">${g.pagos[f]}</td><td></td></tr>`).join('')}`; }).join('')}`).join('')}
+    <tr class="cz-t"><td><b>Total general</b></td><td class="r num"><b>${total}</b></td><td class="r num"><b>${money(valor)}</b></td></tr></tbody></table></div>
+    <p class="tiny muted">Mismo formato del cierre de mes de Síntesis (punto → asesor → forma de pago, suma de cantidad). “Convencional” es contado; las demás son créditos o cartera.</p>`;
+}
+function tTop(d, mes) {
+  const tops = d.tops.filter(t => t.mes === mes);
+  if (!tops.length) return empty('ti-report-off', 'No hay ventas cargadas para ' + H.fmtMes(mes) + '.');
+  return NIVELES_TOP.map(([nivel, titulo, icono]) => {
+    const g = {}; tops.filter(t => t.nivel === nivel).forEach(t => { (g[t.clave] = g[t.clave] || []).push(t); });
+    const claves = Object.keys(g).sort((a, b) => g[b][0].total_nivel - g[a][0].total_nivel);
+    if (!claves.length) return '';
+    return `<div class="section-title"><i class="ti ${icono}"></i>${titulo}</div><div class="grid g2">${claves.map(c => `<div class="card"><div class="card-h"><h3>${esc(c)}</h3><span class="pill">${g[c][0].total_nivel} motos</span></div>
+      ${bars(g[c].sort((a, b) => a.ranking - b.ranking).map(t => ({ l: `${t.ranking}. ${t.referencia}`, v: t.cantidad, t: `${t.cantidad} · ${String(t.participacion).replace('.', ',')}%` })))}</div>`).join('')}</div>`;
+  }).join('');
+}
+function vCifras() {
+  const lista = [['cierre', 'Cierre de mes'], ['top', 'Más vendidas']].concat(u().rol === 'asesor' ? [] : [['cargar', 'Cargar ventas']]);
+  const d = datos('ventas');
+  const head = cabecera('Cifras comerciales', 'Ventas facturadas de Síntesis: cierre de mes y referencias más vendidas por asesor, punto y zona.', 'ventas');
+  if (!d) return head + tabs('cif', lista) + loading();
+  if (d.error) return head + tabs('cif', lista) + errorMod(d);
+  if (!d.repoOk) return head + sinRepo('Metas y Cifras Comerciales');
+  if (T.cif === 'cargar') return head + tabs('cif', lista) + importador('metas', [['Historico_Ventas', 'Ventas facturadas de Síntesis (cierre de mes)']])
+    + `<p class="tiny muted">Se cargan solo las motocicletas (con sus notas crédito). No se guardan serie, costo, dirección ni correo. Si subes de nuevo el mismo mes, solo se agregan las facturas nuevas.</p>`;
+  if (!d.meses.length) return head + tabs('cif', lista) + empty('ti-report-off', 'Aún no hay ventas cargadas. Ve a “Cargar ventas” y sube el exporte de ventas de Síntesis.');
+  if (!F.mesCif || !d.meses.includes(F.mesCif)) F.mesCif = d.meses[0];
+  const hist = d.historico.filter(h => h.punto === 'Itagüí' || h.punto === 'Los Colores');
+  return head + tabs('cif', lista) + `<div class="filters"><select class="sel" data-mch="f" data-k="mesCif">${opts(d.meses.map(m => ({ v: m, t: H.fmtMes(m) })), F.mesCif)}</select></div>`
+    + (T.cif === 'top' ? tTop(d, F.mesCif) : tCierre(d, F.mesCif))
+    + (T.cif !== 'top' && hist.length > 1 ? `<div class="section-title"><i class="ti ti-chart-line"></i>Histórico por mes</div>${bars(hist.sort((a, b) => String(b.mes).localeCompare(String(a.mes))).slice(0, 12).map(h => ({ l: `${H.fmtMes(h.mes)} · ${h.punto}`, v: h.cantidad })))}` : '');
+}
+async function excelCierre(mes) {
+  const d = D.ventas; if (!d) return;
+  try { await cargarScript(XLSX_URL); } catch (e) { return toast(e.message, 'bad'); }
+  const A = arbolCierre(d.cierre.filter(r => r.mes === mes)), aoa = [['Etiquetas de fila', 'Suma de Cantidad', 'Valor']];
+  let total = 0, valor = 0;
+  Object.keys(A).forEach(p => { aoa.push([p, A[p].total, A[p].valor]); total += A[p].total; valor += A[p].valor;
+    Object.keys(A[p].asesores).forEach(a => { const g = A[p].asesores[a]; aoa.push(['    ' + a, g.total, g.valor]); Object.keys(g.pagos).forEach(f => aoa.push(['        ' + f, g.pagos[f], ''])); }); });
+  aoa.push(['Total general', total, valor]);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Cierre ' + mes);
+  XLSX.writeFile(wb, `cierre_de_mes_${mes}.xlsx`); toast('Excel descargado', 'ok');
 }
 
 // ═══════════════════════════ AJUSTES → REPOSITORIOS ═════════════════════
@@ -850,6 +938,7 @@ async function onClick(act, el) {
   if (act === 'm-conteo-guardar') return guardarConteo(el);
   if (act === 'm-imp-leer') { const p = H.parsePegado($('#imp-txt').value); if (p.error) return toast(p.error, 'bad'); IMP.filas = p.rows; return render(); }
   if (act === 'm-imp-subir') return subirImport(el);
+  if (act === 'm-cierre-excel') return excelCierre(el.dataset.mes);
   if (act === 'm-ir-repos') { S.view = 'config'; S.cfgTab = 'repos'; H.renderNav(); return render(); }
   if (act === 'm-repos-crear') {
     if (!(await confirmar('Crear repositorios', 'Se crearán los archivos faltantes en el Google Drive de la cuenta dueña del script, con sus hojas y encabezados. Financieras y Bonos se copian del libro principal.', 'Crear'))) return;
@@ -875,7 +964,7 @@ function onChange(t) {
 }
 
 return {
-  views: { seguimientos: vSeguimiento, posventa: vPosventa, inventario: vInventario, cotizaciones: vCotizaciones },
+  views: { seguimientos: vSeguimiento, posventa: vPosventa, inventario: vInventario, cotizaciones: vCotizaciones, ventas: vCifras },
   onClick, onChange, repoTab,
   _test: { semanaKey, lunesDe, filasDeMatriz, claves, col }
 };

@@ -151,11 +151,11 @@
     </div>
   </form>
 
-  <footer>Moto Racing · AKT Motos Antioquia — Itagüí &amp; Los Colores<br><span id="verCot">Cotizador v1.1.1</span></footer>
+  <footer>Moto Racing · AKT Motos Antioquia — Itagüí &amp; Los Colores<br><span id="verCot">Cotizador v1.2.0</span></footer>
 </div>
 
 <!-- Versión del cotizador: súbela en cada cambio (también la del pie de página) para confirmar que GitHub tiene la correcta. -->
-<script src="config.js?v=2.6.2"></script>
+<script src="config.js?v=2.9.0"></script>
 <script>
 (function () {
   'use strict';
@@ -255,8 +255,10 @@
     } }).catch(function () { return { ok: false }; });
   }
 
-  function iniciar(modelos) {
+  function iniciar(modelos, financieras) {
     CATALOGO = modelos;
+    // Única fuente de verdad: la hoja Financiadoras. Si trae al menos 2 entidades se usa; si no, la lista de respaldo de arriba.
+    if (financieras && financieras.length >= 2) FINS = financieras;
     var porCat = {};
     modelos.forEach(function (m) { (porCat[m.categoria] = porCat[m.categoria] || []).push(m); });
     Object.keys(porCat).forEach(function (c) {
@@ -305,7 +307,7 @@
   if (!API) { $('cargando').hidden = true; $('errorCat').hidden = false; return; }
   api('catalogoPublico').then(function (r) {
     if (!r || !r.ok || !r.modelos || !r.modelos.length) throw new Error('sin catálogo');
-    iniciar(r.modelos);
+    iniciar(r.modelos, r.financieras);
   }).catch(function () { $('cargando').hidden = true; $('errorCat').hidden = false; });
 })();
 </script>

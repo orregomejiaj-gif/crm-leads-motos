@@ -11,6 +11,7 @@
   const pad = n => String(n).padStart(2, '0');
   const OFF = 5 * 3600e3;
   const DEMO_CHAT = {}; // chats del asesor en modo demo (solo en memoria)
+  const DEMO_F2 = { citas: [], etapas: [] }; // citas y etapas del embudo en modo demo (solo en memoria)
   const fmtB = d => { const x = new Date(d.getTime() - OFF); return `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-${pad(x.getUTCDate())}T${pad(x.getUTCHours())}:${pad(x.getUTCMinutes())}:00`; };
   const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
   const sedeCanon = s => norm(s).includes('itag') ? 'Itagüí' : norm(s).includes('colores') ? 'Los Colores' : String(s || '');
@@ -83,7 +84,8 @@
   facturas.push({ _row: facturas.length + 2, id_factura: 'DEMO-FAC-X1', id_lead: '', fecha: fmtB(hace(70)), modelo: 'Jet Evo', valor: 12590000, asesor: 'DEMO Carla Asesora', sede: 'Punto Los Colores', telefono_cliente: '3009999992', observaciones: 'Venta de vitrina (demo)' });
 
   const mes = fmtB(now).slice(0, 7);
-  const metas = ASESORES.map((a, i) => ({ _row: i + 2, persona: a.nombre, sede: a.nombre_punto, mes, meta_motos: 10, rol: 'asesor' }));
+  const metas = ASESORES.map((a, i) => ({ _row: i + 2, persona: a.nombre, sede: a.nombre_punto, mes, meta_motos: 10, rol: 'asesor' }))
+    .concat(['Itagüí', 'Los Colores'].map((s, i) => ({ _row: 20 + i, persona: s, sede: s, mes, meta_motos: 40, rol: 'punto' })));
   const seguimientos = [{
     _row: 2, id_seguimiento: 'SEG-DEMO-1', fecha: fmtB(hace(24 * 20)), tipo: 'Asesor', sede: IT, evaluado: 'DEMO Ana Asesora', evaluador: 'DEMO Jefe Comercial',
     periodo: fmtB(hace(24 * 20)).slice(0, 7), calificacion: 7, indicadores_json: JSON.stringify({ asignados: { titulo: 'Leads asignados', valor: 18 }, contacto: { titulo: 'Contactados ≤ 1 h hábil', valor: '61%' } }),
@@ -196,7 +198,7 @@
       const mismaSede = s => esJefe || sedeCanon(s) === u.sede;
       return {
         ok: true, version: 'demo', serverTime: fmtB(new Date()), user: u, hojas: HEADERS, solicitudes: SOLICITUDES,
-        repos: { seguimientos: true, posventa: true, cotizaciones: true, inventario: true, financieras: true, bonos: true },
+        repos: { seguimientos: true, posventa: true, cotizaciones: true, inventario: true, metas: true, financieras: true, bonos: true },
         leads: vis, gestion: DB.Gestion_Asesor.filter(g => ids.has(g.id_lead)),
         cotizaciones: esJefe || esAdmin ? DB.Cotizaciones.filter(c => mismaSede(c.sede)) : DB.Cotizaciones.filter(c => norm(c.asesor) === norm(u.nombre)),
         facturas: esJefe || esAdmin ? DB.Facturas.filter(f => mismaSede(f.sede)) : DB.Facturas.filter(f => ids.has(f.id_lead)),
@@ -206,8 +208,41 @@
         estados: DB.Estados,
         personal: DB.Equipo.filter(x => esJefe || mismaSede(x.nombre_punto)).map(x => { const o = esJefe ? Object.assign({}, x) : { _row: x._row, nombre: x.nombre, cargo: x.cargo, nombre_punto: x.nombre_punto, recibe: x.recibe, activo: x.activo, whatsapp: esAdmin ? x.whatsapp : '' }; o.sede = x.nombre_punto; o.sedeCanon = sedeCanon(x.nombre_punto); return o; }),
         sedes: DB.Sedes, inventario: DB.Inventarios, config: DB.Config_App,
-        seguimientos: DB.Seguimientos.filter(s => esJefe || (esAdmin ? sedeCanon(s.sede) === u.sede : norm(s.evaluado) === norm(u.nombre)))
+        seguimientos: DB.Seguimientos.filter(s => esJefe || (esAdmin ? sedeCanon(s.sede) === u.sede : norm(s.evaluado) === norm(u.nombre))),
+        ventasMes: [{ mes: '2026-09', punto: 'Itagüí', asesor: 'DEMO Ana Asesora', cantidad: 6 }, { mes: '2026-09', punto: 'Los Colores', asesor: 'DEMO Carla Asesora', cantidad: 16 }],
+        fase2: { citas: DEMO_F2.citas.filter(c => ids.has(c.id_lead)), etapas: DEMO_F2.etapas.filter(e => ids.has(e.id_lead)),
+          perfiles: vis.slice(0, 6).map((l, i) => ({ id_lead: l.id_lead, uso_moto: ['trabajo', 'ciudad', 'domicilios', 'paseo'][i % 4], objecion_principal: ['precio', 'cuota', 'reporte en centrales', ''][i % 4], siguiente_paso: 'Agendar visita' })), encuestas: [] }
       };
+    }
+    if (action === 'etapa' || action === 'cita' || action === 'cierre') {
+      const l = DB.Leads.find(x => x.id_lead === p.id_lead);
+      if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
+      const ahoraB = fmtB(new Date());
+      if (action === 'etapa') { DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: p.etapa, fecha: ahoraB, por: u.nombre }); return { ok: true, etapa: p.etapa }; }
+      if (action === 'cita') {
+        if (p.id_cita) { const c = DEMO_F2.citas.find(x => x.id_cita === p.id_cita); if (c) c.estado = p.estado; if (p.estado === 'asistió') DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: 'Visitó', fecha: ahoraB, por: u.nombre }); return { ok: true, estado: p.estado }; }
+        DEMO_F2.citas.push({ id_cita: 'C' + Date.now(), id_lead: l.id_lead, fecha: p.fecha, hora: p.hora, estado: 'agendada', punto: sedeCanon(l.punto_asignado) });
+        DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: 'Cita agendada', fecha: ahoraB, por: u.nombre });
+        return { ok: true };
+      }
+      if (p.resultado === 'perdido' && !p.motivo) fail('Para marcar un lead como perdido debes indicar el motivo.', 'INVALID');
+      const g = DB.Gestion_Asesor.find(x => x.id_lead === l.id_lead);
+      if (g) { g.resultado = p.resultado; g.motivo_perdida = p.motivo || ''; g.fecha_ultima_actualizacion = ahoraB; }
+      l.resultado_venta = p.resultado; l.fecha_cierre = ahoraB;
+      DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: p.resultado === 'ganado' ? 'Facturado' : p.resultado === 'perdido' ? 'Perdido' : 'Retenido', fecha: ahoraB, por: u.nombre });
+      return { ok: true, resultado: p.resultado };
+    }
+    if (action === 'indicadores') {
+      const vis = DB.Leads.filter(l => puedeVer(u, l)), n = vis.length;
+      const por = {}; vis.forEach(l => { por[l.nombre_asesor || 'Sin asesor'] = (por[l.nombre_asesor || 'Sin asesor'] || 0) + 1; });
+      return { ok: true, resumen: { leads: n, mediana_primera_respuesta_h: 0.8 },
+        embudo: [['Leads', n], ['Contactados', Math.round(n * 0.82)], ['Cita agendada', Math.round(n * 0.34)], ['Visitó', Math.round(n * 0.2)], ['Cotizado', Math.round(n * 0.16)], ['Crédito en estudio', Math.round(n * 0.1)], ['Crédito aprobado', Math.round(n * 0.07)], ['Facturado', Math.round(n * 0.06)], ['Entregado', Math.round(n * 0.05)], ['Perdido', Math.round(n * 0.2)]].map(([etapa, k]) => ({ etapa, n: k })),
+        citas: { agendadas: Math.round(n * 0.34), asistio: Math.round(n * 0.2), no_asistio: Math.round(n * 0.07), pendientes: Math.round(n * 0.07), cancelada: 1 },
+        motivos_perdida: { precio: 9, 'financiación negada': 6, 'compró en otro lado': 4, 'no contesta': 3 }, motivos_encuesta: { precio: 3, no_decide: 2 },
+        asesores: Object.keys(por).map(k => ({ asesor: k, leads: por[k], contactados: Math.round(por[k] * 0.8), citas: Math.round(por[k] * 0.3), asistio: Math.round(por[k] * 0.2), no_asistio: Math.round(por[k] * 0.06), ganados: Math.round(por[k] * 0.07), perdidos: Math.round(por[k] * 0.2), reasignados: 0, nps_n: 3, nps_prom: 2, nps_det: 0, t_resp_mediana_h: 0.9 })),
+        nps: { enviadas: 12, respondidas: 7, promotores: 5, detractores: 1, nps: 57, comentarios: [{ nota: 10, comentario: 'Excelente atención de Valeria (demo)', asesor: 'VALERIA' }] },
+        perfil: { uso_moto: { trabajo: 8, domicilios: 5, ciudad: 4 }, objecion: { precio: 7, cuota: 5, 'reporte en centrales': 2 }, forma_pago: { credito: 11, contado: 6 } },
+        calidad: { sin_zona: 2, sin_modelo: 1, sin_asesor: 0, agendado_sin_cita: 3, sin_etiqueta: 0 } };
     }
     if (action === 'chats') {
       const l = DB.Leads.find(x => x.id_lead === p.id_lead);
@@ -316,6 +351,19 @@
           repuestos: tag(R.inventario.repIt, 'Repuestos_Itagui').concat(tag(R.inventario.repLc, 'Repuestos_Los_Colores')), pendiente: R.inventario.pendiente,
           facturacion: R.inventario.facturacion, conteos: R.inventario.conteos, equivalencias: [] };
       }
+      if (p.m === 'ventas') {
+        // Ejemplo con la forma del cierre de septiembre (cifras de demostración)
+        const mk = (punto, zona, asesor, pagos) => Object.keys(pagos).map(f => ({ mes: '2026-09', punto, zona, asesor, forma_pago: f, cantidad: pagos[f], valor: pagos[f] * 5200000 }));
+        const cierre = [].concat(mk('Itagüí', 'Antioquia', 'DEMO Ana Asesora', { 'A CREDITO': 2, ADDI: 1, 'CARTERA CLIENTES OTROS': 2, PROGRESER: 1 }), mk('Itagüí', 'Antioquia', 'DEMO Beto Asesor', { 'A CREDITO': 1, CREDIORBE: 2, 'CARTERA CLIENTES OTROS': 2 }),
+          mk('Los Colores', 'Antioquia', 'DEMO Carla Asesora', { 'A CREDITO': 5, ADDI: 2, 'CARTERA CLIENTES OTROS': 6, CONVENCIONAL: 2, PROGRESER: 1 }), mk('Los Colores', 'Antioquia', 'DEMO Diego Asesor', { 'A CREDITO': 2, FINAMIGA: 1, 'CARTERA CLIENTES OTROS': 3, PROGRESER: 1, ADDI: 1 }));
+        const top = (nivel, clave, total, refs) => refs.map(([referencia, cantidad], i) => ({ mes: '2026-09', nivel, clave, ranking: i + 1, referencia, cantidad, total_nivel: total, participacion: Math.round(cantidad * 1000 / total) / 10 }));
+        const tops = [].concat(top('asesor', 'Los Colores · DEMO Carla Asesora', 16, [['AK125NKD EIII', 6], ['AK125FLEX EIII', 2], ['AK150CR4', 2]]), top('asesor', 'Itagüí · DEMO Ana Asesora', 6, [['AK125NKD EIII', 3], ['AK110NV EIII', 1]]),
+          top('punto', 'Los Colores', 25, [['AK125NKD EIII', 11], ['AK125FLEX EIII', 5], ['AK150CR4', 4]]), top('punto', 'Itagüí', 12, [['AK125NKD EIII', 4], ['AK110NV EIII', 1], ['AK125CR4 EIII', 1]]),
+          top('zona', 'Antioquia', 37, [['AK125NKD EIII', 15], ['AK125FLEX EIII', 5], ['AK150CR4', 4]]), top('zona', 'Llanos', 400, [['AK125NKD EIII', 139], ['AK200ZW', 35], ['AK125TTR EIII', 16]]),
+          top('red', 'Toda la red', 595, [['AK125NKD EIII', 229], ['AK150CR4', 60], ['AK125TTR EIII', 48]]));
+        return { ok: true, repoOk: true, meses: ['2026-09'], cierre: esJefe ? cierre : cierre.filter(r => r.punto === u.sede && (u.rol !== 'asesor' || norm(r.asesor) === norm(u.nombre))), tops,
+          historico: [{ mes: '2026-09', punto: 'Itagüí', cantidad: 12 }, { mes: '2026-09', punto: 'Los Colores', cantidad: 34 }], filas: 595 };
+      }
       if (p.m === 'cotizaciones') return { ok: true, repoOk: true, sintesis: R.cotizaciones.sintesis, crm: R.cotizaciones.crm, simulaciones: R.cotizaciones.simulaciones };
     }
     if (action === 'registrar') {
@@ -350,7 +398,7 @@
     if (action === 'repos' || action === 'crearRepos') {
       if (!esJefe) fail('Solo el Jefe Comercial administra los repositorios.', 'FORBIDDEN');
       const estado = [['seguimientos', 'Seguimientos comerciales', ['Daily_Asesor', 'Checklist_Semanal', 'Compromisos_Semana', 'Seguimientos']], ['posventa', 'Posventa', ['Interesados', 'Ingresos_Taller']], ['cotizaciones', 'Cotizaciones', ['Cotizaciones_Sintesis', 'Cotizaciones_CRM']],
-        ['inventario', 'Inventario', ['Motos_Itagui', 'Motos_Los_Colores', 'Repuestos_Itagui', 'Repuestos_Los_Colores', 'Pendiente_por_Llegar', 'Facturacion', 'Conteo_Fisico']], ['financieras', 'Financieras', ['Financieras']], ['bonos', 'Bonos', ['Bonos']]]
+        ['inventario', 'Inventario', ['Motos_Itagui', 'Motos_Los_Colores', 'Repuestos_Itagui', 'Repuestos_Los_Colores', 'Pendiente_por_Llegar', 'Facturacion', 'Conteo_Fisico']], ['metas', 'Metas y Cifras Comerciales', ['Metas', 'Historico_Ventas', 'Referencias_Top']], ['financieras', 'Financieras', ['Financieras']], ['bonos', 'Bonos', ['Bonos']]]
         .map(([key, n, hs]) => ({ key, nombre: 'CRM Motos · ' + n + ' (DEMO)', existe: true, configurado: true, url: '', hojas: hs.map(h => h + ' (demo)') }));
       return action === 'repos' ? { ok: true, repos: estado } : { ok: true, creados: [], estado };
     }
