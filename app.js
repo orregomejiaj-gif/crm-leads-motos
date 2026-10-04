@@ -268,6 +268,7 @@ async function cargar(silencioso) {
     $('#tb-ver').textContent = `v${window.AKT_VERSION || '?'}${S.data.version ? ' · API ' + S.data.version : ''}`;
     if (!S.bandejaIni) { S.bandejaIni = true; cargarBandeja(); }
     const vistas = vistasDeRol();
+    if (!S._home) { S._home = 1; S.view = homeDeRol(); }
     if (!vistas.some(v => v.id === S.view)) S.view = vistas[0].id;
     renderNav(); render();
     // Ventana grande de bienvenida: una vez por ingreso (no en las actualizaciones automáticas)
@@ -397,8 +398,144 @@ function horaTxt(h) {
   return '';
 }
 
+// ── Pantallas por cargo: Jefe (Centro de Inteligencia) · Administrador (Mi Punto) · Asesor (Mi Día) ──
+const PANEL_VIEWS = ['inteligencia', 'punto', 'dia', 'equipo', 'miscot', 'misventas', 'entregas', 'citas'];
+const SEM = { verde: '🟢', ambar: '🟠', rojo: '🔴', gris: '⚪' };
+function cargarPanel() {
+  if (S.panBusy) return; S.panBusy = true;
+  api('panel').then(r => { S.pan = r; S.panErr = ''; S.panT = Date.now(); }).catch(e => { S.panErr = e.message; S.panT = Date.now(); })
+    .finally(() => { S.panBusy = false; if (PANEL_VIEWS.includes(S.view)) render(); });
+}
+setInterval(() => { try { if (S && S.data && PANEL_VIEWS.includes(S.view) && !document.hidden && $('#sheet').hidden) cargarPanel(); } catch (e) { /* sin panel */ } }, 60e3);
+function panelListo() {
+  if (!S.pan || Date.now() - (S.panT || 0) > 90e3) cargarPanel();
+  if (S.pan) return null;
+  return S.panErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.panErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Preparando tu panel…</div></div>';
+}
+function vControlTab(t) { if (S._vistaPrev !== S.view) S.ctlTab = t; return vControl(); }
+const mM = v => v >= 1e6 ? '$' + Math.round(v / 1e6) + 'M' : money(v);
+const colEstado = e => ({ verde: '#22c55e', ambar: '#f59e0b', rojo: '#ef4444', gris: '#94a3b8' })[e] || '#22c55e';
+function hero(cls, icono, titulo, sub) { return `<div class="hero ${cls}"><div class="hero-ic"><i class="ti ${icono}"></i></div><div><h2>${titulo}</h2><p>${sub}</p></div><span class="tiny" style="margin-left:auto;opacity:.8">🔄 ${S.panT ? new Date(S.panT).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : ''}</span></div>`; }
+function iaCard(cls, titulo, lineas, btn) { return `<div class="ia-card ${cls}"><div class="ia-h"><i class="ti ti-robot"></i><b>${esc(titulo)}</b></div><ul>${lineas.map(x => `<li>${esc(x)}</li>`).join('') || '<li>Todo en orden por ahora ✅</li>'}</ul>${btn || ''}</div>`; }
+function scoreChip(s) { return `<span class="sc ${s >= 80 ? 'hi' : s >= 60 ? 'md' : 'lo'}">${s}</span>`; }
+function accionBtn(l) {
+  const t = digits(l.telefono || ''), tel = t.length === 12 ? t : (t.length === 10 ? '57' + t : '');
+  if (l.accion === 'Llamar' && tel) return `<a class="btn btn-sm btn-ok" href="tel:+${tel}"><i class="ti ti-phone"></i> Llamar</a>`;
+  if (l.accion === 'Gestionar') return `<button class="btn btn-sm btn-dark" data-act="abrir" data-id="${esc(l.id)}">Gestionar</button>`;
+  return `<button class="btn btn-sm" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-brand-whatsapp"></i> ${esc(l.accion || 'Ver')}</button>`;
+}
+function tablaOport(rows, conAsesor) {
+  if (!rows.length) return '<p class="small muted">Sin oportunidades abiertas.</p>';
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Moto</th>${conAsesor ? '<th>Asesor</th>' : ''}<th class="r">Score IA</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(l => `<tr><td><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b></td><td>${esc(l.producto || '—')}</td>${conAsesor ? `<td>${esc(l.asesor || '')}</td>` : ''}<td class="r">${scoreChip(l.score)}</td><td><span class="pill">${esc(l.fase || l.estado)}</span></td><td>${accionBtn(l)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function tablaEquipo(rows, opts) {
+  opts = opts || {};
+  if (!rows.length) return '<p class="small muted">No hay asesores para mostrar.</p>';
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th>${opts.sede ? '<th>Punto</th>' : ''}<th class="r">Meta</th><th class="r">Ventas</th><th class="r">%</th><th class="r">Proyección</th><th class="r">Pipeline</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Conversión</th><th>Estado</th></tr></thead><tbody>${rows.map(e => `<tr${opts.click ? ` data-act="eq-sel" data-id="${esc(e.nombre)}" style="cursor:pointer"` : ''}><td><b>${esc(e.nombre)}</b>${e.admin ? ' <span class="pill">Admin</span>' : ''}</td>${opts.sede ? `<td>${esc(e.sede)}</td>` : ''}<td class="r">${e.meta || '—'}</td><td class="r"><b>${e.ventas}</b></td><td class="r">${e.pct === null ? '—' : e.pct + ' %'}</td><td class="r">${e.proyeccion}</td><td class="r">${mM(e.pipeline)}</td><td class="r">${e.leadsActivos}</td><td class="r">${e.sinContacto}</td><td class="r">${e.conversion === null ? '—' : e.conversion + ' %'}</td><td>${SEM[e.estado] || ''}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function kpiRow(items) { return `<div class="grid g-kpi">${items.map(i => kpi(i[0], i[1], i[2], i[3])).join('')}</div>`; }
+
+function vInteligencia() {
+  const c = panelListo(); if (c) return c;
+  const p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, pf = ctl.pronostico || {}, L = ctl.lista || [], F = k.fases || {};
+  const calientes = L.filter(l => l.abierto && l.caliente).length, prio = p.top.filter(l => l.score >= 70).length;
+  const baja = p.equipo.filter(e => e.conversion !== null && e.cotizaciones >= 3 && e.conversion < 10).length;
+  const funnel = [['Leads', L.length], ['Contactados', L.filter(l => l.contactado || l.cotizado).length], ['Cotizados', L.filter(l => l.cotizado).length], ['Negociación', F['Negociación'] || 0], ['Pasa a facturar', k.porFacturar || 0], ['Facturados', pr.ventas || 0], ['Entregados', k.entregadas || 0]];
+  const mx = Math.max(1, ...funnel.map(x => x[1]));
+  const lect = lecturaIA(ctl);
+  return `${hero('jefe', 'ti-brain', 'Centro de Inteligencia Comercial', `Antioquia · ${esc(fmtMes(p.mes))} · Todos los puntos`)}
+    ${kpiRow([['Meta total', pr.meta || 0, 'motos del mes'], ['Ventas', pr.ventas || 0, pr.meta ? (pr.cumplimiento || 0) + ' % de cumplimiento' : 'sin meta'], ['Proyección', pf.cierreProyectado ?? '—', pf.cumplimientoProyectado ? pf.cumplimientoProyectado + ' % de la meta' : 'motos al cierre'],
+      ['Pipeline', mM(p.pipeline), 'valor potencial'], ['Hot leads', calientes, 'alta probabilidad'], ['Riesgo de pérdida', k.enRiesgo || 0, 'requieren acción', k.enRiesgo ? 'warn' : 'ok']])}
+    ${iaCard('jefe', 'IA Comercial', [`${prio} oportunidad${prio === 1 ? '' : 'es'} prioritaria${prio === 1 ? '' : 's'} para intervenir hoy`, `${baja} asesor${baja === 1 ? '' : 'es'} con baja conversión`, `${k.cotizacionesVencidas || 0} cotizaci${k.cotizacionesVencidas === 1 ? 'ón' : 'ones'} sin seguimiento`, `${k.pendientesEntrega || 0} venta${k.pendientesEntrega === 1 ? '' : 's'} facturada${k.pendientesEntrega === 1 ? '' : 's'} pendiente${k.pendientesEntrega === 1 ? '' : 's'} de entrega`], `<button class="btn btn-sm" data-nav="control">Ver recomendaciones →</button>`)}
+    <div class="pn-grid">
+      <div class="pn-card"><h3>Desempeño por punto</h3><div class="rings">${p.sedes.map(s => `<div class="ring-b"><div class="ring" style="--p:${Math.min(100, s.pct || 0)};--c:${colEstado(s.estado)}"><span>${s.pct === null ? '—' : Math.round(s.pct) + '%'}</span></div><b>${esc(s.sede)}</b><div class="tiny muted">${s.ventas}/${s.meta || 0} ventas ${SEM[s.estado]}</div></div>`).join('')}</div></div>
+      <div class="pn-card"><h3>Embudo comercial (Antioquia)</h3>${funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('')}</div>
+    </div>
+    <div class="pn-card"><h3>🔥 Top oportunidades para cerrar</h3>${tablaOport(p.top, true)}</div>
+    <div class="pn-grid"><div class="pn-card"><h3>👥 Equipo</h3>${tablaEquipo(p.equipo, { sede: true })}</div>
+      <div class="pn-card"><h3>🤖 Alertas y análisis IA</h3>${lect.length ? lect.map(x => `<div class="small" style="margin:6px 0">${esc(x)}</div>`).join('') : '<p class="small muted">Aún no hay suficientes datos para conclusiones.</p>'}</div></div>`;
+}
+function vPunto() {
+  const c = panelListo(); if (c) return c;
+  const p = S.pan, ctl = p.control, k = ctl.kpis, s = p.sedes[0] || { meta: 0, ventas: 0, pct: null, proyeccion: 0, estado: 'gris', sede: p.sede }, L = ctl.lista || [];
+  const tab = S.ptTab || 'activos', lista = tab === 'riesgo' ? L.filter(l => l.abierto && (l.riesgo || l.vencido)) : tab === 'perdidos' ? L.filter(l => l.estado === 'Perdido') : L.filter(l => l.abierto);
+  const cal = L.filter(l => l.abierto && l.caliente && l.sinContacto).length;
+  return `${hero('admin', 'ti-building-store', `Mi Punto – ${esc(s.sede || p.sede)}`, `Administrador: ${esc(S.data.user.nombre)} · ${esc(fmtMes(p.mes))}`)}
+    ${kpiRow([['Meta', s.meta || 0, 'motos'], ['Ventas', s.ventas, s.pct === null ? 'sin meta' : s.pct + ' % de la meta'], ['Proyección', s.proyeccion, 'motos al cierre'], ['Pipeline', mM(p.pipeline), 'valor potencial'],
+      ['Leads sin contacto', k.sinContacto || 0, '', k.sinContacto ? 'bad' : 'ok'], ['Cotizaciones vencidas', k.cotizacionesVencidas || 0, '', k.cotizacionesVencidas ? 'warn' : 'ok'], ['Negociaciones en riesgo', k.enRiesgo || 0, '', k.enRiesgo ? 'warn' : 'ok'], ['Entregas pendientes', k.pendientesEntrega || 0, '', k.pendientesEntrega ? 'warn' : 'ok']])}
+    <div class="pn-grid">
+      <div class="pn-card"><h3>👥 Mi equipo</h3>${tablaEquipo(p.equipo.filter(e => !e.admin || p.equipo.length === 1), { click: true })}<p class="tiny muted">Toca un asesor para ver sus leads. La reasignación la decide el Jefe: usa «Solicitar reasignación» en el lead.</p></div>
+      <div class="pn-card"><h3>Rendimiento del punto</h3><div class="rings"><div class="ring-b"><div class="ring" style="--p:${Math.min(100, s.pct || 0)};--c:${colEstado(s.estado)}"><span>${s.pct === null ? '—' : Math.round(s.pct) + '%'}</span></div><div class="tiny muted">${s.ventas} de ${s.meta || 0} ventas</div></div></div></div>
+    </div>
+    ${iaCard('admin', 'IA del punto', [`En ${s.sede || p.sede} tienes ${L.filter(l => l.abierto && l.score >= 70).length} oportunidades con alta probabilidad de cierre`, `${k.cotizacionesVencidas || 0} cotizaciones vencidas`, `${k.enRiesgo || 0} negociaciones en riesgo`, `${cal} leads calientes sin contacto`], `<button class="btn btn-sm" data-nav="alertas">Ver alertas →</button>`)}
+    <div class="pn-card"><div class="row between wrap" style="margin-bottom:8px"><h3 style="margin:0">Leads del punto</h3><div class="seg">${[['activos', `Activos (${L.filter(l => l.abierto).length})`], ['riesgo', 'En riesgo'], ['perdidos', 'Perdidos']].map(t => `<button class="${tab === t[0] ? 'on' : ''}" data-tab="ptTab" data-v="${t[0]}">${t[1]}</button>`).join('')}</div></div>${tablaOport(lista.slice(0, 40), true)}</div>`;
+}
+function vEquipo() {
+  const c = panelListo(); if (c) return c;
+  const p = S.pan, L = p.control.lista || [], sel = S.eqSel;
+  const mis = sel ? L.filter(l => norm(l.asesor) === norm(sel) && l.abierto) : [];
+  return `${hero('admin', 'ti-users', 'Mi equipo', `${esc(p.sede)} · ${esc(fmtMes(p.mes))}`)}
+    <div class="pn-card"><h3>Asesores del punto</h3>${tablaEquipo(p.equipo, { click: true })}</div>
+    ${sel ? `<div class="pn-card" style="margin-top:14px"><div class="row between wrap"><h3 style="margin:0">Leads de ${esc(sel)} <span class="pill">${mis.length}</span></h3><button class="btn btn-sm" data-act="eq-sel" data-id="">Cerrar</button></div>${tablaOport(mis.slice(0, 60), false)}</div>` : ''}`;
+}
+function vDia() {
+  const c = panelListo(); if (c) return c;
+  const u = S.data.user, p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, L = ctl.lista || [], me = p.equipo[0] || { meta: pr.meta, ventas: pr.ventas, proyeccion: pr.proyeccion };
+  const meta = me.meta || 0, ven = me.ventas || 0, falta = Math.max(0, meta - ven), pct = meta ? Math.min(100, Math.round(ven * 100 / meta)) : 0;
+  const top = p.top.slice(0, 5), abiertos = L.filter(l => l.abierto), score = abiertos.length ? Math.round(abiertos.reduce((a, l) => a + l.score, 0) / abiertos.length) : 0;
+  const tareas = (ctl.tareas || []).slice(0, 6), conv = k.cotizaciones ? Math.round(ven * 100 / k.cotizaciones) : 0;
+  const barra = (l, v, mx) => `<div style="margin:8px 0"><div class="row between small"><span>${l}</span><b>${v}${mx ? ' / ' + mx : ''}</b></div><div class="pn-bar"><i style="width:${mx ? Math.min(100, Math.round(v * 100 / Math.max(1, mx))) : Math.min(100, v)}%"></i></div></div>`;
+  return `${hero('asesor', 'ti-user', `Mi Día — ${esc(u.nombre.split(' ').slice(0, 2).join(' '))}`, `${esc(fmtMes(p.mes))} · ${top.length} prioridades para hoy`)}
+    ${kpiRow([['Meta', meta || '—', 'motos del mes'], ['Vendidas', ven, 'facturadas'], ['Faltan', falta, meta ? 'para la meta' : 'sin meta', falta ? 'warn' : 'ok'], ['Proyección', me.proyeccion ?? '—', 'al ritmo actual'], ['Avance', pct + ' %', meta ? `${ven} de ${meta}` : '']])}
+    ${iaCard('asesor', 'Mi Coach IA', top.length ? [`Tienes ${top.length} oportunidades prioritarias para hoy.`, `Empieza por ${top[0].nombre}: score ${top[0].score}${top[0].ia ? ' · ' + top[0].ia.replace(/^[^\w¿¡]+/, '') : ''}`, meta ? `Si cierras 2 más, tu proyección pasa a ${(me.proyeccion || 0) + 2} ventas.` : 'Sigue sumando cotizaciones y cierres.'] : ['No tienes oportunidades abiertas: pide leads nuevos o retoma clientes por recuperar.'], `<button class="btn btn-sm" data-nav="hoy">Ver mis leads →</button>`)}
+    <div class="pn-card"><h3>🎯 Mis ${top.length || ''} clientes para cerrar hoy</h3>${tablaOport(top, false)}</div>
+    <div class="pn-grid">
+      <div class="pn-card"><h3>📋 Mis próximos pendientes</h3>${[...p.citas.slice(0, 4).map(x => `<div class="small" style="margin:6px 0">📅 <b>${esc(x.fecha.slice(5))} ${esc(x.hora)}</b> · ${esc(x.nombre)} · ${esc(x.tipo)}</div>`), ...tareas.map(t => `<div class="small" style="margin:6px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}</div>`)].join('') || '<p class="small muted">Sin pendientes por ahora ✅</p>'}</div>
+      <div class="pn-card"><h3>📈 Mi rendimiento</h3>${barra('Seguimientos', k.contactosRealizados || 0, 0)}${barra('Cotizaciones', k.cotizaciones || 0, 0)}${barra('Ventas', ven, meta)}${barra('Conversión (ventas/cotizaciones)', conv + ' %', 0)}
+        <div style="margin-top:10px;font-weight:700">⭐ Score comercial: ${score} / 100</div></div>
+    </div>`;
+}
+function vCitas() {
+  const c = panelListo(); if (c) return c;
+  const p = S.pan, rows = p.citas;
+  return `${hero(S.data.user.rol === 'asesor' ? 'asesor' : 'admin', 'ti-calendar-event', S.data.user.rol === 'asesor' ? 'Mis citas' : 'Citas', 'Próximas visitas y revisiones técnicas')}
+    <div class="pn-card">${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Tipo</th></tr></thead><tbody>${rows.map(x => `<tr><td>${esc(x.fecha)}</td><td>${esc(x.hora)}</td><td><b data-act="abrir" data-id="${esc(x.id_lead)}" style="cursor:pointer">${esc(x.nombre)}</b></td><td>${esc(x.tipo)}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-calendar-off', 'No hay citas próximas.')}</div>`;
+}
+/** Cotizaciones / ventas del mes / entregas, según el alcance del cargo. Las ventas permiten validar el asesor (jefe y administrador). */
+function vListaPanel(kind) {
+  const c = panelListo(); if (c) return c;
+  const u = S.data.user, p = S.pan, L = p.control.lista || [], cls = u.rol === 'asesor' ? 'asesor' : (u.rol === 'admin' ? 'admin' : 'jefe');
+  const team = (S.M.asesores || []).filter(a => u.rol === 'jefe' || a.sedeCanon === u.sede);
+  let titulo, cuerpo;
+  if (kind === 'cotizaciones') { titulo = u.rol === 'asesor' ? 'Mis cotizaciones' : 'Cotizaciones'; cuerpo = tablaOport(L.filter(l => l.cotizado && l.abierto), u.rol !== 'asesor'); }
+  else if (kind === 'ventas') {
+    titulo = u.rol === 'asesor' ? 'Mis ventas del mes' : 'Ventas del mes (por punto)';
+    const V = p.control.facturasMes || [];
+    cuerpo = V.length ? `<p class="small muted">Cada venta cuenta para el <b>punto</b> de donde sale la moto. ${u.rol === 'asesor' ? '' : 'Confirma o corrige el asesor de las que aparecen «por validar».'}</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Factura</th><th>Cliente</th><th>Moto</th><th>Punto</th><th>Asesor</th><th class="r">Valor</th></tr></thead><tbody>${V.map(f => `<tr><td>${esc(f.id_factura)}</td><td>${esc(f.cliente)}</td><td>${esc(f.modelo)}</td><td>${esc(f.sede)}</td><td>${esc(f.asesor || '—')}${f.validada ? ' ✅' : (u.rol === 'asesor' ? '' : `<div class="row" style="gap:4px;margin-top:4px"><select class="sel" id="val-as-${esc(f.id_factura)}">${opts(team.map(a => a.nombre), (team.find(a => mismaPersona(a.nombre, f.asesor)) || {}).nombre || '', 'Asesor…')}</select><button class="btn btn-sm btn-dark" data-act="val-venta" data-id="${esc(f.id_factura)}">Validar</button></div>`)}</td><td class="r">${money(num(f.valor))}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-report-money', 'Aún no hay ventas facturadas este mes.');
+  } else {
+    titulo = u.rol === 'asesor' ? 'Mis entregas' : 'Entregas';
+    const pend = L.filter(l => l.pendEntrega), ent = L.filter(l => l.entregada);
+    cuerpo = `<h4>⏳ Pendientes de entrega (${pend.length})</h4>${pend.length ? pend.map(l => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b> <span class="muted small">· ${esc(l.producto)} · ${esc(l.sede)}${l.asesor ? ' · ' + esc(l.asesor) : ''}</span> <button class="btn btn-sm btn-dark" data-act="entrega-rapida" data-id="${esc(l.id)}"><i class="ti ti-motorbike"></i> Marcar entregada</button></div>`).join('') : '<p class="small muted">Nada pendiente ✅</p>'}<h4 style="margin-top:14px">🏍️ Entregadas (${ent.length})</h4>${ent.length ? ent.map(l => `<div class="small" style="margin:4px 0">${esc(l.nombre)} · ${esc(l.producto)}</div>`).join('') : '<p class="small muted">Aún no hay entregas registradas.</p>'}`;
+  }
+  return `${hero(cls, 'ti-list-details', titulo, esc(fmtMes(p.mes)))}<div class="pn-card">${cuerpo}</div>`;
+}
+
 // ── Navegación ────────────────────────────────────────────────────────────
+// Cada cargo ve su propio menú (y el API valida el cargo en cada ruta: ocultar un botón no basta).
 function vistasDeRol() {
+  const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
+  if (r === 'asesor') return [it('dia', 'ti-sun', 'Mi Día'), it('hoy', 'ti-checklist', 'Mis Leads'), it('chats', 'ti-messages', 'Mis Chats'), it('miscot', 'ti-file-dollar', 'Mis Cotizaciones'),
+    it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas'), it('misventas', 'ti-report-money', 'Mis Ventas'), it('entregas', 'ti-motorbike', 'Mis Entregas'), it('comisiones', 'ti-coin', 'Mi Comisión')];
+  if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
+    it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('misventas', 'ti-report-money', 'Ventas'), it('entregas', 'ti-motorbike', 'Entregas'),
+    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('alertas', 'ti-bell-ringing', 'Alertas'), it('comisiones', 'ti-coin', 'Comisiones')];
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Inteligencia IA'), it('embudo', 'ti-layout-kanban', 'Embudo Comercial'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
+    it('metas', 'ti-target', 'Metas'), it('ventas', 'ti-report-money', 'Cifras'), it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
+    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('comisiones', 'ti-coin', 'Comisiones'),
+    it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
+}
+function homeDeRol() { return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
+function vistasDeRolViejas() {
   const r = S.data.user.rol;
   const v = [
     { id: 'hoy', icon: 'ti-checklist', label: 'Hoy' },
@@ -435,7 +572,8 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
+  const base = { inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
+    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
@@ -645,7 +783,7 @@ function vHoy() {
   return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
     ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
     ${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><div>${esc(a)}</div></div>`).join('')}
-    <div id="hoy-pulso">${pulsoHtml()}</div>
+    ${u.rol === 'asesor' ? '' : `<div id="hoy-pulso">${pulsoHtml()}</div>`}
     <div class="grid g-kpi">
       ${kpi('SLA vencido', vencidos, `≥ ${M.cfg.sla_vencida_h} h hábiles sin contacto`, vencidos ? 'bad' : 'ok')}
       ${kpi('Citas hoy', grupos[1].items.length + abiertos.filter(l => l.citaHoy && l.sla === 'bad').length, '')}
@@ -2160,11 +2298,18 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'pulso-f') { S.pulF = S.pulF === a.dataset.k ? '' : a.dataset.k; const c = $('#hoy-pulso'); if (c) c.innerHTML = pulsoHtml(); return; }
+  if (act === 'eq-sel') { S.eqSel = a.dataset.id || ''; render(); return; }
+  if (act === 'entrega-rapida') {
+    a.disabled = true;
+    try { await api('entrega', { id_lead: a.dataset.id }); toast('Entrega registrada. Ahora agenda la revisión técnica.', 'ok'); S.pan = null; S.panT = 0; render(); cargar(true); }
+    catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+    return;
+  }
   if (act === 'val-venta') {
     const nro = a.dataset.id, sel = document.getElementById('val-as-' + nro), asesor = sel ? sel.value : '';
     if (!asesor) { toast('Elige el asesor que hizo la venta.', 'bad'); return; }
     a.disabled = true;
-    try { await api('validarVenta', { nro_factura: nro, asesor }); toast('Asesor validado', 'ok'); S.pil = null; S.pilT = 0; S.pul = null; const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); cargar(true); }
+    try { await api('validarVenta', { nro_factura: nro, asesor }); toast('Asesor validado', 'ok'); S.pil = null; S.pilT = 0; S.pul = null; S.pan = null; S.panT = 0; const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); else render(); cargar(true); }
     catch (e) { toast(e.message, 'bad'); a.disabled = false; }
     return;
   }

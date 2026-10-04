@@ -228,6 +228,16 @@
         ritmo: u.rol === 'asesor' ? [] : [{ sede: 'Itagüí', meta: 36, facturado: 14, entregado: 12, esperado: 5.8, diferencia: 8.2 }, { sede: 'Los Colores', meta: 51, facturado: 6, entregado: 5, esperado: 8.2, diferencia: -2.2 }], motivos: {}, perdidasSede: {} };
     }
     if (action === 'revisarOportunidad' || action === 'validarVenta' || action === 'solicitarReasignacion') return { ok: true };
+    if (action === 'panel') {
+      const ctl = clone(run('control', { dias: 30 }, u)), L = ctl.lista;
+      ctl.facturasMes = [{ id_factura: 'ITA-170', cliente: 'Cliente Octubre (demo)', modelo: 'NKD 125', asesor: 'DEMO Beto Asesor', sede: 'Itagüí', valor: 4890000, fecha: '2026-10-03', validada: false }, { id_factura: 'FEM-2430', cliente: 'Otra venta (demo)', modelo: 'AK150CR4', asesor: 'DEMO Carla Asesora', sede: 'Los Colores', valor: 6990000, fecha: '2026-10-03', validada: true }];
+      L.forEach((l, i) => { l.valor = 4890000 + (i % 4) * 600000; l.accion = ['Llamar', 'WhatsApp', 'Gestionar', 'Seguimiento', 'Crédito'][i % 5]; l.telefono = '3001234' + String(100 + i); l.caliente = i % 3 === 0; l.riesgo = i % 7 === 0; l.score = 55 + (i * 7) % 40; l.fase = ['Nuevo', 'Cotizado', 'Negociación', 'Contactado'][i % 4]; });
+      const nombres = [...new Set(L.map(l => l.asesor).filter(Boolean))];
+      const equipo = nombres.filter(n => u.rol === 'jefe' || (u.rol === 'admin' ? L.some(l => l.asesor === n && l.sede === sedeCanon(u.sede)) : n === u.nombre)).map((n, i) => ({ nombre: n, sede: (L.find(l => l.asesor === n) || {}).sede || '', admin: false, meta: 10, ventas: 4 - (i % 4), pct: (4 - (i % 4)) * 10, proyeccion: 9 - i, leadsActivos: L.filter(l => l.asesor === n && l.abierto).length, cotizaciones: 5, pipeline: 28e6 - i * 4e6, sinContacto: i % 3, vencidos: i % 2, conversion: 22 - i * 4, estado: ['verde', 'ambar', 'rojo', 'verde'][i % 4] }));
+      const sedes = ['Itagüí', 'Los Colores'].filter(s => u.rol === 'jefe' || s === sedeCanon(u.sede)).map((s, i) => ({ sede: s, meta: i ? 51 : 33, ventas: i ? 17 : 28, pct: i ? 33.3 : 84.8, proyeccion: i ? 50 : 36, estado: i ? 'ambar' : 'verde' }));
+      return { ok: true, mes: '2026-10', dia: 4, diasMes: 31, control: ctl, equipo, sedes, top: L.filter(l => l.abierto).sort((a, b) => b.score - a.score).slice(0, 8), pipeline: 286e6, rol: u.rol, sede: u.sede || '',
+        citas: [{ id_lead: L[0] && L[0].id, nombre: L[0] && L[0].nombre, fecha: '2026-10-05', hora: '10:00', tipo: 'Visita' }] };
+    }
     if (action === 'reasignar') { if (u.rol !== 'jefe') fail('Solo el Jefe Comercial reasigna leads.', 'FORBIDDEN'); const l = DB.Leads.find(x => x.id_lead === p.id_lead); if (l) l.nombre_asesor = p.asesor; return { ok: true }; }
     if (action === 'entrega') {
       const l = DB.Leads.find(x => x.id_lead === p.id_lead);
