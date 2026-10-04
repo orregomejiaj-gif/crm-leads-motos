@@ -577,6 +577,7 @@ function pulsoHtml() {
       k.calientesSinGestion ? `🔥 <b>${k.calientesSinGestion}</b> lead${k.calientesSinGestion > 1 ? 's calientes' : ' caliente'} sin gestión` : '',
       k.cotizacionesVencidas ? `📝 <b>${k.cotizacionesVencidas}</b> cotizaci${k.cotizacionesVencidas > 1 ? 'ones' : 'ón'} con seguimiento vencido` : '',
       k.pendientesEntrega ? `🏍️ <b>${k.pendientesEntrega}</b> venta${k.pendientesEntrega > 1 ? 's' : ''} pendiente${k.pendientesEntrega > 1 ? 's' : ''} de entrega` : '',
+      k.porRevisar ? `🧐 <b>${k.porRevisar}</b> cotizaci${k.porRevisar > 1 ? 'ones/ventas' : 'ón/venta'} por revisar a mano (Control → Piloto)` : '',
       k.posventaPendiente ? `🤝 <b>${k.posventaPendiente}</b> contacto${k.posventaPendiente > 1 ? 's' : ''} de posventa por hacer` : '',
       k.enRiesgo ? `⚠️ <b>${k.enRiesgo}</b> negociaci${k.enRiesgo > 1 ? 'ones' : 'ón'} en riesgo` : ''].filter(Boolean).map(x => `<span style="display:inline-block;margin-right:14px">${x}</span>`).join('') || '✅ Sin alertas críticas ahora mismo.'}</div>
     ${meta && falta ? `<div class="small" style="margin:0 0 10px"><b>🎯 Acción de hoy:</b> para llegar a la meta necesitamos ${p.cierresDiarios} cierre${p.cierresDiarios === 1 ? '' : 's'} por día durante ${p.diasRestantes} día${p.diasRestantes === 1 ? '' : 's'}. Pregúntate: ¿cuál es mi próxima venta y qué le falta para cerrar?</div>` : ''}
@@ -854,6 +855,15 @@ function cargarPiloto() {
     .catch(e => { S.pilErr = e.message; })
     .finally(() => { S.pilBusy = false; if (S.view === 'control' && (S.ctlTab || 'tareas') === 'piloto') { const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); } });
 }
+/** Cola «Por revisar» (solo Jefe): cotizaciones y ventas de otra zona o de asesores que no están en Equipo. No cuentan en los indicadores hasta que se decida a mano. */
+function porRevisarHtml(r) {
+  const L = r.porRevisar || []; if (!r.esJefe) return '';
+  const asesores = (S.M.asesores || []).map(p => p.nombre);
+  return `<h3 style="margin:16px 0 8px">🧐 Por revisar a mano <span class="pill ${L.length ? 'pill-warn' : 'pill-ok'}">${L.length}</span></h3>
+    <p class="small muted" style="margin:0 0 8px">Cotizaciones y ventas que llegaron del CRM o de Síntesis pero son de otra zona o de un asesor que no está en tu equipo. No se cuentan hasta que decidas: así no se pierde ninguna venta.</p>
+    ${L.length ? L.map(o => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><div class="row between wrap" style="gap:8px"><div><b>${esc(o.cliente || 'Cliente')}</b> <span class="muted small">· ${esc(o.modelo)} · ${esc(o.fecha)} · asesor «${esc(o.asesor)}» · ${esc(o.sede || 'sin sede')}</span> <span class="pill ${o.estado === 'Facturado' ? 'pill-ok' : ''}">${esc(o.estado)}${o.factura ? ' · ' + esc(o.factura) : ''}</span></div>
+      <div class="row" style="gap:6px"><select class="sel" id="rev-as-${esc(o.id)}">${opts(asesores, '', 'Asignar a…')}</select><button class="btn btn-sm btn-dark" data-act="rev-asignar" data-id="${esc(o.id)}">Asignar</button><button class="btn btn-sm" data-act="rev-descartar" data-id="${esc(o.id)}" title="No es de mi equipo">No es mío</button></div></div></div>`).join('') : '<p class="small muted">Nada por revisar ✅</p>'}`;
+}
 /** Pronóstico del mes en tres escenarios, contra la meta y contra el ritmo del mes anterior. */
 function pronosticoHtml(r) {
   const f = r.pronostico, p = r.presupuesto; if (!f || !f.escenarios) return '';
@@ -882,6 +892,7 @@ function ctlPiloto() {
     ${kpi('⏰ Seg. vencidos', k.seguimientosVencidos || 0, 'fuera de plazo', k.seguimientosVencidos ? 'bad' : 'ok')}</div>
     <h3 style="margin:16px 0 8px">Conversión por etapa</h3>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Paso</th><th class="r">Entran</th><th class="r">Pasan</th><th class="r">%</th></tr></thead><tbody>${(r.conversion || []).map(c => `<tr><td>${esc(c.etapa)}</td><td class="r">${c.de || 0}</td><td class="r">${c.a || 0}</td><td class="r"><b>${c.pct === null ? '—' : c.pct + ' %'}</b></td></tr>`).join('')}</tbody></table></div>
+    ${porRevisarHtml(r)}
     ${pronosticoHtml(r)}
     ${Object.keys(r.pagos || {}).length ? `<h3 style="margin:16px 0 8px">💳 Cómo pagan los clientes (ventas de los últimos 45 días)</h3>${bars(Object.entries(r.pagos).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v))}` : ''}
     <h3 style="margin:16px 0 8px">🔴 Ventas facturadas sin entrega <span class="pill ${r.pendientes && r.pendientes.length ? 'pill-bad' : 'pill-ok'}">${(r.pendientes || []).length}</span></h3>
@@ -2097,6 +2108,14 @@ document.addEventListener('click', async e => {
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'rev-asignar' || act === 'rev-descartar') {
+    const id = a.dataset.id, sel = document.getElementById('rev-as-' + id), asesor = sel ? sel.value : '';
+    if (act === 'rev-asignar' && !asesor) { toast('Elige a qué asesor asignarla.', 'bad'); return; }
+    a.disabled = true;
+    try { await api('revisarOportunidad', { id_cotizacion: id, accion: act === 'rev-asignar' ? 'asignar' : 'descartar', asesor }); toast(act === 'rev-asignar' ? 'Asignada: ya cuenta en la gestión' : 'Descartada (no es de tu equipo)', 'ok'); S.pil = null; S.pilT = 0; S.ctl = null; S.ctlT = 0; const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); cargar(true); }
+    catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+    return;
+  }
   if (act === 'pv-hecho') { a.disabled = true; try { await api('posventa', { id_lead: a.dataset.id, tipo: a.dataset.tipo }); toast('Posventa registrada', 'ok'); S.ctl = null; S.ctlT = 0; render(); } catch (e) { toast(e.message, 'bad'); a.disabled = false; } return; }
   if (act === 'ctl-recargar') { S.ctl = null; S.ctlT = 0; return render(); }
   if (act === 'prox-abrir') { const lp = S.M.byId[a.dataset.id]; if (lp) return programarProxima(lp); toast('Ese lead no está en tu lista actual.', 'bad'); return; }

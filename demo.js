@@ -218,6 +218,7 @@
       return { ok: true, dias: p.dias || 7, esJefe: u.rol === 'jefe',
         kpis: { recibidos: 60, atendidos: 52, sinContacto: 8, mediana1raRespuestaH: 0.7, reasignaciones: 3, cotizaciones: 24, ventas: 6, ventasSala: 3, facturados: 7, entregados: 4, pendientesEntrega: 3, perdidos: 9, seguimientosVencidos: 4 },
         conversion: [{ etapa: 'Lead → Contactado', de: 60, a: 52, pct: 86.7 }, { etapa: 'Contactado → Cotizado', de: 52, a: 24, pct: 46.2 }, { etapa: 'Cotizado → Negociación', de: 24, a: 13, pct: 54.2 }, { etapa: 'Negociación → Facturado', de: 13, a: 6, pct: 46.2 }, { etapa: 'Cotizado → Facturado', de: 24, a: 6, pct: 25 }, { etapa: 'Facturado → Entregado', de: 6, a: 4, pct: 66.7 }],
+        porRevisar: u.rol === 'jefe' ? [{ id: 'BOG-0001', cliente: 'Cliente Bogotá (demo)', fecha: '2026-10-02', modelo: 'AK125NKD EIII', asesor: 'ASESOR BOGOTA (demo)', sede: 'Bogotá', estado: 'Cotizado', factura: '' }, { id: 'F-ITA-999', cliente: 'Venta asesor ajeno (demo)', fecha: '2026-09-28', modelo: 'AK150CR4', asesor: 'KELLY MICHELL OSORIO MARIN', sede: 'Los Colores', estado: 'Facturado', factura: 'FEM-2389' }] : [],
         pagos: { CONTADO: 14, ADDI: 9, FINAMIGA: 6, CREDIORBE: 5, PROGRESER: 5 }, presupuesto: { meta: 84, ventas: 12, brecha: 72, diasRestantes: 27, cierresDiarios: 2.7 },
         pronostico: { meta: 84, escenarios: { bajo: 12, medio: 33, alto: 44 }, cumplimientoProyectado: 39.3, mesAnterior: { mes: '2026-09', ventas: 46, esperadoAHoy: 6.1, diferencia: 5.9 } },
         pendientes: [{ id_lead: '', cliente: 'Juan Pérez (demo)', factura: 'F-1234', modelo: 'NKD 125', asesor: 'DEMO Beto', sede: 'Itagüí', dias: 3 }, { id_lead: '', cliente: 'María Gómez (demo)', factura: 'F-1235', modelo: 'PULSAR', asesor: 'DEMO Ana', sede: 'Los Colores', dias: 1 }],
@@ -225,6 +226,7 @@
         integridad: { idLeadDuplicados: 0, telefonosDuplicados: 1, leadsConVariasGestiones: 2, leadsSinGestion: 1, leadsSinAsesor: 0, cotizacionesDuplicadas: 0, facturasSinLead: 2 },
         ritmo: u.rol === 'asesor' ? [] : [{ sede: 'Itagüí', meta: 36, facturado: 14, entregado: 12, esperado: 5.8, diferencia: 8.2 }, { sede: 'Los Colores', meta: 51, facturado: 6, entregado: 5, esperado: 8.2, diferencia: -2.2 }], motivos: {}, perdidasSede: {} };
     }
+    if (action === 'revisarOportunidad') return { ok: true };
     if (action === 'entrega') {
       const l = DB.Leads.find(x => x.id_lead === p.id_lead);
       if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
