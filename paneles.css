@@ -21,4 +21,6 @@
 .btn-ok{background:#16a34a!important;color:#fff!important;border:0!important}
 .sv{font-size:.7rem;padding:2px 8px;border-radius:999px;font-weight:600}
 .pn-bar{height:8px;border-radius:999px;background:rgba(120,130,160,.2);overflow:hidden}.pn-bar>i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a)}
+.lectura{border-left:4px solid #2563eb;background:rgba(37,99,235,.08);padding:10px 14px;border-radius:12px;margin:12px 0}
+.lectura b{display:block;margin-bottom:2px}
 @media(max-width:640px){.pn-grid{grid-template-columns:1fr}.hero{padding:12px}}

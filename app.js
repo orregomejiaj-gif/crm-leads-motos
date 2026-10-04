@@ -403,7 +403,7 @@ const PANEL_VIEWS = ['inteligencia', 'punto', 'dia', 'equipo', 'miscot', 'misven
 const SEM = { verde: '🟢', ambar: '🟠', rojo: '🔴', gris: '⚪' };
 function cargarPanel() {
   if (S.panBusy) return; S.panBusy = true;
-  api('panel').then(r => { S.pan = r; S.panErr = ''; S.panT = Date.now(); }).catch(e => { S.panErr = e.message; S.panT = Date.now(); })
+  api('panel', { sede: S.panSede || '', dias: S.panDias || 30 }).then(r => { S.pan = r; S.panErr = ''; S.panT = Date.now(); }).catch(e => { S.panErr = e.message; S.panT = Date.now(); })
     .finally(() => { S.panBusy = false; if (PANEL_VIEWS.includes(S.view)) render(); });
 }
 setInterval(() => { try { if (S && S.data && PANEL_VIEWS.includes(S.view) && !document.hidden && $('#sheet').hidden) cargarPanel(); } catch (e) { /* sin panel */ } }, 60e3);
@@ -426,7 +426,7 @@ function accionBtn(l) {
 }
 function tablaOport(rows, conAsesor) {
   if (!rows.length) return '<p class="small muted">Sin oportunidades abiertas.</p>';
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Moto</th>${conAsesor ? '<th>Asesor</th>' : ''}<th class="r">Score IA</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(l => `<tr><td><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b></td><td>${esc(l.producto || '—')}</td>${conAsesor ? `<td>${esc(l.asesor || '')}</td>` : ''}<td class="r">${scoreChip(l.score)}</td><td><span class="pill">${esc(l.fase || l.estado)}</span></td><td>${accionBtn(l)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Moto</th>${conAsesor ? '<th>Asesor</th>' : ''}<th class="r">Score IA</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(l => `<tr><td><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b></td><td>${esc(l.producto || '—')}</td>${conAsesor ? `<td>${esc(l.asesor || '')}${l.sede ? ` <span class="tiny muted">· ${esc(l.sede)}</span>` : ''}</td>` : ''}<td class="r">${scoreChip(l.score)}</td><td><span class="pill">${esc(l.fase || l.estado)}</span></td><td>${accionBtn(l)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function tablaEquipo(rows, opts) {
   opts = opts || {};
@@ -435,7 +435,64 @@ function tablaEquipo(rows, opts) {
 }
 function kpiRow(items) { return `<div class="grid g-kpi">${items.map(i => kpi(i[0], i[1], i[2], i[3])).join('')}</div>`; }
 
+function filtrosPanel(p) {
+  const f = p.filtro || {}, sedeSel = f.sede || '', diasSel = f.dias || 30, b = (k, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pan-filtro" data-k="${k}" data-v="${v}">${txt}</button>`;
+  return `<div class="row wrap" style="gap:10px;margin:0 0 12px"><div class="seg">${b('sede', '', 'Antioquia', !sedeSel)}${b('sede', 'Itagüí', 'Itagüí', sedeSel === 'Itagüí')}${b('sede', 'Los Colores', 'Los Colores', sedeSel === 'Los Colores')}</div><div class="seg">${b('dias', 1, 'Hoy', diasSel === 1)}${b('dias', 7, 'Semana', diasSel === 7)}${b('dias', 30, 'Mes', diasSel === 30)}</div></div>`;
+}
+function kpiP(clave, l, v, s, cls) { return `<div data-act="panel-f" data-k="${clave}" title="Toca para ver la lista" style="cursor:pointer;border-radius:14px;${S.panF === clave ? 'outline:3px solid #2563eb;' : ''}">${kpi(l, v, s, cls)}</div>`; }
+/** Actividad frente a resultado por asesor: referente, eficiente, alta actividad con bajo resultado, o baja actividad. */
+function clasificarEquipo(p) {
+  const act = (p.control.asesores || []), seg = e => ((act.find(a => mismaPersona(a.k, e.nombre)) || {}).seguimientos) || 0;
+  const filas = p.equipo.map(e => ({ e, seg: seg(e) })), segs = filas.map(f => f.seg).filter(x => x > 0), convs = p.equipo.map(e => e.conversion).filter(x => x !== null);
+  const avgSeg = segs.length ? segs.reduce((a, b) => a + b, 0) / segs.length : 0, avgConv = convs.length ? convs.reduce((a, b) => a + b, 0) / convs.length : 0;
+  return filas.map(f => {
+    const e = f.e, tiene = f.seg > 0 || e.cotizaciones >= 3; if (!tiene) return { ...f, tag: '—', nota: '' };
+    const altaAct = f.seg >= avgSeg, altoRes = (e.conversion || 0) >= avgConv;
+    return { ...f, tag: altaAct && altoRes ? '🟢 Referente' : (altaAct ? '🟠 Alta actividad / bajo resultado' : (altoRes ? '🔵 Eficiente' : '🔴 Baja actividad / bajo resultado')),
+      nota: altaAct && !altoRes ? `${e.nombre.split(' ')[0]}: ${f.seg} seguimientos y ${e.ventas} venta${e.ventas === 1 ? '' : 's'}. Revisar calidad de negociación y manejo de objeciones.` : (!altaAct && !altoRes ? `${e.nombre.split(' ')[0]}: baja actividad y bajo resultado. Es un tema de disciplina comercial.` : '') };
+  });
+}
 function vInteligencia() {
+  const c = panelListo(); if (c) return c;
+  const p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, pf = ctl.pronostico || {}, L = ctl.lista || [], F = k.fases || {};
+  const abiertos = L.filter(l => l.abierto), calientes = abiertos.filter(l => l.caliente).length, enRiesgo = abiertos.filter(l => l.riesgo || l.vencido).length;
+  const sinSeg = abiertos.filter(l => l.sinContacto || l.vencido).length, neg = F['Negociación'] || 0, falta = Math.max(0, (pr.meta || 0) - (pr.ventas || 0));
+  const ritmo = p.dia ? Math.round((pr.ventas || 0) / p.dia * 100) / 100 : 0, nec = pr.diasRestantes ? Math.round(falta / pr.diasRestantes * 100) / 100 : 0, difR = Math.round((ritmo - nec) * 100) / 100;
+  const acciones = (ctl.tareas || []).length, prioridades = sinSeg + (k.cotizacionesVencidas || 0) + neg + (k.pendientesEntrega || 0);
+  const lectura = !pr.meta ? 'Aún no hay meta cargada para este mes.' : (pr.ventas >= pr.meta ? `🏆 ¡Meta del mes cumplida! (${pr.ventas} de ${pr.meta}). Ahora a superar el presupuesto.`
+    : (!L.length && !pr.ventas ? 'El mes arranca en cero: en cuanto se carguen las cotizaciones y las ventas de octubre, aquí aparecerán las prioridades.'
+    : `El equipo necesita ${pr.cierresDiarios} cierre${pr.cierresDiarios === 1 ? '' : 's'} por día durante ${pr.diasRestantes} días para alcanzar la meta. Hay ${calientes} oportunidad${calientes === 1 ? '' : 'es'} caliente${calientes === 1 ? '' : 's'} y ${enRiesgo} que requieren intervención inmediata.`));
+  const funnel = [['Leads', L.length], ['Contactados', L.filter(l => l.contactado || l.cotizado).length], ['Cotizados', L.filter(l => l.cotizado).length], ['Negociación', neg], ['Pasa a facturar', k.porFacturar || 0], ['Facturados', pr.ventas || 0], ['Entregados', k.entregadas || 0]];
+  const mx = Math.max(1, ...funnel.map(x => x[1]));
+  let fuga = null; for (let i = 1; i < funnel.length; i++) { const a = funnel[i - 1][1], b = funnel[i][1]; if (a >= 3) { const r = Math.round(b * 100 / a); if (!fuga || r < fuga.r) fuga = { r, de: funnel[i - 1][0], a: funnel[i][0], n1: a, n2: b }; } }
+  const prio = [['🔴', sinSeg, 'Sin seguimiento o sin contacto', 'seguimientos', 'Gestionar'], ['🔴', k.cotizacionesVencidas || 0, 'Cotización con seguimiento vencido', 'cotvencidas', 'Recuperar'], ['🟠', neg, 'En negociación', 'negociacion', 'Cerrar'], ['🟡', k.pendientesEntrega || 0, 'Ventas pendientes de entrega', 'pendEntrega', 'Entregar']].filter(x => x[1] > 0);
+  const eq = clasificarEquipo(p), notas = eq.filter(x => x.nota).map(x => x.nota), lect = lecturaIA(ctl);
+  return `${hero('jefe', 'ti-brain', 'Centro de Inteligencia Comercial', `Antioquia · ${esc(fmtMes(p.mes))} · ${esc((p.filtro || {}).sede || 'Todos los puntos')}`)}
+    ${filtrosPanel(p)}
+    ${kpiRow([]).replace('<div class="grid g-kpi"></div>', '')}<div class="grid g-kpi">
+      ${kpiP('ventas', '🎯 Cumplimiento', `${pr.ventas || 0} / ${pr.meta || 0}`, pr.meta ? `${pr.cumplimiento || 0} % · faltan ${falta} motos` : 'sin meta cargada', pr.meta && pr.ventas >= pr.meta ? 'ok' : '')}
+      ${kpiP('atender', '🔮 Pronóstico de cierre', pf.cierreProyectado ?? '—', `ritmo ${ritmo}/día · necesario ${nec}/día`, difR < 0 && pr.meta ? 'warn' : 'ok')}
+      ${kpiP('negocio', '💰 Negocio en curso', mM(p.pipeline), 'valor potencial')}
+      ${kpiP('calientes', '🔥 Oportunidades calientes', calientes, 'alta probabilidad de compra')}
+      ${kpiP('riesgo', '🚨 En riesgo', enRiesgo, 'requieren acción', enRiesgo ? 'warn' : 'ok')}
+      ${kpiP('atender', '⚡ Acciones hoy', acciones, `${k.seguimientosVencidos || 0} vencidas`, acciones ? 'warn' : 'ok')}
+    </div>
+    ${S.panF ? `<div class="pn-card" style="margin-top:12px">${pulsoLista(ctl, S.panF, 'panel-f')}</div>` : ''}
+    <div class="lectura"><b>🧠 Lectura ejecutiva de hoy</b><div>${esc(lectura)}</div></div>
+    <div class="pn-card"><h3>🤖 IA comercial — prioridades de hoy ${prioridades ? `<span class="pill pill-warn">${prioridades}</span>` : ''}</h3>${prio.length
+      ? `<div class="tbl-wrap"><table class="tbl"><tbody>${prio.map(x => `<tr><td>${x[0]} <b>${x[1]}</b></td><td>${x[2]}</td><td class="r"><button class="btn btn-sm btn-dark" data-act="panel-f" data-k="${x[3]}">${x[4]}</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="small" style="margin:0">🟢 <b>Sin alertas críticas.</b> El equipo no tiene oportunidades vencidas pendientes de intervención.</p>'}</div>
+    <div class="pn-grid">
+      <div class="pn-card"><h3>🏢 Desempeño por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Meta</th><th class="r">Venta</th><th>Cumplimiento</th><th class="r">Pronóstico</th><th></th></tr></thead><tbody>${p.sedes.map(s => `<tr><td><b>${esc(s.sede)}</b></td><td class="r">${s.meta || '—'}</td><td class="r"><b>${s.ventas}</b></td><td style="min-width:110px"><div class="pn-bar"><i style="width:${Math.min(100, s.pct || 0)}%;background:${colEstado(s.estado)}"></i></div><span class="tiny">${s.pct === null ? '—' : s.pct + ' %'}</span></td><td class="r">${s.proyeccion}</td><td>${SEM[s.estado]}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="pn-card"><h3>📊 Embudo comercial</h3>${L.length || pr.ventas ? funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') + (fuga ? `<p class="small" style="margin:8px 0 0">⚠️ <b>Principal fuga:</b> ${esc(fuga.de)} → ${esc(fuga.a)} (${fuga.n1} → ${fuga.n2}, ${fuga.r} %)</p>` : '') : '<p class="small muted">Sin movimiento todavía este período.</p>'}</div>
+    </div>
+    <div class="pn-card"><h3>🎯 Ritmo comercial</h3><div class="row wrap" style="gap:22px"><div><div class="tiny muted">Meta</div><b>${pr.meta || 0}</b></div><div><div class="tiny muted">Vendidas</div><b>${pr.ventas || 0}</b></div><div><div class="tiny muted">Faltan</div><b>${falta}</b></div><div><div class="tiny muted">Días restantes</div><b>${pr.diasRestantes || 0}</b></div><div><div class="tiny muted">Necesitamos</div><b>${nec} motos/día</b></div><div><div class="tiny muted">Ritmo actual</div><b>${ritmo} motos/día</b></div></div>
+      <p class="small" style="margin:8px 0 0">${!pr.meta ? '' : difR < 0 ? `🔴 Estamos <b>${Math.abs(difR)}</b> motos/día por debajo del ritmo necesario.` : '🟢 El ritmo actual alcanza para la meta.'}${pf.escenarios ? ` Pronóstico: ${pf.escenarios.bajo}–${pf.escenarios.alto} motos (esperado ${pf.escenarios.medio}).` : ''}</p></div>
+    <div class="pn-card"><div class="row between wrap"><h3 style="margin:0">🔥 Oportunidades para cerrar hoy</h3><button class="btn btn-sm" data-act="panel-f" data-k="todas">Ver todas</button></div>${tablaOport(p.top, true)}</div>
+    <div class="pn-grid"><div class="pn-card"><h3>👥 Rendimiento del equipo</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th class="r">Meta</th><th class="r">Venta</th><th class="r">%</th><th class="r">Conv.</th><th class="r">Seg.</th><th>IA</th></tr></thead><tbody>${eq.map(x => `<tr><td><b>${esc(x.e.nombre)}</b></td><td>${esc(x.e.sede)}</td><td class="r">${x.e.meta || '—'}</td><td class="r"><b>${x.e.ventas}</b></td><td class="r">${x.e.pct === null ? '—' : x.e.pct + ' %'}</td><td class="r">${x.e.conversion === null ? '—' : x.e.conversion + ' %'}</td><td class="r">${x.seg}</td><td class="small">${SEM[x.e.estado] || ''} ${x.tag}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin asesores.</td></tr>'}</tbody></table></div>${notas.map(n => `<p class="small" style="margin:6px 0">⚠️ ${esc(n)}</p>`).join('')}</div>
+      <div class="pn-card"><h3>🚨 Alertas y análisis IA</h3>${lect.length ? lect.map(x => `<div class="small" style="margin:6px 0">${esc(x)}</div>`).join('') : '<p class="small muted">Aún no hay suficientes datos para conclusiones.</p>'}</div></div>`;
+}
+function vInteligenciaV1() {
   const c = panelListo(); if (c) return c;
   const p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, pf = ctl.pronostico || {}, L = ctl.lista || [], F = k.fases || {};
   const calientes = L.filter(l => l.abierto && l.caliente).length, prio = p.top.filter(l => l.score >= 70).length;
@@ -461,7 +518,7 @@ function vPunto() {
   const tab = S.ptTab || 'activos', lista = tab === 'riesgo' ? L.filter(l => l.abierto && (l.riesgo || l.vencido)) : tab === 'perdidos' ? L.filter(l => l.estado === 'Perdido') : L.filter(l => l.abierto);
   const cal = L.filter(l => l.abierto && l.caliente && l.sinContacto).length;
   return `${hero('admin', 'ti-building-store', `Mi Punto – ${esc(s.sede || p.sede)}`, `Administrador: ${esc(S.data.user.nombre)} · ${esc(fmtMes(p.mes))}`)}
-    ${kpiRow([['Meta', s.meta || 0, 'motos'], ['Ventas', s.ventas, s.pct === null ? 'sin meta' : s.pct + ' % de la meta'], ['Proyección', s.proyeccion, 'motos al cierre'], ['Pipeline', mM(p.pipeline), 'valor potencial'],
+    ${kpiRow([['Meta', s.meta || 0, 'motos'], ['Ventas', s.ventas, s.pct === null ? 'sin meta' : s.pct + ' % de la meta'], ['Pronóstico de cierre', s.proyeccion, 'motos al cierre'], ['Negocio en curso', mM(p.pipeline), 'valor potencial'],
       ['Leads sin contacto', k.sinContacto || 0, '', k.sinContacto ? 'bad' : 'ok'], ['Cotizaciones vencidas', k.cotizacionesVencidas || 0, '', k.cotizacionesVencidas ? 'warn' : 'ok'], ['Negociaciones en riesgo', k.enRiesgo || 0, '', k.enRiesgo ? 'warn' : 'ok'], ['Entregas pendientes', k.pendientesEntrega || 0, '', k.pendientesEntrega ? 'warn' : 'ok']])}
     <div class="pn-grid">
       <div class="pn-card"><h3>👥 Mi equipo</h3>${tablaEquipo(p.equipo.filter(e => !e.admin || p.equipo.length === 1), { click: true })}<p class="tiny muted">Toca un asesor para ver sus leads. La reasignación la decide el Jefe: usa «Solicitar reasignación» en el lead.</p></div>
@@ -486,11 +543,11 @@ function vDia() {
   const tareas = (ctl.tareas || []).slice(0, 6), conv = k.cotizaciones ? Math.round(ven * 100 / k.cotizaciones) : 0;
   const barra = (l, v, mx) => `<div style="margin:8px 0"><div class="row between small"><span>${l}</span><b>${v}${mx ? ' / ' + mx : ''}</b></div><div class="pn-bar"><i style="width:${mx ? Math.min(100, Math.round(v * 100 / Math.max(1, mx))) : Math.min(100, v)}%"></i></div></div>`;
   return `${hero('asesor', 'ti-user', `Mi Día — ${esc(u.nombre.split(' ').slice(0, 2).join(' '))}`, `${esc(fmtMes(p.mes))} · ${top.length} prioridades para hoy`)}
-    ${kpiRow([['Meta', meta || '—', 'motos del mes'], ['Vendidas', ven, 'facturadas'], ['Faltan', falta, meta ? 'para la meta' : 'sin meta', falta ? 'warn' : 'ok'], ['Proyección', me.proyeccion ?? '—', 'al ritmo actual'], ['Avance', pct + ' %', meta ? `${ven} de ${meta}` : '']])}
+    ${kpiRow([['Meta', meta || '—', 'motos del mes'], ['Vendidas', ven, 'facturadas'], ['Faltan', falta, meta ? 'para la meta' : 'sin meta', falta ? 'warn' : 'ok'], ['Pronóstico de cierre', me.proyeccion ?? '—', 'al ritmo actual'], ['Avance', pct + ' %', meta ? `${ven} de ${meta}` : '']])}
     ${iaCard('asesor', 'Mi Coach IA', top.length ? [`Tienes ${top.length} oportunidades prioritarias para hoy.`, `Empieza por ${top[0].nombre}: score ${top[0].score}${top[0].ia ? ' · ' + top[0].ia.replace(/^[^\w¿¡]+/, '') : ''}`, meta ? `Si cierras 2 más, tu proyección pasa a ${(me.proyeccion || 0) + 2} ventas.` : 'Sigue sumando cotizaciones y cierres.'] : ['No tienes oportunidades abiertas: pide leads nuevos o retoma clientes por recuperar.'], `<button class="btn btn-sm" data-nav="hoy">Ver mis leads →</button>`)}
     <div class="pn-card"><h3>🎯 Mis ${top.length || ''} clientes para cerrar hoy</h3>${tablaOport(top, false)}</div>
     <div class="pn-grid">
-      <div class="pn-card"><h3>📋 Mis próximos pendientes</h3>${[...p.citas.slice(0, 4).map(x => `<div class="small" style="margin:6px 0">📅 <b>${esc(x.fecha.slice(5))} ${esc(x.hora)}</b> · ${esc(x.nombre)} · ${esc(x.tipo)}</div>`), ...tareas.map(t => `<div class="small" style="margin:6px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}</div>`)].join('') || '<p class="small muted">Sin pendientes por ahora ✅</p>'}</div>
+      <div class="pn-card"><h3>📋 Mis seguimientos de hoy</h3>${[...p.citas.slice(0, 4).map(x => `<div class="small" style="margin:6px 0">📅 <b>${esc(x.fecha.slice(5))} ${esc(x.hora)}</b> · ${esc(x.nombre)} · ${esc(x.tipo)}</div>`), ...tareas.map(t => `<div class="small" style="margin:6px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}</div>`)].join('') || '<p class="small muted">Sin pendientes por ahora ✅</p>'}</div>
       <div class="pn-card"><h3>📈 Mi rendimiento</h3>${barra('Seguimientos', k.contactosRealizados || 0, 0)}${barra('Cotizaciones', k.cotizaciones || 0, 0)}${barra('Ventas', ven, meta)}${barra('Conversión (ventas/cotizaciones)', conv + ' %', 0)}
         <div style="margin-top:10px;font-weight:700">⭐ Score comercial: ${score} / 100</div></div>
     </div>`;
@@ -694,11 +751,14 @@ function cargarPulso() {
 }
 /** Tarjeta del pulso que, al tocarla, filtra la lista que aparece debajo. */
 function kpiF(clave, l, v, s, cls) { return `<div data-act="pulso-f" data-k="${clave}" title="Toca para ver la lista" style="cursor:pointer;border-radius:14px;${S.pulF === clave ? 'outline:3px solid #2563eb;' : ''}">${kpi(l, v, s, cls)}</div>`; }
-function pulsoLista(r) {
-  const k = S.pulF; if (!k) return '';
+function pulsoLista(r, kSel, accionFiltro) {
+  const k = kSel || S.pulF; if (!k) return '';
   const L = r.lista || [], pill = t => `<span class="pill">${esc(t)}</span>`;
-  const fl = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', cotizaciones: l => l.cotizado, entregadas: l => l.entregada, pendEntrega: l => l.pendEntrega, seguimientos: l => l.abierto && l.vencido, recuperar: l => l.recuperar };
-  const titulo = { leads: '📥 Leads recibidos (digitales)', nuevos: '🆕 Leads nuevos', cotizaciones: '📝 Cotizaciones', ventas: '💰 Ventas facturadas del mes', entregadas: '🏍️ Motos entregadas', pendEntrega: '⏳ Pendientes de entrega', seguimientos: '⏰ Seguimientos vencidos', atender: '🔥 Por atender', recuperar: '♻️ Por recuperar' }[k] || '';
+  const fl = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', cotizaciones: l => l.cotizado, entregadas: l => l.entregada, pendEntrega: l => l.pendEntrega, seguimientos: l => l.abierto && l.vencido, recuperar: l => l.recuperar,
+    calientes: l => l.abierto && l.caliente, riesgo: l => l.abierto && (l.riesgo || l.vencido), negocio: l => l.abierto && l.valor > 0,
+    cotvencidas: l => l.abierto && l.cotizado && l.vencido, negociacion: l => l.abierto && l.fase === 'Negociación', todas: l => l.abierto && l.asesor };
+  const titulo = { leads: '📥 Leads recibidos (digitales)', nuevos: '🆕 Leads nuevos', cotizaciones: '📝 Cotizaciones', ventas: '💰 Ventas facturadas del mes', entregadas: '🏍️ Motos entregadas', pendEntrega: '⏳ Pendientes de entrega', seguimientos: '⏰ Seguimientos vencidos', atender: '⚡ Acciones pendientes', recuperar: '♻️ Por recuperar',
+    calientes: '🔥 Oportunidades calientes', riesgo: '🚨 En riesgo', negocio: '💰 Negocio en curso', cotvencidas: '📝 Cotizaciones con seguimiento vencido', negociacion: '🤝 En negociación', todas: '🎯 Todas las oportunidades abiertas' }[k] || '';
   let filas = '', n = 0;
   if (k === 'ventas') {
     const V = r.facturasMes || []; n = V.length;
@@ -710,7 +770,7 @@ function pulsoLista(r) {
     const R = L.filter(fl[k]); n = R.length;
     filas = R.slice(0, 80).map(l => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b> <span class="muted small">· ${esc(l.producto || '')} · ${esc(l.sede || '')}${l.asesor ? ' · ' + esc(l.asesor) : ''}</span> ${pill(l.estado)}${l.fase && l.fase !== l.estado ? ' ' + pill(l.fase) : ''}${l.sala ? ' <span class="pill pill-info">🏬 en sala</span>' : ''}</div>`).join('');
   }
-  return `<div style="margin:10px 0 0"><div class="row between wrap" style="margin-bottom:6px"><b>${titulo} <span class="pill">${n}</span></b><button class="btn btn-sm" data-act="pulso-f" data-k="${esc(k)}"><i class="ti ti-x"></i> Quitar filtro</button></div>${filas || '<p class="small muted">No hay registros para este filtro.</p>'}${n > 80 ? `<p class="tiny muted">Mostrando 80 de ${n}.</p>` : ''}</div>`;
+  return `<div style="margin:10px 0 0"><div class="row between wrap" style="margin-bottom:6px"><b>${titulo} <span class="pill">${n}</span></b><button class="btn btn-sm" data-act="${accionFiltro || 'pulso-f'}" data-k="${esc(k)}"><i class="ti ti-x"></i> Quitar filtro</button></div>${filas || '<p class="small muted">No hay registros para este filtro.</p>'}${n > 80 ? `<p class="tiny muted">Mostrando 80 de ${n}.</p>` : ''}</div>`;
 }
 function pulsoHtml() {
   const r = S.pul;
@@ -2297,6 +2357,8 @@ document.addEventListener('click', async e => {
     catch (e) { toast(e.message, 'bad'); a.disabled = false; }
     return;
   }
+  if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
+  if (act === 'pan-filtro') { const v = a.dataset.v; if (a.dataset.k === 'sede') S.panSede = v; else S.panDias = Number(v); S.pan = null; S.panT = 0; render(); return; }
   if (act === 'pulso-f') { S.pulF = S.pulF === a.dataset.k ? '' : a.dataset.k; const c = $('#hoy-pulso'); if (c) c.innerHTML = pulsoHtml(); return; }
   if (act === 'eq-sel') { S.eqSel = a.dataset.id || ''; render(); return; }
   if (act === 'entrega-rapida') {
