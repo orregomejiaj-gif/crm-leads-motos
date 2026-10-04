@@ -570,6 +570,12 @@ function pulsoHtml() {
     <div style="font-weight:600;margin:8px 0">${esc(msg)}</div>
     ${meta ? `<div style="background:rgba(120,130,160,.2);border-radius:999px;height:10px;overflow:hidden"><div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a)"></div></div>
     <div class="tiny muted" style="margin:4px 0 10px">🏁 ${vend} de ${meta} motos · te faltan ${falta} · 📈 al ritmo cierras en ${num(p.proyeccion)} · 🔮 con tu pipeline, ${num(f.cierreProyectado)}</div>` : ''}
+    <div class="small" style="margin:0 0 10px;line-height:1.7">${[
+      k.calientesSinGestion ? `🔥 <b>${k.calientesSinGestion}</b> lead${k.calientesSinGestion > 1 ? 's calientes' : ' caliente'} sin gestión` : '',
+      k.cotizacionesVencidas ? `📝 <b>${k.cotizacionesVencidas}</b> cotizaci${k.cotizacionesVencidas > 1 ? 'ones' : 'ón'} con seguimiento vencido` : '',
+      k.pendientesEntrega ? `🏍️ <b>${k.pendientesEntrega}</b> venta${k.pendientesEntrega > 1 ? 's' : ''} pendiente${k.pendientesEntrega > 1 ? 's' : ''} de entrega` : '',
+      k.enRiesgo ? `⚠️ <b>${k.enRiesgo}</b> negociaci${k.enRiesgo > 1 ? 'ones' : 'ón'} en riesgo` : ''].filter(Boolean).map(x => `<span style="display:inline-block;margin-right:14px">${x}</span>`).join('') || '✅ Sin alertas críticas ahora mismo.'}</div>
+    ${meta && falta ? `<div class="small" style="margin:0 0 10px"><b>🎯 Acción de hoy:</b> para llegar a la meta necesitamos ${p.cierresDiarios} cierre${p.cierresDiarios === 1 ? '' : 's'} por día durante ${p.diasRestantes} día${p.diasRestantes === 1 ? '' : 's'}. Pregúntate: ¿cuál es mi próxima venta y qué le falta para cerrar?</div>` : ''}
     <div class="grid g-kpi">
       ${kpi('📥 Leads recibidos', k.recibidos || 0, `🆕 ${k.nuevos || 0} nuevos · ✅ ${k.contactados || 0} contactados`)}
       ${kpi('📝 Cotizaciones', k.cotizaciones || 0, `🤝 ${k.negociacionesActivas || 0} negociaciones activas · 🏬 ${k.cotizacionesSala || 0} en sala`)}
@@ -827,7 +833,8 @@ function ctlTareas(r) {
     ${u.rol !== 'asesor' ? `<select class="sel" data-ch="ctlAsesor">${opts(asesores, sel, 'Todo el equipo')}</select>` : ''}</div>
     ${ts.length ? ts.slice(0, 80).map(t => `<div class="card" style="margin-bottom:8px;padding:10px 12px"><div class="row between wrap" style="gap:8px"><div>
       <span class="pill ${colores[t.prioridad] || ''}">${esc(t.tarea)}</span> <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> <span class="muted small">· ${esc(t.producto || '')}${t.asesor ? ' · ' + esc(t.asesor) : ''}</span>
-      <div class="small" style="margin-top:4px">${esc(t.detalle || '')}</div></div>
+      <div class="small" style="margin-top:4px">${esc(t.detalle || '')}</div>
+      ${t.ia ? `<div class="small" style="margin-top:3px"><b>🤖 IA:</b> ${esc(t.ia)}</div>` : ''}${t.porque && t.porque.length ? `<div class="tiny muted">Por qué: ${esc(t.porque.join(' · '))}${t.fase ? ' · fase ' + esc(t.fase) : ''}</div>` : ''}</div>
       <div class="row" style="gap:6px"><span class="tiny muted" title="Puntaje del lead">★ ${t.score}</span><button class="btn btn-sm" data-act="abrir" data-id="${esc(t.id_lead)}">Abrir</button><button class="btn btn-sm btn-dark" data-act="prox-abrir" data-id="${esc(t.id_lead)}"><i class="ti ti-calendar-time"></i> Programar acción</button></div></div></div>`).join('') : empty('ti-checks', 'Sin tareas pendientes. Buen trabajo.')}`;
 }
 function ctlSupervision(r) {
@@ -835,10 +842,36 @@ function ctlSupervision(r) {
   return `<h3 style="margin-bottom:8px">Cumplimiento por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Seg. vencidos</th><th class="r">Abandonados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Conversión</th></tr></thead><tbody>${(r.asesores || []).map(fila).join('') || '<tr><td colspan="10" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
     <p class="tiny muted" style="margin:8px 0 0">Escalera automática: alerta a los 15 min (lead nuevo) → recordatorio → escalamiento al administrador → reasignación. Los seguimientos vencidos son los que superaron su plazo o la próxima acción programada.</p>`;
 }
+/** Lectura de la IA: frases claras para gerencia a partir de los números (motivos de pérdida, actividad vs resultado, embudo). */
+function lecturaIA(r) {
+  const k = r.kpis || {}, out = [];
+  const ps = k.perdidasSede || {};
+  Object.keys(ps).forEach(sede => {
+    const tot = Object.values(ps[sede]).reduce((a, b) => a + b, 0); if (tot < 3) return;
+    const [m, n] = Object.entries(ps[sede]).sort((a, b) => b[1] - a[1])[0];
+    out.push(`📉 En ${sede}, el principal motivo de pérdida es «${m}»: ${Math.round(n * 100 / tot)} % de las ${tot} oportunidades perdidas.`);
+  });
+  (r.asesores || []).filter(a => a.k !== 'Sin asesor').forEach(a => {
+    if (a.cotizaciones >= 5 && a.convCot !== null && a.convCot < 10 && a.seguimientos >= 10) out.push(`🔎 ${a.k} cotiza (${a.cotizaciones}) y gestiona (${a.seguimientos} seguimientos) pero solo cierra el ${a.convCot} %: revisar objeciones y proceso de cierre.`);
+    if (a.leads >= 5 && a.sinContacto >= Math.ceil(a.leads * 0.3)) out.push(`⏰ ${a.k} tiene ${a.sinContacto} de ${a.leads} leads sin contactar: acompañar y reforzar la velocidad de respuesta.`);
+    if (a.vencidos >= 3) out.push(`🚨 ${a.k} acumula ${a.vencidos} seguimientos vencidos.`);
+  });
+  const mejor = (r.asesores || []).filter(a => a.cotizaciones >= 5 && a.convCot !== null).sort((a, b) => b.convCot - a.convCot)[0];
+  if (mejor && mejor.convCot >= 15) out.push(`🏆 ${mejor.k} convierte el ${mejor.convCot} % de sus cotizaciones: es la referencia del equipo.`);
+  if (k.pendientesEntrega) out.push(`🏍️ Hay ${k.pendientesEntrega} venta(s) facturada(s) sin entrega registrada.`);
+  if (k.cotizacionesVencidas) out.push(`📝 ${k.cotizacionesVencidas} cotización(es) con seguimiento vencido: se enfrían cada hora.`);
+  return out;
+}
+function embudoFases(r) {
+  const orden = ['Nuevo', 'Contactado', 'Calificado', 'Interesado', 'Cotizado', 'Negociación', 'Pasa a facturar', 'Facturado', 'Moto entregada', 'Detenido', 'Perdido'], f = (r.kpis || {}).fases || {};
+  return bars(orden.filter(x => f[x]).map(x => ({ l: x, v: f[x] })));
+}
 function ctlConversion(r) {
   const g = S.ctlGrupo || 'canal', nombres = { canal: 'Canal de origen', campana: 'Campaña', producto: 'Producto / modelo', tipo: 'Tipo de cliente', sede: 'Sede' };
-  const rows = ((r.grupos || {})[g] || []).slice(0, 40);
-  return `<div class="seg" style="margin-bottom:10px">${Object.keys(nombres).map(x => `<button class="${g === x ? 'on' : ''}" data-tab="ctlGrupo" data-v="${x}">${nombres[x]}</button>`).join('')}</div>
+  const rows = ((r.grupos || {})[g] || []).slice(0, 40), lect = lecturaIA(r);
+  return `<div class="card" style="padding:12px;margin-bottom:12px"><h3 style="margin:0 0 6px">🤖 Lectura de la IA</h3>${lect.length ? lect.map(x => `<div class="small" style="margin:4px 0">${esc(x)}</div>`).join('') : '<div class="small muted">Aún no hay suficientes datos para sacar conclusiones.</div>'}</div>
+    <h3 style="margin:0 0 8px">Embudo por fase</h3>${embudoFases(r) || '<p class="small muted">Sin datos.</p>'}
+    <div class="seg" style="margin-bottom:10px">${Object.keys(nombres).map(x => `<button class="${g === x ? 'on' : ''}" data-tab="ctlGrupo" data-v="${x}">${nombres[x]}</button>`).join('')}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>${nombres[g]}</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Perdidos</th><th class="r">Conversión</th><th class="r">1ª resp.</th></tr></thead>
     <tbody>${rows.map(a => `<tr><td>${esc(a.k)}</td><td class="r">${a.leads}</td><td class="r">${a.contactados}</td><td class="r">${a.oportunidades}</td><td class="r">${a.ventas}</td><td class="r">${a.perdidos}</td><td class="r"><b>${a.conv} %</b></td><td class="r">${a.tResp === null || a.tResp === undefined ? '—' : fmtHoras(a.tResp)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
     ${(r.kpis || {}).motivosPerdida && Object.keys(r.kpis.motivosPerdida).length ? `<h3 style="margin:14px 0 8px">Por qué se pierden las ventas</h3>${bars(Object.entries(r.kpis.motivosPerdida).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v))}` : ''}`;
