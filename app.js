@@ -611,10 +611,12 @@ function pintarChat(id, r2, forzarScroll) {
   const pausado = at.estado !== 'bot' && at.asesor;
   const vence = at.vence_reasignacion ? new Date(at.vence_reasignacion) : null;
   $('#chat-estado').innerHTML = (pausado
-    ? `<span class="pill pill-info"><i class="ti ti-player-pause"></i> Bot en pausa · atiende ${esc(at.asesor)}</span>${vence ? `<span class="pill ${vence - Date.now() < 3 * 3600e3 ? 'pill-warn' : ''}" title="Si no hay gestión, el lead se reasigna a otro asesor del punto">Se reasigna si no hay gestión: ${fmtFecha(vence)}</span>` : ''}`
+    ? `<span class="pill pill-info"><i class="ti ti-player-pause"></i> Bot en pausa · atiende ${esc(at.asesor)}</span>${vence ? `<span class="pill ${vence - Date.now() < 3 * 3600e3 ? 'pill-warn' : ''}" title="A las 20 h sin gestión se le recuerda al asesor y se escribe al cliente; a las 23 h se reasigna a otro asesor del punto">Gestiona antes de: ${fmtFecha(vence)}</span>` : ''}`
     : `<span class="pill pill-ok"><i class="ti ti-robot"></i> Bot activo</span>`)
     + `<span class="pill ${at.ventana_abierta ? 'pill-ok' : 'pill-bad'}" title="WhatsApp permite texto libre solo 24 h después del último mensaje del cliente">${at.ventana_abierta ? 'Ventana WhatsApp abierta hasta ' + fmtFecha(new Date(at.ventana_cierra)) : 'Ventana de 24 h cerrada'}</span>`
-    + (at.puede_escribir ? (pausado ? `<button class="btn btn-sm" data-act="chat-bot" data-id="${esc(id)}"><i class="ti ti-robot"></i> Devolver al bot</button>`
+    + (at.gestionado ? '<span class="pill pill-ok"><i class="ti ti-check"></i> Gestionado por el asesor</span>' : '')
+    // El asesor no devuelve chats al bot: una vez asignado debe garantizar la gestión (solo Jefe/Admin pueden devolverlo).
+    + (at.puede_escribir ? (pausado ? (S.data.user.rol !== 'asesor' ? `<button class="btn btn-sm" data-act="chat-bot" data-id="${esc(id)}"><i class="ti ti-robot"></i> Devolver al bot</button>` : '')
       : `<button class="btn btn-sm btn-dark" data-act="chat-tomar" data-id="${esc(id)}"><i class="ti ti-hand-stop"></i> Tomar chat (pausar bot)</button>`) : '');
   const box = $('#chat-box');
   if (!box.dataset.listo) {
