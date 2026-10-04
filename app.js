@@ -988,13 +988,22 @@ function etapaLocal(l, etapa) {
 }
 async function recargarLead() { await cargar(true); if (S.leadAbierto) abrirLead(S.leadAbierto); }
 
+// Devolver un lead a una etapa anterior: solo el Jefe Comercial autorizado (el servidor lo vuelve a validar).
+const puedeReabrir = () => S.data.user.rol === 'jefe' && String(S.data.user.id) === '1038213114';
 async function moverA(l, destino) {
   if (destino === l.estado) return;
   if (!puedeEditar(l)) { toast('Solo puedes mover tus propios leads.', 'bad'); return; }
   const orden = ESTADOS.indexOf.bind(ESTADOS);
+  const retroceso = ['Nuevo', 'Contactado', 'Cotizado'].includes(destino) && (destino === 'Nuevo' || orden(destino) < orden(l.estado) || ['Facturado', 'Perdido', 'Retenido'].includes(l.estado));
+  if (retroceso && puedeReabrir()) {
+    if (l.cerrado) { toast('Este lead ya tiene la venta facturada en Síntesis: no se puede devolver (se corrige con nota crédito).', 'bad'); return; }
+    if (!(await confirmar('Devolver el lead', `¿Devolver <b>${esc(l.nombre)}</b> de ${esc(lblEstado(l.estado, l.cerrado))} a <b>${esc(destino)}</b>? Se limpia el resultado y se reinicia su seguimiento.`, 'Devolver'))) return;
+    try { await api('reabrir', { id_lead: l.id, estado: destino }); toast(`${l.nombre} → ${destino}`, 'ok'); } catch (e) { toast(e.message, 'bad'); }
+    return refrescar();
+  }
   if (destino === 'Nuevo' || (orden(destino) < orden(l.estado) && ['Contactado', 'Cotizado'].includes(destino)) || ['Facturado', 'Perdido'].includes(l.estado) && destino !== 'Retenido') {
     if (!(l.estado === 'Retenido' && ['Cotizado', 'Facturado', 'Perdido'].includes(destino))) {
-      toast('No se puede devolver un lead a una etapa anterior desde la app. Pídelo al Jefe Comercial.', 'bad'); return;
+      toast('Solo el Jefe Comercial autorizado puede devolver un lead a una etapa anterior.', 'bad'); return;
     }
   }
   if (!l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return; }
@@ -1054,7 +1063,7 @@ function vEmbudo() {
           <b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b>
           <div class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')}</div>
           <div class="row wrap" style="margin-top:4px;gap:4px">${pillTemp(l.temp || l.tempIA)}${l.incons.length ? '<span class="pill pill-bad">Inconsistencia</span>' : ''}${l.sla === 'bad' ? '<span class="pill pill-bad">SLA vencido</span>' : ''}</div>
-          ${puedeEditar(l) && !['Facturado', 'Perdido'].includes(e) ? `<select class="sel" data-mover="${esc(l.id)}"><option value="">Mover a…</option>${ESTADOS.filter(x => x !== e && x !== 'Nuevo').map(x => `<option>${x}</option>`).join('')}</select>` : ''}
+          ${puedeEditar(l) && (puedeReabrir() || !['Facturado', 'Perdido'].includes(e)) ? `<select class="sel" data-mover="${esc(l.id)}"><option value="">Mover a…</option>${ESTADOS.filter(x => x !== e && (x !== 'Nuevo' || puedeReabrir())).map(x => `<option value="${x}">${lblEstado(x)}</option>`).join('')}</select>` : ''}
         </div>`).join('')}
         ${items.length > 150 ? `<div class="tiny muted">+${items.length - 150} más (usa filtros)</div>` : ''}
         ${!items.length ? '<div class="tiny muted" style="text-align:center;padding:12px">Vacío</div>' : ''}</div>`;
