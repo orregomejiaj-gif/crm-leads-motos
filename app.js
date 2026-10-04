@@ -548,15 +548,38 @@ function leadsAlcance() {
 }
 /** «Mi pulso»: el mix completo (leads, cotizaciones, ventas, meta) al minuto, con mensajes que empujan a actuar. */
 function cargarPulso() {
-  if (S.ctlBusy) return; S.ctlBusy = true;
-  api('control', { dias: S.ctlDias || 30 }).then(r => { S.ctl = r; S.ctlErr = ''; S.ctlT = Date.now(); })
-    .catch(e => { S.ctlErr = e.message; })
-    .finally(() => { S.ctlBusy = false; const c = $('#hoy-pulso'); if (S.view === 'hoy' && c) c.innerHTML = pulsoHtml(); });
+  if (S.pulBusy) return; S.pulBusy = true;
+  const as = S.hoyAsesor || '';
+  api('control', { dias: 30, asesor: as }).then(r => { S.pul = r; S.pulAs = as; S.pulErr = ''; S.pulT = Date.now(); })
+    .catch(e => { S.pulErr = e.message; })
+    .finally(() => { S.pulBusy = false; const c = $('#hoy-pulso'); if (S.view === 'hoy' && c) c.innerHTML = pulsoHtml(); });
+}
+/** Tarjeta del pulso que, al tocarla, filtra la lista que aparece debajo. */
+function kpiF(clave, l, v, s, cls) { return `<div data-act="pulso-f" data-k="${clave}" title="Toca para ver la lista" style="cursor:pointer;border-radius:14px;${S.pulF === clave ? 'outline:3px solid #2563eb;' : ''}">${kpi(l, v, s, cls)}</div>`; }
+function pulsoLista(r) {
+  const k = S.pulF; if (!k) return '';
+  const L = r.lista || [], pill = t => `<span class="pill">${esc(t)}</span>`;
+  const fl = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', cotizaciones: l => l.cotizado, entregadas: l => l.entregada, pendEntrega: l => l.pendEntrega, seguimientos: l => l.abierto && l.vencido, recuperar: l => l.recuperar };
+  const titulo = { leads: '📥 Leads recibidos (digitales)', nuevos: '🆕 Leads nuevos', cotizaciones: '📝 Cotizaciones', ventas: '💰 Ventas facturadas del mes', entregadas: '🏍️ Motos entregadas', pendEntrega: '⏳ Pendientes de entrega', seguimientos: '⏰ Seguimientos vencidos', atender: '🔥 Por atender', recuperar: '♻️ Por recuperar' }[k] || '';
+  let filas = '', n = 0;
+  if (k === 'ventas') {
+    const V = r.facturasMes || []; n = V.length;
+    filas = V.slice(0, 80).map(f => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b>${esc(f.cliente || 'Cliente')}</b> <span class="muted small">· ${esc(f.modelo)} · factura ${esc(f.id_factura)} · ${esc(f.sede)} · ${money(num(f.valor))}</span> <span class="pill">${esc(f.asesor || 'sin asesor')}</span>${f.validada ? '' : ' <span class="pill pill-warn" title="El asesor de la factura aún no se ha validado">⚠️ asesor por validar</span>'}</div>`).join('');
+  } else if (k === 'atender') {
+    const T = r.tareas || []; n = T.length;
+    filas = T.slice(0, 80).map(t => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><span class="pill ${t.prioridad <= 1 ? 'pill-bad' : t.prioridad === 2 ? 'pill-warn' : ''}">${esc(t.tarea)}</span> <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> <span class="muted small">· ${esc(t.producto || '')}${t.asesor ? ' · ' + esc(t.asesor) : ''}</span><div class="small">${esc(t.detalle || '')}</div></div>`).join('');
+  } else if (fl[k]) {
+    const R = L.filter(fl[k]); n = R.length;
+    filas = R.slice(0, 80).map(l => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b> <span class="muted small">· ${esc(l.producto || '')} · ${esc(l.sede || '')}${l.asesor ? ' · ' + esc(l.asesor) : ''}</span> ${pill(l.estado)}${l.fase && l.fase !== l.estado ? ' ' + pill(l.fase) : ''}${l.sala ? ' <span class="pill pill-info">🏬 en sala</span>' : ''}</div>`).join('');
+  }
+  return `<div style="margin:10px 0 0"><div class="row between wrap" style="margin-bottom:6px"><b>${titulo} <span class="pill">${n}</span></b><button class="btn btn-sm" data-act="pulso-f" data-k="${esc(k)}"><i class="ti ti-x"></i> Quitar filtro</button></div>${filas || '<p class="small muted">No hay registros para este filtro.</p>'}${n > 80 ? `<p class="tiny muted">Mostrando 80 de ${n}.</p>` : ''}</div>`;
 }
 function pulsoHtml() {
-  const r = S.ctl;
-  if (!r || !r.kpis) { if (!S.ctlBusy) cargarPulso(); return `<div class="notice" style="margin-bottom:10px"><i class="ti ti-loader"></i><div>⏳ Cargando tus números en tiempo real…</div></div>`; }
+  const r = S.pul;
+  if (!r || !r.kpis || S.pulAs !== (S.hoyAsesor || '')) { if (!S.pulBusy) cargarPulso(); return `<div class="notice" style="margin-bottom:10px"><i class="ti ti-loader"></i><div>⏳ ${S.pulErr ? esc(S.pulErr) : 'Cargando tus números en tiempo real…'}</div></div>`; }
   const k = r.kpis, p = r.presupuesto || {}, f = r.pronostico || {}, u = S.data.user;
+  const porPunto = (r.facturasMes || []).reduce((m, x) => { m[x.sede || 'Sin punto'] = (m[x.sede || 'Sin punto'] || 0) + 1; return m; }, {});
+  const txtPunto = Object.keys(porPunto).length ? Object.keys(porPunto).map(s => `${esc(s)} ${porPunto[s]}`).join(' · ') : 'sin ventas este mes';
   const quien = u.rol === 'asesor' ? 'tus' : 'los';
   const meta = p.meta || 0, vend = p.ventas || 0, pct = meta ? Math.min(100, Math.round(vend * 100 / meta)) : 0, falta = Math.max(0, meta - vend);
   const tareas = (r.tareas || []).length, urgentes = (r.tareas || []).filter(t => t.prioridad <= 1).length;
@@ -567,7 +590,7 @@ function pulsoHtml() {
   else if (k.nuevos) msg = `📥 ${k.nuevos} lead${k.nuevos > 1 ? 's' : ''} nuevo${k.nuevos > 1 ? 's' : ''} sin tocar: el primero que responde, vende 💪`;
   else if (meta) msg = `🎯 Te faltan ${falta} moto${falta === 1 ? '' : 's'} para la meta. ¡Vamos por ${falta === 1 ? 'esa' : 'ellas'}!`;
   else msg = '💪 Todo al día. Sigue sumando cotizaciones y cierres.';
-  const hora = S.ctlT ? new Date(S.ctlT).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+  const hora = S.pulT ? new Date(S.pulT).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
   return `<div class="card" style="margin-bottom:12px;padding:14px">
     <div class="row wrap" style="justify-content:space-between;gap:8px"><b>⚡ Mi pulso comercial · ${meta ? '🎯 ' + pct + ' % de la meta' : 'sin meta cargada'}</b><span class="tiny muted">🔄 Actualizado ${esc(hora)} · cada minuto</span></div>
     <div style="font-weight:600;margin:8px 0">${esc(msg)}</div>
@@ -582,20 +605,20 @@ function pulsoHtml() {
       k.enRiesgo ? `⚠️ <b>${k.enRiesgo}</b> negociaci${k.enRiesgo > 1 ? 'ones' : 'ón'} en riesgo` : ''].filter(Boolean).map(x => `<span style="display:inline-block;margin-right:14px">${x}</span>`).join('') || '✅ Sin alertas críticas ahora mismo.'}</div>
     ${meta && falta ? `<div class="small" style="margin:0 0 10px"><b>🎯 Acción de hoy:</b> para llegar a la meta necesitamos ${p.cierresDiarios} cierre${p.cierresDiarios === 1 ? '' : 's'} por día durante ${p.diasRestantes} día${p.diasRestantes === 1 ? '' : 's'}. Pregúntate: ¿cuál es mi próxima venta y qué le falta para cerrar?</div>` : ''}
     <div class="grid g-kpi">
-      ${kpi('📥 Leads recibidos', k.recibidos || 0, `🆕 ${k.nuevos || 0} nuevos · ✅ ${k.contactados || 0} contactados`)}
-      ${kpi('📝 Cotizaciones', k.cotizaciones || 0, `🤝 ${k.negociacionesActivas || 0} negociaciones activas · 🏬 ${k.cotizacionesSala || 0} en sala`)}
-      ${kpi('💰 Ventas facturadas', k.ventas || 0, `🧾 ${k.porFacturar || 0} por facturar · 🏬 ${k.ventasSala || 0} en sala`, k.ventas ? 'ok' : '')}
-      ${kpi('🏍️ Motos entregadas', k.entregadas || 0, `⏳ ${k.pendientesEntrega || 0} pendientes de entrega`, k.pendientesEntrega ? 'warn' : 'ok')}
-      ${kpi('⏰ Seguimientos', k.seguimientosVencidos || 0, `vencidos · 🟢 ${k.seguimientosPendientes || 0} al día`, k.seguimientosVencidos ? 'bad' : 'ok')}
-      ${kpi('🔥 Por atender', tareas, `${urgentes} urgentes · ⚠️ ${k.enRiesgo || 0} en riesgo`, urgentes ? 'bad' : (tareas ? 'warn' : 'ok'))}
+      ${kpiF('leads', '📥 Leads recibidos', k.recibidos || 0,`🆕 ${k.nuevos || 0} nuevos · ✅ ${k.contactados || 0} contactados`)}
+      ${kpiF('cotizaciones', '📝 Cotizaciones', k.cotizaciones || 0,`🤝 ${k.negociacionesActivas || 0} negociaciones activas · 🏬 ${k.cotizacionesSala || 0} en sala`)}
+      ${kpiF('ventas', '💰 Ventas facturadas', p.ventas || 0, `📍 ${txtPunto} · 🧾 ${k.porFacturar || 0} por facturar`, p.ventas ? 'ok' : '')}
+      ${kpiF('entregadas', '🏍️ Motos entregadas',k.entregadas || 0, `⏳ ${k.pendientesEntrega || 0} pendientes de entrega`, k.pendientesEntrega ? 'warn' : 'ok')}
+      ${kpiF('seguimientos', '⏰ Seguimientos',k.seguimientosVencidos || 0, `vencidos · 🟢 ${k.seguimientosPendientes || 0} al día`, k.seguimientosVencidos ? 'bad' : 'ok')}
+      ${kpiF('atender', '🔥 Por atender',tareas, `${urgentes} urgentes · ⚠️ ${k.enRiesgo || 0} en riesgo`, urgentes ? 'bad' : (tareas ? 'warn' : 'ok'))}
       ${kpi('📊 Conversión', k.conversion === null || k.conversion === undefined ? '—' : k.conversion + ' %', `lead→venta · 🎯 ${k.leadAOportunidad ?? '—'} % a oportunidad`)}
-      ${kpi('♻️ Por recuperar', k.porRecuperar || 0, `${k.perdidos || 0} perdidos · ⏸️ ${k.detenidos || 0} detenidos`)}
-    </div></div>`;
+      ${kpiF('recuperar', '♻️ Por recuperar', k.porRecuperar || 0, `${k.perdidos || 0} perdidos · ⏸️ ${k.detenidos || 0} detenidos`)}
+    </div>${pulsoLista(r)}</div>`;
 }
 setInterval(() => { try { if (S && S.view === 'hoy' && !document.hidden && $('#hoy-pulso') && $('#sheet').hidden) cargarPulso(); } catch (e) { /* sin pulso */ } }, 60e3);
 function vHoy() {
   const u = S.data.user, ls = leadsAlcance(), M = S.M;
-  if (S.ctl && Date.now() - (S.ctlT || 0) > 60e3 && !S.ctlBusy) setTimeout(cargarPulso, 0);
+  if (S.pul && Date.now() - (S.pulT || 0) > 60e3 && !S.pulBusy) setTimeout(cargarPulso, 0);
   const abiertos = ls.filter(l => !['Facturado', 'Perdido'].includes(l.estado));
   const grupos = [
     { t: 'SLA vencido', icon: 'ti-alarm', items: abiertos.filter(l => l.sla === 'bad'), cls: 'pill-bad' },
@@ -734,6 +757,7 @@ function cardAvance(l, ed) {
     <h4 class="muted" style="margin:12px 0 6px">Citas (${citas.length})</h4>
     ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${c.tipo === 'revision' ? '<b>Revisión técnica</b> · ' : ''}${esc(l.sede || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
       ${ed && c.estado === 'agendada' ? ['asistió', 'no asistió', 'cancelada'].map(s => `<button class="btn btn-sm" data-act="cita-estado" data-id="${esc(l.id)}" data-cita="${esc(c.id_cita)}" data-v="${s}">${s === 'asistió' ? 'Asistió' : s === 'no asistió' ? 'No asistió' : 'Cancelar'}</button>`).join('') : ''}</div>`).join('') : '<p class="small muted" style="margin:0">Sin citas registradas.</p>'}
+    ${(S.data.user.rol === 'jefe' || S.data.user.rol === 'admin') && l.estado !== 'Perdido' ? reasignarHtml(l) : ''}
     ${ed && l.estado !== 'Perdido' ? `<div class="row wrap" style="gap:6px;margin-top:10px"><button class="btn btn-sm" data-act="prox-abrir" data-id="${esc(l.id)}"><i class="ti ti-calendar-time"></i> Programar próxima acción</button><span class="tiny muted">Si no la cumples: alerta → recordatorio → escalamiento al administrador.</span></div>` : ''}
     ${ed ? `<div class="row wrap" style="gap:6px;margin-top:8px"><input class="inp" type="date" id="cita-f" min="${hoy}" style="max-width:160px"><input class="inp" type="time" id="cita-h" style="max-width:120px"><button class="btn btn-sm btn-dark" data-act="cita-nueva" data-id="${esc(l.id)}"><i class="ti ti-calendar-plus"></i> Agendar cita</button></div>
       <p class="tiny muted" style="margin:6px 0 0">Al agendar, el cliente recibe recordatorio 24 h y 2 h antes, y tú 2 h antes.</p>` : ''}
@@ -848,12 +872,29 @@ function ctlSupervision(r) {
   return `<h3 style="margin-bottom:8px">Cumplimiento por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Seg. vencidos</th><th class="r">Abandonados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Entregadas</th><th class="r">Conversión</th></tr></thead><tbody>${(r.asesores || []).map(fila).join('') || '<tr><td colspan="11" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
     <p class="tiny muted" style="margin:8px 0 0">Escalera automática: alerta a los 15 min (lead nuevo) → recordatorio → escalamiento al administrador → reasignación. Los seguimientos vencidos son los que superaron su plazo o la próxima acción programada.</p>`;
 }
+/** Cadena de mando: el Jefe reasigna; el administrador solo SOLICITA la reasignación (el Jefe decide); el asesor no puede. */
+function reasignarHtml(l) {
+  const u = S.data.user, jefe = u.rol === 'jefe';
+  const team = (S.M.asesores || []).filter(p => (jefe || p.sedeCanon === u.sede) && norm(p.nombre) !== norm(l.asesor || '')).map(p => p.nombre);
+  return `<div class="card" style="margin-top:10px;padding:10px 12px"><h4 class="muted" style="margin:0 0 6px"><i class="ti ti-arrows-exchange"></i> ${jefe ? 'Reasignar lead (solo Jefe)' : 'Solicitar reasignación al Jefe'}</h4>
+    <div class="row wrap" style="gap:6px"><select class="sel" id="reas-as">${opts(team, '', jefe ? 'Nuevo asesor…' : 'Asesor sugerido…')}</select><input class="inp" id="reas-mot" placeholder="Motivo (obligatorio)" style="flex:1;min-width:180px"><button class="btn btn-sm btn-dark" data-act="reasignar" data-id="${esc(l.id)}">${jefe ? 'Reasignar' : 'Solicitar'}</button></div>
+    <p class="tiny muted" style="margin:6px 0 0">${jefe ? 'Queda auditado: quién, cuándo, de quién a quién y por qué.' : 'El administrador acompaña con notas y seguimientos, pero el dueño del lead lo cambia solo el Jefe.'}</p></div>`;
+}
 /** Panel del piloto: qué medir durante la prueba real (atención, conversión por etapa, facturadas sin entrega, ritmo por sede, integridad de datos). */
 function cargarPiloto() {
   if (S.pilBusy) return; S.pilBusy = true;
   api('piloto', { dias: S.pilDias || 7 }).then(r => { S.pil = r; S.pilErr = ''; S.pilT = Date.now(); })
     .catch(e => { S.pilErr = e.message; })
     .finally(() => { S.pilBusy = false; if (S.view === 'control' && (S.ctlTab || 'tareas') === 'piloto') { const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); } });
+}
+/** Ventas del mes cuyo asesor aún no se ha validado a mano (facturación puede equivocarse de asesor; la venta siempre cuenta para el punto). */
+function ventasValidarHtml(r) {
+  const u = S.data.user; if (u.rol !== 'jefe' && u.rol !== 'admin') return '';
+  const V = r.ventasPorValidar || [], team = (S.M.asesores || []).filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede);
+  return `<h3 style="margin:16px 0 8px">✅ Validar asesor de las ventas del mes <span class="pill ${V.length ? 'pill-warn' : 'pill-ok'}">${V.length}</span></h3>
+    <p class="small muted" style="margin:0 0 8px">Cada venta cuenta siempre para el <b>punto</b> de donde sale la moto. El asesor que puso facturación se confirma o se corrige aquí: de eso dependen las metas y comisiones por asesor.</p>
+    ${V.length ? V.map(o => { const sug = (S.M.asesores || []).find(p => mismaPersona(p.nombre, o.asesor)); return `<div class="card" style="margin-bottom:6px;padding:8px 12px"><div class="row between wrap" style="gap:8px"><div><b>${esc(o.cliente || 'Cliente')}</b> <span class="muted small">· ${esc(o.modelo)} · factura ${esc(o.factura)} · ${esc(o.sede)} · ${esc(o.fecha)} · ${money(num(o.valor))}</span> <span class="pill ${o.enEquipo ? '' : 'pill-warn'}">facturó: ${esc(o.asesor || '—')}${o.enEquipo ? '' : ' (no es de tu equipo)'}</span></div>
+      <div class="row" style="gap:6px"><select class="sel" id="val-as-${esc(o.factura)}">${opts(team.map(p => p.nombre), sug && team.some(p => p.nombre === sug.nombre) ? sug.nombre : '', 'Asesor…')}</select><button class="btn btn-sm btn-dark" data-act="val-venta" data-id="${esc(o.factura)}">Confirmar</button></div></div></div>`; }).join('') : '<p class="small muted">Todas las ventas del mes tienen asesor validado ✅</p>'}`;
 }
 /** Cola «Por revisar» (solo Jefe): cotizaciones y ventas de otra zona o de asesores que no están en Equipo. No cuentan en los indicadores hasta que se decida a mano. */
 function porRevisarHtml(r) {
@@ -892,6 +933,7 @@ function ctlPiloto() {
     ${kpi('⏰ Seg. vencidos', k.seguimientosVencidos || 0, 'fuera de plazo', k.seguimientosVencidos ? 'bad' : 'ok')}</div>
     <h3 style="margin:16px 0 8px">Conversión por etapa</h3>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Paso</th><th class="r">Entran</th><th class="r">Pasan</th><th class="r">%</th></tr></thead><tbody>${(r.conversion || []).map(c => `<tr><td>${esc(c.etapa)}</td><td class="r">${c.de || 0}</td><td class="r">${c.a || 0}</td><td class="r"><b>${c.pct === null ? '—' : c.pct + ' %'}</b></td></tr>`).join('')}</tbody></table></div>
+    ${ventasValidarHtml(r)}
     ${porRevisarHtml(r)}
     ${pronosticoHtml(r)}
     ${Object.keys(r.pagos || {}).length ? `<h3 style="margin:16px 0 8px">💳 Cómo pagan los clientes (ventas de los últimos 45 días)</h3>${bars(Object.entries(r.pagos).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v))}` : ''}
@@ -949,7 +991,7 @@ function ctlRecuperacion(r) {
       <div class="row" style="gap:6px"><button class="btn btn-sm" data-act="abrir" data-id="${esc(o.id_lead)}">Abrir</button><button class="btn btn-sm btn-dark" data-act="rec-abrir" data-id="${esc(o.id_lead)}"><i class="ti ti-recycle"></i> Registrar intento</button></div></div></div>`).join('') : empty('ti-recycle', 'No hay oportunidades por recuperar ahora.')}`;
 }
 function ctlAlertas(r) {
-  const nombres = { sla_primer_contacto: 'Primer contacto', escalamiento_admin: 'Escalamiento', reasignacion: 'Reasignación', lead_caliente_sin_atender: 'Lead caliente', negociacion_en_riesgo: 'En riesgo', lead_abandonado: 'Abandonado', alta_probabilidad_sin_gestion: 'Alta probabilidad', asesor_seguimientos_vencidos: 'Asesor con vencidos', proxima_accion_vencida: 'Próxima acción', contacto_sin_whatsapp: 'Contacto sin WhatsApp', moto_requerida: 'Moto requerida', nota_credito: 'Nota crédito' };
+  const nombres = { sla_primer_contacto: 'Primer contacto', escalamiento_admin: 'Escalamiento', reasignacion: 'Reasignación', lead_caliente_sin_atender: 'Lead caliente', negociacion_en_riesgo: 'En riesgo', lead_abandonado: 'Abandonado', alta_probabilidad_sin_gestion: 'Alta probabilidad', asesor_seguimientos_vencidos: 'Asesor con vencidos', proxima_accion_vencida: 'Próxima acción', contacto_sin_whatsapp: 'Contacto sin WhatsApp', moto_requerida: 'Moto requerida', nota_credito: 'Nota crédito', solicitud_reasignacion: 'Solicitud de reasignación' };
   return `<h3 style="margin-bottom:8px">Alertas recientes</h3>${(r.alertas || []).length ? (r.alertas || []).map(a => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><div class="row between wrap"><span><span class="pill ${a.nivel === 'alta' ? 'pill-bad' : 'pill-warn'}">${esc(nombres[a.tipo] || a.tipo)}</span> <span class="small">${esc(String(a.mensaje).replace(/[\u{1F300}-\u{1FAFF}]|\n.*$/gu, '').trim())}</span></span><span class="tiny muted">${esc(a.fecha)}${a.destinatario ? ' · ' + esc(a.destinatario) : ''}</span></div></div>`).join('') : empty('ti-bell-off', 'Sin alertas recientes.')}`;
 }
 function ctlAuditoria(r) {
@@ -2108,6 +2150,24 @@ document.addEventListener('click', async e => {
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'reasignar') {
+    const jefe = S.data.user.rol === 'jefe', as = ($('#reas-as') || {}).value || '', mot = (($('#reas-mot') || {}).value || '').trim();
+    if (jefe && !as) { toast('Elige el nuevo asesor.', 'bad'); return; }
+    if (mot.length < 5) { toast('Cuenta el motivo.', 'bad'); return; }
+    a.disabled = true;
+    try { await api(jefe ? 'reasignar' : 'solicitarReasignacion', { id_lead: a.dataset.id, asesor: as, motivo: mot }); toast(jefe ? 'Lead reasignado y auditado' : 'Solicitud enviada al Jefe', 'ok'); if (jefe) { await cargar(true); cerrarSheet(); } else a.disabled = false; }
+    catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+    return;
+  }
+  if (act === 'pulso-f') { S.pulF = S.pulF === a.dataset.k ? '' : a.dataset.k; const c = $('#hoy-pulso'); if (c) c.innerHTML = pulsoHtml(); return; }
+  if (act === 'val-venta') {
+    const nro = a.dataset.id, sel = document.getElementById('val-as-' + nro), asesor = sel ? sel.value : '';
+    if (!asesor) { toast('Elige el asesor que hizo la venta.', 'bad'); return; }
+    a.disabled = true;
+    try { await api('validarVenta', { nro_factura: nro, asesor }); toast('Asesor validado', 'ok'); S.pil = null; S.pilT = 0; S.pul = null; const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); cargar(true); }
+    catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+    return;
+  }
   if (act === 'rev-asignar' || act === 'rev-descartar') {
     const id = a.dataset.id, sel = document.getElementById('rev-as-' + id), asesor = sel ? sel.value : '';
     if (act === 'rev-asignar' && !asesor) { toast('Elige a qué asesor asignarla.', 'bad'); return; }
