@@ -239,6 +239,7 @@ async function cargar(silencioso) {
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
     $('#tb-sub').textContent = `${S.data.user.nombre} · ${({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
     $('#tb-ver').textContent = `v${window.AKT_VERSION || '?'}${S.data.version ? ' · API ' + S.data.version : ''}`;
+    if (!S.bandejaIni) { S.bandejaIni = true; cargarBandeja(); }
     const vistas = vistasDeRol();
     if (!vistas.some(v => v.id === S.view)) S.view = vistas[0].id;
     renderNav(); render();
@@ -366,6 +367,7 @@ function vistasDeRol() {
   const r = S.data.user.rol;
   const v = [
     { id: 'hoy', icon: 'ti-checklist', label: 'Hoy' },
+    { id: 'chats', icon: 'ti-messages', label: 'Chats' },
     { id: 'embudo', icon: 'ti-layout-kanban', label: 'Embudo' }
   ];
   if (r !== 'asesor') v.push({ id: 'analista', icon: 'ti-chart-histogram', label: 'Tablero' });
@@ -387,13 +389,14 @@ function renderNav() {
   const M = S.M;
   const badges = {
     hoy: M.leads.filter(l => l.sla === 'bad' || l.citaHoy).length,
+    chats: (S.bandeja || []).filter(c => c.espera && c.estado !== 'bot').length,
     conciliacion: M.leads.filter(l => l.incons.length).length + M.facSinOrigen.length + M.cotHuerfanas.length
   };
   $('#nav').innerHTML = vistasDeRol().map(v =>
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { hoy: vHoy, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
+  const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   $('#view').innerHTML = fn();
   if (S.view === 'embudo') bindKanban();
@@ -451,7 +454,8 @@ function leadCard(l) {
   if (ed && l.estado === 'Nuevo') acciones.push(`<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}"><i class="ti ti-phone-check"></i> Contactado</button>`);
   if (ed && (l.estado === 'Nuevo' || l.estado === 'Contactado')) acciones.push(`<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}"><i class="ti ti-file-dollar"></i> Cotizado</button>`);
   if (ed && !['Facturado', 'Perdido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="perdido" data-id="${esc(l.id)}"><i class="ti ti-x"></i> Perdido</button>`);
-  if (l.tel) acciones.push(`<a class="btn btn-sm btn-wa" href="${waLink(l)}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> WhatsApp</a>`);
+  // El chat se atiende dentro de la app con el número del negocio (no desde el WhatsApp personal del asesor)
+  acciones.push(`<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>`);
   return `<article class="lead ${s}">
     <div class="lead-top"><div><div class="lead-name" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</div>
       <div class="lead-sub">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div>
@@ -523,7 +527,11 @@ function abrirSheet(html, modal) {
   $('#sheet').hidden = false;
   document.body.style.overflow = 'hidden';
 }
-function cerrarSheet() { $('#sheet').hidden = true; document.body.style.overflow = ''; S.leadAbierto = null; }
+function cerrarSheet() {
+  $('#sheet').hidden = true; document.body.style.overflow = ''; S.leadAbierto = null;
+  // En la bandeja de chats, el chat abierto sigue actualizándose al cerrar la ficha
+  if (S.view === 'chats' && S.chatSel && $('#chat')) { S.leadAbierto = S.chatSel; cargarChat(S.chatSel); }
+}
 // Un modal abierto desde el detalle del lead vuelve al detalle al cerrarse.
 function cerrarModal() { S._modalCancel = null; if (S.leadAbierto) abrirLead(S.leadAbierto); else cerrarSheet(); }
 
@@ -555,7 +563,7 @@ function abrirLead(id) {
       <div class="row wrap">${pillEstado(l.estado)}${pillTemp(l.tempIA, 'IA: ')}${pillTemp(l.temp, 'Asesor: ')}
         ${l.hPrimera !== null ? `<span class="pill ${l.aTiempo ? 'pill-ok' : 'pill-bad'}">1ª respuesta: ${fmtHoras(l.hPrimera)}</span>` : l.estado === 'Nuevo' && l.hAsign !== null ? `<span class="pill pill-${l.sla === 'bad' ? 'bad' : l.sla === 'warn' ? 'warn' : 'ok'}">${fmtHoras(l.hAsign)} sin contacto</span>` : ''}</div>
       ${l.incons.length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div><b>Inconsistencia</b><br>${l.incons.map(esc).join('<br>')}</div></div>` : ''}
-      <div class="card"><div class="row wrap">${contactoTxt(l)}<span class="grow"></span>${l.tel ? `<a class="btn btn-sm btn-wa" href="${waLink(l)}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp</a>` : ''}</div>
+      <div class="card"><div class="row wrap">${contactoTxt(l)}<span class="grow"></span>${S.view !== 'chats' ? `<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>` : ''}</div>
         ${l.cita ? `<p class="small" style="margin:8px 0 0"><i class="ti ti-calendar-event"></i> Cita: <b>${fmtFecha(l.cita, !!r.cita_hora)}</b></p>` : ''}</div>
 
       ${ed ? `<div class="card"><div class="card-h"><h3>Gestión</h3>${l.g ? `<span class="tiny muted">Últ. act. ${fmtFecha(l.ultimaAct)}</span>` : ''}</div>
@@ -582,11 +590,65 @@ function abrirLead(id) {
         ${!S.data.hojas.Facturas ? '<p class="small muted" style="margin:0">La hoja Facturas aún no existe (solicitud al Sheet).</p>' : l.fac.length ? l.fac.map(f => `<div class="small">${esc(f.id_factura || '')} · ${esc(f.modelo || '')} · ${money(num(f.valor))} · ${fmtFecha(parseFecha(f.fecha), false)}</div>`).join('') : '<p class="small muted" style="margin:0">Sin factura vinculada.</p>'}
       </div>
       <div class="card"><h3 style="margin-bottom:8px">Línea de tiempo</h3>${eventos.length ? `<ul class="timeline">${eventos.map(e => `<li class="${e.al ? 'al' : ''}">${e.html ? e.t : esc(e.t)}<small>${fmtFecha(e.f)}${e.s ? ' · ' + esc(e.s) : ''}</small></li>`).join('')}</ul>` : '<p class="small muted" style="margin:0">Sin eventos.</p>'}</div>
-      <div class="card"><div class="card-h"><h3>Chat con el cliente</h3><span class="tiny muted">Mismo número de WhatsApp del negocio</span></div>
+      ${S.view === 'chats' ? '' : `<div class="card"><div class="card-h"><h3>Chat con el cliente</h3><span class="tiny muted">Mismo número de WhatsApp del negocio</span></div>
         <div id="chat-estado" class="chat-estado"></div>
         <div id="chat" class="chat"><div class="muted small"><i class="ti ti-loader-2 spin"></i> Cargando…</div></div>
-        <div id="chat-box"></div></div>
+        <div id="chat-box"></div></div>`}
     </div>`);
+  if (S.view !== 'chats') cargarChat(id, true);
+}
+
+// ── Bandeja de chats: todas las conversaciones (cliente, bot y asesores) dentro de la app ──
+let bandejaTimer = null;
+function cargarBandeja() {
+  clearTimeout(bandejaTimer);
+  api('bandeja').then(r => {
+    S.bandeja = r.chats || []; S.bandejaErr = '';
+    renderNav();
+    if (S.view === 'chats') pintarBandeja();
+  }).catch(e => { S.bandejaErr = e.message; if (S.view === 'chats') pintarBandeja(); })
+    .finally(() => { if (!DEMO) bandejaTimer = setTimeout(cargarBandeja, 20000); });
+}
+function vChats() {
+  if (!S.bandeja) { cargarBandeja(); }
+  setTimeout(() => {
+    pintarBandeja();
+    const b = $('#chat-buscar'), f = $('#chat-filtro');
+    if (b) b.oninput = () => { S.chatBuscar = b.value; pintarBandeja(); };
+    if (f) f.onchange = () => { S.chatFiltro = f.value; pintarBandeja(); };
+    if (S.chatSel) abrirChatBandeja(S.chatSel, true);
+  }, 0);
+  return `<div class="page-h"><div><h2>Chats</h2><p class="muted small">Conversaciones de WhatsApp con el número del negocio: cliente, bot y asesores. Responde desde aquí.</p></div>
+      <div class="row"><input class="inp" id="chat-buscar" placeholder="Buscar cliente o asesor…" style="max-width:240px" value="${esc(S.chatBuscar || '')}">
+      <select class="sel" id="chat-filtro">${opts([{ v: '', t: 'Todas' }, { v: 'espera', t: 'Esperan respuesta' }, { v: 'asesor', t: 'Con asesor (bot en pausa)' }, { v: 'bot', t: 'Atiende el bot' }], S.chatFiltro || '')}</select></div></div>
+    <div class="inbox ${S.chatSel ? 'con-sel' : ''}"><div class="inbox-list" id="inbox-list"><div class="loading"><div><i class="ti ti-loader-2 spin"></i> Cargando chats…</div></div></div>
+      <div class="inbox-chat" id="inbox-chat">${S.chatSel ? '' : '<div class="inbox-vacio"><i class="ti ti-messages"></i><p>Elige una conversación para verla y responder.</p></div>'}</div></div>`;
+}
+function pintarBandeja() {
+  const el = $('#inbox-list'); if (!el) return;
+  if (S.bandejaErr && !S.bandeja) { el.innerHTML = `<p class="small muted" style="padding:12px">No se pudo cargar: ${esc(S.bandejaErr)}</p>`; return; }
+  if (!S.bandeja) return;
+  const q = norm(S.chatBuscar || ''), f = S.chatFiltro || '';
+  const lista = S.bandeja.filter(c => (!q || norm(c.nombre + ' ' + c.asesor + ' ' + c.ultimo).includes(q))
+    && (!f || (f === 'espera' ? c.espera : c.estado === f)));
+  el.innerHTML = lista.length ? lista.map(c => `<button class="inbox-item ${S.chatSel === c.id_lead ? 'on' : ''}" data-act="chat-abrir" data-id="${esc(c.id_lead)}">
+      <div class="row" style="justify-content:space-between;gap:6px"><b class="ellipsis">${esc(c.nombre)}</b><span class="tiny muted">${c.fecha ? fmtFecha(new Date(c.fecha)) : ''}</span></div>
+      <div class="small ellipsis ${c.espera ? 'inbox-espera' : 'muted'}">${c.remitente === 'cliente' ? '' : c.remitente === 'asesor' ? '<i class="ti ti-user"></i> ' : '<i class="ti ti-robot"></i> '}${esc(c.ultimo)}</div>
+      <div class="row wrap" style="gap:4px;margin-top:4px">${c.estado === 'bot' ? '<span class="pill pill-ok">Bot</span>' : `<span class="pill pill-info">${esc(c.asesor || 'Asesor')}</span>`}${c.punto ? `<span class="pill">${esc(c.punto)}</span>` : ''}${c.espera && c.estado !== 'bot' ? '<span class="pill pill-warn">Espera respuesta</span>' : ''}${!c.ventana ? '<span class="pill pill-bad">+24 h</span>' : ''}</div>
+    </button>`).join('') : '<p class="small muted" style="padding:12px">No hay conversaciones con este filtro.</p>';
+}
+function abrirChatBandeja(id, silencioso) {
+  const l = S.M.byId[id];
+  S.chatSel = id;
+  document.querySelectorAll('.inbox-item').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+  const box = $('#inbox-chat'); if (!box) return;
+  $('.inbox') && $('.inbox').classList.add('con-sel');
+  if (!l) { box.innerHTML = '<p class="small muted" style="padding:12px">Este lead no está en tu lista actual. Pulsa Actualizar.</p>'; return; }
+  S.leadAbierto = id;
+  box.innerHTML = `<div class="inbox-h"><button class="icon-btn inbox-back" data-act="chat-volver" title="Volver"><i class="ti ti-arrow-left"></i></button>
+      <div class="grow"><b>${esc(l.nombre)}</b><div class="tiny muted">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div>
+      <button class="btn btn-sm" data-act="abrir" data-id="${esc(id)}"><i class="ti ti-id"></i> Ficha</button></div>
+    <div id="chat-estado" class="chat-estado"></div><div id="chat" class="chat inbox-msgs"></div><div id="chat-box"></div>`;
   cargarChat(id, true);
 }
 
@@ -636,7 +698,7 @@ function cargarChat(id, forzarScroll) {
   clearTimeout(chatTimer);
   if (forzarScroll) chatSig = '';
   const l = S.M.byId[id];
-  if (!l || S.leadAbierto !== id) return;
+  if (!l || S.leadAbierto !== id || !$('#chat')) return;
   api('chats', { id_lead: l.id }).then(r2 => pintarChat(id, r2, forzarScroll))
     .catch(e => { if ($('#chat') && forzarScroll) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; })
     .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), 15000); });
@@ -1283,6 +1345,9 @@ document.addEventListener('click', async e => {
   if (MOD && a.dataset.act.startsWith('m-')) { if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault(); return MOD.onClick(a.dataset.act, a, e); }
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
+  if (act === 'chat-abrir') return abrirChatBandeja(a.dataset.id);
+  if (act === 'ir-chat') { cerrarSheet(); S.chatSel = a.dataset.id; S.view = 'chats'; renderNav(); return render(); }
+  if (act === 'chat-volver') { S.chatSel = null; S.leadAbierto = null; return render(); }
   if (act === 'chat-enviar') return enviarChat(a.dataset.id, a);
   if (act === 'chat-bot') return cambiarAtencionChat(a.dataset.id, 'bot');
   if (act === 'chat-tomar') return cambiarAtencionChat(a.dataset.id, 'asesor');

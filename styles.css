@@ -207,6 +207,26 @@ table.tbl{border-collapse:collapse;width:100%;font-size:.84rem}
 .chat-estado{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px}
 .chat-box{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
 .chat-box textarea{flex:1;min-height:44px;max-height:140px;resize:vertical}
+.inbox{display:grid;grid-template-columns:340px minmax(0,1fr);gap:12px;height:calc(100vh - 210px);min-height:420px}
+.inbox-list{overflow-y:auto;background:#fff;border:1px solid var(--border);border-radius:14px;padding:6px}
+.inbox-item{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--border);padding:10px 8px;cursor:pointer;font:inherit;border-radius:10px}
+.inbox-item:hover{background:var(--soft)}
+.inbox-item.on{background:#e8f0ff}
+.inbox-espera{font-weight:600;color:var(--ink)}
+.inbox-chat{display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;min-width:0}
+.inbox-msgs{flex:1;max-height:none;background:#efeae2;border-radius:10px;padding:10px}
+.inbox-h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.inbox-vacio{margin:auto;text-align:center;color:var(--ink-2,#5b6475)}
+.inbox-vacio i{font-size:2.4rem;opacity:.5}
+.inbox-back{display:none}
+.ellipsis{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+@media (max-width:860px){
+  .inbox{grid-template-columns:1fr;height:auto}
+  .inbox.con-sel .inbox-list{display:none}
+  .inbox:not(.con-sel) .inbox-chat{display:none}
+  .inbox-back{display:inline-flex}
+  .inbox-chat{min-height:70vh}
+}
 .chat-aviso{font-size:.76rem;color:var(--ink-2,#5b6475);margin-top:6px}
 .timeline{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--border)}
 .timeline li{position:relative;padding:0 0 12px 10px;font-size:.84rem}

@@ -225,6 +225,17 @@
       ].concat(extra.msgs), atencion: { estado: extra.estado, asesor: l.nombre_asesor || '', ventana_abierta: true, ventana_cierra: new Date(ahoraD + 22 * 3600e3).toISOString(),
         vence_reasignacion: extra.estado === 'asesor' ? new Date(ahoraD + 20 * 3600e3).toISOString() : '', puede_escribir: puedeVer(u, l), envio_configurado: true } };
     }
+    if (action === 'bandeja') {
+      const ahoraB = Date.now();
+      const chats = DB.Leads.filter(l => puedeVer(u, l)).slice(0, 25).map((l, i) => {
+        const c = DEMO_CHAT[l.id_lead] || { estado: l.nombre_asesor ? 'asesor' : 'bot', msgs: [] };
+        const ult = c.msgs.length ? c.msgs[c.msgs.length - 1] : null;
+        return { id_lead: l.id_lead, nombre: l.nombre_completo || l.username_whatsapp || 'Cliente', asesor: l.nombre_asesor || '', punto: sedeCanon(l.punto_asignado),
+          ultimo: ult ? ult.mensaje : '¿Me confirman si hay en color negro? (demo)', remitente: ult ? 'asesor' : 'cliente',
+          fecha: new Date(ahoraB - (ult ? 0 : (i + 1) * 47 * 60e3)).toISOString(), mensajes: 5 + c.msgs.length, estado: c.estado, espera: !ult, ventana: i % 7 !== 6 };
+      });
+      return { ok: true, chats };
+    }
     if (action === 'enviarMensaje') {
       const l = DB.Leads.find(x => x.id_lead === p.id_lead);
       if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
