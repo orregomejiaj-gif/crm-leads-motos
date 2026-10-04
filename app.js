@@ -783,7 +783,7 @@ function cargarControl() {
 }
 function vControl() {
   if (!S.ctl || Date.now() - (S.ctlT || 0) > 60000) cargarControl();
-  const tabs = [['tareas', 'Mis tareas'], ['supervision', 'Supervisión'], ['conversion', 'Conversión'], ['recuperacion', 'Recuperación'], ['alertas', 'Alertas'], ['auditoria', 'Auditoría']];
+  const tabs = [['tareas', 'Mis tareas'], ['supervision', 'Supervisión'], ['conversion', 'Conversión'], ['recuperacion', 'Recuperación'], ['alertas', 'Alertas'], ['auditoria', 'Auditoría'], ['piloto', 'Piloto']];
   const tab = S.ctlTab || 'tareas';
   return `<div class="page-h"><div><h2>Centro de control comercial</h2><p class="muted small">Qué pasa con cada lead, qué debe hacer cada asesor ahora y dónde se está perdiendo la venta. ${S.data.user.rol === 'asesor' ? 'Solo tus oportunidades.' : ''}</p></div>
     <div class="row"><select class="sel" id="ctl-dias">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: '0', t: 'Todo' }], String(S.ctlDias === undefined ? 30 : S.ctlDias))}</select>
@@ -820,7 +820,7 @@ function cuerpoControl() {
     ${kpi('Oportunidades activas', k.activas || 0, 'Leads digitales en gestión')}
     ${kpi('Recuperadas', k.recuperadas || 0, `${k.perdidos || 0} perdidas · ${k.detenidos || 0} detenidas`)}</div>`;
   const tab = S.ctlTab || 'tareas';
-  const cuerpo = { tareas: ctlTareas, supervision: ctlSupervision, conversion: ctlConversion, recuperacion: ctlRecuperacion, alertas: ctlAlertas, auditoria: ctlAuditoria }[tab](r);
+  const cuerpo = { tareas: ctlTareas, supervision: ctlSupervision, conversion: ctlConversion, recuperacion: ctlRecuperacion, alertas: ctlAlertas, auditoria: ctlAuditoria, piloto: ctlPiloto }[tab](r);
   return kpis + `<div style="margin-top:14px">${cuerpo}</div>`;
 }
 const DIAS_ABANDONO_UI = 5;
@@ -841,6 +841,38 @@ function ctlSupervision(r) {
   const fila = a => { const sem = a.vencidos >= 3 || a.sinContacto >= 3 ? 'pill-bad' : (a.vencidos || a.sinContacto ? 'pill-warn' : 'pill-ok'); return `<tr><td>${esc(a.k)}</td><td class="r">${a.leads}</td><td class="r">${a.sinContacto}</td><td class="r">${pct(a.contactados, a.leads) === null ? '—' : pct(a.contactados, a.leads) + ' %'}</td><td class="r">${a.tResp === null || a.tResp === undefined ? '—' : fmtHoras(a.tResp)}</td><td class="r"><span class="pill ${sem}">${a.vencidos}</span></td><td class="r">${a.abandonados}</td><td class="r">${a.oportunidades}</td><td class="r">${a.ventas}</td><td class="r">${a.conv} %</td></tr>`; };
   return `<h3 style="margin-bottom:8px">Cumplimiento por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Seg. vencidos</th><th class="r">Abandonados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Conversión</th></tr></thead><tbody>${(r.asesores || []).map(fila).join('') || '<tr><td colspan="10" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
     <p class="tiny muted" style="margin:8px 0 0">Escalera automática: alerta a los 15 min (lead nuevo) → recordatorio → escalamiento al administrador → reasignación. Los seguimientos vencidos son los que superaron su plazo o la próxima acción programada.</p>`;
+}
+/** Panel del piloto: qué medir durante la prueba real (atención, conversión por etapa, facturadas sin entrega, ritmo por sede, integridad de datos). */
+function cargarPiloto() {
+  if (S.pilBusy) return; S.pilBusy = true;
+  api('piloto', { dias: S.pilDias || 7 }).then(r => { S.pil = r; S.pilErr = ''; S.pilT = Date.now(); })
+    .catch(e => { S.pilErr = e.message; })
+    .finally(() => { S.pilBusy = false; if (S.view === 'control' && (S.ctlTab || 'tareas') === 'piloto') { const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); } });
+}
+function ctlPiloto() {
+  if (!S.pil || Date.now() - (S.pilT || 0) > 60000) cargarPiloto();
+  const r = S.pil;
+  if (!r) return S.pilErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pilErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Midiendo el piloto…</div></div>';
+  const k = r.kpis || {}, i = r.integridad || {}, malos = Object.values(i).reduce((a, b) => a + (b || 0), 0);
+  const nom = { idLeadDuplicados: 'id_lead repetidos', telefonosDuplicados: 'Teléfonos repetidos', leadsConVariasGestiones: 'Leads con varias filas de gestión', leadsSinGestion: 'Leads sin fila de gestión', leadsSinAsesor: 'Leads abiertos sin asesor', cotizacionesDuplicadas: 'Cotizaciones duplicadas', facturasSinLead: 'Facturas sin lead asociado' };
+  return `<div class="row between wrap" style="margin-bottom:8px"><h3>🔥 Piloto real · últimos ${r.dias} días</h3><select class="sel" id="pil-dias">${opts([{ v: '7', t: '7 días' }, { v: '14', t: '14 días' }, { v: '30', t: '30 días' }], String(S.pilDias || 7))}</select></div>
+    <div class="grid g-kpi">${kpi('📥 Leads recibidos', k.recibidos || 0, `✅ ${k.atendidos || 0} atendidos · ⏳ ${k.sinContacto || 0} sin contacto`)}
+    ${kpi('⏱️ 1ª respuesta', k.mediana1raRespuestaH === null || k.mediana1raRespuestaH === undefined ? '—' : fmtHoras(k.mediana1raRespuestaH), 'mediana', '')}
+    ${kpi('🔁 Reasignaciones', k.reasignaciones === undefined ? '—' : k.reasignaciones, 'acumuladas')}
+    ${kpi('📝 Cotizaciones', k.cotizaciones || 0, `🏬 ${k.ventasSala || 0} ventas en sala`)}
+    ${kpi('🧾 Facturados', k.facturados || 0, 'últimos 45 días', 'ok')}
+    ${kpi('🏍️ Entregados', k.entregados || 0, `🔴 ${k.pendientesEntrega || 0} sin entregar`, k.pendientesEntrega ? 'warn' : 'ok')}
+    ${kpi('❌ Perdidos', k.perdidos || 0, 'con motivo obligatorio')}
+    ${kpi('⏰ Seg. vencidos', k.seguimientosVencidos || 0, 'fuera de plazo', k.seguimientosVencidos ? 'bad' : 'ok')}</div>
+    <h3 style="margin:16px 0 8px">Conversión por etapa</h3>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Paso</th><th class="r">Entran</th><th class="r">Pasan</th><th class="r">%</th></tr></thead><tbody>${(r.conversion || []).map(c => `<tr><td>${esc(c.etapa)}</td><td class="r">${c.de || 0}</td><td class="r">${c.a || 0}</td><td class="r"><b>${c.pct === null ? '—' : c.pct + ' %'}</b></td></tr>`).join('')}</tbody></table></div>
+    <h3 style="margin:16px 0 8px">🔴 Ventas facturadas sin entrega <span class="pill ${r.pendientes && r.pendientes.length ? 'pill-bad' : 'pill-ok'}">${(r.pendientes || []).length}</span></h3>
+    ${(r.pendientes || []).length ? (r.pendientes || []).map(p => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b ${p.id_lead ? `data-act="abrir" data-id="${esc(p.id_lead)}" style="cursor:pointer"` : ''}>${esc(p.cliente || 'Cliente')}</b> <span class="muted small">· factura ${esc(p.factura)} · ${esc(p.modelo || '')} · ${esc(p.asesor || '')} · ${esc(p.sede || '')}</span> <span class="pill ${p.dias >= 3 ? 'pill-bad' : 'pill-warn'}">${p.dias} día${p.dias === 1 ? '' : 's'} pendiente</span></div>`).join('') : '<p class="small muted">Todo lo facturado ya está entregado ✅</p>'}
+    ${(r.ritmo || []).length ? `<h3 style="margin:16px 0 8px">Ritmo por sede (mes en curso)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Sede</th><th class="r">Meta</th><th class="r">Esperado a hoy</th><th class="r">Facturado</th><th class="r">Entregado</th><th class="r">Diferencia</th></tr></thead><tbody>${r.ritmo.map(x => `<tr><td>${esc(x.sede)}</td><td class="r">${x.meta}</td><td class="r">${x.esperado}</td><td class="r">${x.facturado}</td><td class="r">${x.entregado}</td><td class="r"><span class="pill ${x.diferencia < 0 ? 'pill-bad' : 'pill-ok'}">${x.diferencia > 0 ? '+' : ''}${x.diferencia}</span></td></tr>`).join('')}</tbody></table></div>` : ''}
+    <h3 style="margin:16px 0 8px">Integridad de los datos <span class="pill ${malos ? 'pill-warn' : 'pill-ok'}">${malos ? malos + ' por revisar' : 'limpio'}</span></h3>
+    <div class="tbl-wrap"><table class="tbl"><tbody>${Object.keys(nom).map(x => `<tr><td>${nom[x]}</td><td class="r"><span class="pill ${i[x] ? 'pill-warn' : 'pill-ok'}">${i[x] || 0}</span></td></tr>`).join('')}</tbody></table></div>
+    ${r.esJefe && (r.trazabilidad || []).length ? `<h3 style="margin:16px 0 8px">🔗 Trazabilidad (solo Jefe): cliente → factura → modelo → chasis → entrega</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Factura</th><th>Modelo</th><th>Chasis</th><th>Sede</th><th>Entrega</th></tr></thead><tbody>${r.trazabilidad.map(t => `<tr><td>${esc(t.cliente)}</td><td>${esc(t.factura)}</td><td>${esc(t.modelo)}</td><td>${esc(t.chasis || '—')}</td><td>${esc(t.sede)}</td><td>${esc(t.entrega)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    <p class="tiny muted" style="margin-top:10px">Regla de desarrollo: toda función nueva debe ayudar a captar, convertir, controlar o recuperar.</p>`;
 }
 /** Lectura de la IA: frases claras para gerencia a partir de los números (motivos de pérdida, actividad vs resultado, embudo). */
 function lecturaIA(r) {
@@ -863,7 +895,7 @@ function lecturaIA(r) {
   return out;
 }
 function embudoFases(r) {
-  const orden = ['Nuevo', 'Contactado', 'Calificado', 'Interesado', 'Cotizado', 'Negociación', 'Pasa a facturar', 'Facturado', 'Moto entregada', 'Detenido', 'Perdido'], f = (r.kpis || {}).fases || {};
+  const orden = ['Nuevo', 'Contactado', 'Calificado', 'Interesado', 'Cotizado', 'Negociación', 'Pasa a facturar', 'Pendiente de entrega', 'Facturado', 'Moto entregada', 'Detenido', 'Perdido'], f = (r.kpis || {}).fases || {};
   return bars(orden.filter(x => f[x]).map(x => ({ l: x, v: f[x] })));
 }
 function ctlConversion(r) {
@@ -2069,6 +2101,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if (MOD && t.dataset.mch !== undefined) return MOD.onChange(t, e);
+  if (t.id === 'pil-dias') { S.pilDias = Number(t.value); S.pil = null; S.pilT = 0; const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); return; }
   if (t.id === 'ctl-dias') { S.ctlDias = Number(t.value); S.ctl = null; S.ctlT = 0; render(); return; }
   if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
   if (t.dataset.sf !== undefined) { S.segFiltro[t.dataset.sf] = t.value; render(); return; }
