@@ -348,7 +348,8 @@ function construirModelo() {
   S.M = {
     cfg, leads, byId, personas,
     // Asesores comerciales: excluye posventa (recibe = posventa) y personas inactivas.
-    asesores: personas.filter(p => (p.rolApp === 'asesor' || p.rolApp === 'admin') && norm(p.recibe) !== 'posventa' && (!p.activo || norm(p.activo).startsWith('si'))),
+    // El administrador de sede es un asesor más (mismos leads, chats, metas y comisiones) con la responsabilidad adicional del punto.
+    asesores: personas.filter(p => (p.rolApp === 'admin' || (p.rolApp === 'asesor' && norm(p.recibe) !== 'posventa')) && (!p.activo || norm(p.activo).startsWith('si'))),
     cotHuerfanas: (d.cotizaciones || []).filter(q => !cotUsadas.has(q._i)),
     facSinOrigen: (d.facturas || []).filter(f => !f.id_lead || !leads.some(l => String(l.raw.id_lead) === String(f.id_lead))),
     alertasAbiertas: (d.alertas || []).filter(a => !si(a.atendida) && !a.fecha_atendida)
@@ -775,7 +776,7 @@ function pintarChat(id, r2, forzarScroll) {
     + `<span class="pill ${at.ventana_abierta ? 'pill-ok' : 'pill-bad'}" title="WhatsApp permite texto libre solo 24 h después del último mensaje del cliente">${at.ventana_abierta ? 'Ventana WhatsApp abierta hasta ' + fmtFecha(new Date(at.ventana_cierra)) : 'Ventana de 24 h cerrada'}</span>`
     + (at.gestionado ? '<span class="pill pill-ok"><i class="ti ti-check"></i> Gestionado por el asesor</span>' : '')
     // El asesor no devuelve chats al bot: una vez asignado debe garantizar la gestión (solo Jefe/Admin pueden devolverlo).
-    + (at.puede_escribir ? (pausado ? (S.data.user.rol !== 'asesor' ? `<button class="btn btn-sm" data-act="chat-bot" data-id="${esc(id)}"><i class="ti ti-robot"></i> Devolver al bot</button>` : '')
+    + (at.puede_escribir ? (pausado ? (S.data.user.rol !== 'asesor' && norm(at.asesor) !== norm(S.data.user.nombre) ? `<button class="btn btn-sm" data-act="chat-bot" data-id="${esc(id)}"><i class="ti ti-robot"></i> Devolver al bot</button>` : '')
       : `<button class="btn btn-sm btn-dark" data-act="chat-tomar" data-id="${esc(id)}"><i class="ti ti-hand-stop"></i> Tomar chat (pausar bot)</button>`) : '');
   const box = $('#chat-box');
   if (!box.dataset.listo) {
