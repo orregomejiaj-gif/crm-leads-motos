@@ -228,6 +228,10 @@
         ritmo: u.rol === 'asesor' ? [] : [{ sede: 'Itagüí', meta: 36, facturado: 14, entregado: 12, esperado: 5.8, diferencia: 8.2 }, { sede: 'Los Colores', meta: 51, facturado: 6, entregado: 5, esperado: 8.2, diferencia: -2.2 }], motivos: {}, perdidasSede: {} };
     }
     if (action === 'revisarOportunidad' || action === 'validarVenta' || action === 'solicitarReasignacion') return { ok: true };
+    if (action === 'pauta') return { ok: true, hoja: true, filas: 4, sinPunto: 0, totales: { gasto: 168066, impresiones: 35633, alcance: 24074, resultados: 175, clics: 453 },
+      puntos: [{ punto: 'Los Colores', gasto: 168066, resultados: 175, impresiones: 35633, clics: 453, costoConversacion: 960 }, { punto: 'Itagüí', gasto: 0, resultados: 0, impresiones: 0, clics: 0, costoConversacion: null }],
+      anuncios: [{ punto: 'Los Colores', anuncio: 'pauta miguel arias colores med', conjunto: '', estado: 'not_delivering', gasto: 83731, impresiones: 16495, alcance: 10661, resultados: 89, clics: 213, desde: '2026-09-04', hasta: '2026-10-03', costoConversacion: 941, ctr: 1.3, cpm: 5076, leads: null, cotizados: null, ventas: null, costoLead: null, costoVenta: null },
+        { punto: 'Los Colores', anuncio: 'pauta yuli orozco colores med', conjunto: '', estado: 'not_delivering', gasto: 84335, impresiones: 19138, alcance: 13413, resultados: 86, clics: 240, desde: '2026-09-04', hasta: '2026-10-03', costoConversacion: 981, ctr: 1.3, cpm: 4407, leads: null, cotizados: null, ventas: null, costoLead: null, costoVenta: null }] };
     if (action === 'panel') {
       const ctl = clone(run('control', { dias: 30 }, u)), L = ctl.lista;
       ctl.facturasMes = [{ id_factura: 'ITA-170', cliente: 'Cliente Octubre (demo)', modelo: 'NKD 125', asesor: 'DEMO Beto Asesor', sede: 'Itagüí', valor: 4890000, fecha: '2026-10-03', validada: false }, { id_factura: 'FEM-2430', cliente: 'Otra venta (demo)', modelo: 'AK150CR4', asesor: 'DEMO Carla Asesora', sede: 'Los Colores', valor: 6990000, fecha: '2026-10-03', validada: true }];

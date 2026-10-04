@@ -435,6 +435,31 @@ function tablaEquipo(rows, opts) {
 }
 function kpiRow(items) { return `<div class="grid g-kpi">${items.map(i => kpi(i[0], i[1], i[2], i[3])).join('')}</div>`; }
 
+/** Pauta de Facebook e Instagram (exporte de Ads Manager pegado en la hoja Pauta_Meta). */
+function cargarPauta() {
+  if (S.pauBusy) return; S.pauBusy = true;
+  api('pauta').then(r => { S.pau = r; S.pauErr = ''; S.pauT = Date.now(); }).catch(e => { S.pauErr = e.message; S.pauT = Date.now(); })
+    .finally(() => { S.pauBusy = false; if (S.view === 'pauta') render(); });
+}
+function vPauta() {
+  if (!S.pau || Date.now() - (S.pauT || 0) > 120e3) cargarPauta();
+  if (!S.pau) return S.pauErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pauErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la pauta…</div></div>';
+  const r = S.pau, t = r.totales || {}, A = r.anuncios || [], cls = S.data.user.rol === 'jefe' ? 'jefe' : 'admin';
+  const cpc = t.resultados ? Math.round(t.gasto / t.resultados) : null, ctr = t.impresiones ? (t.clics * 100 / t.impresiones).toFixed(1).replace('.', ',') : '—';
+  const conv = A.filter(a => a.costoConversacion !== null).sort((a, b) => a.costoConversacion - b.costoConversacion);
+  const ia = [];
+  if (conv.length > 1) ia.push(`✅ «${conv[0].anuncio}» es el más barato: ${money(conv[0].costoConversacion)} por conversación (${conv[0].resultados} conversaciones).`, `⚠️ «${conv[conv.length - 1].anuncio}» cuesta ${money(conv[conv.length - 1].costoConversacion)} por conversación.`);
+  const sinEntrega = A.filter(a => /not_delivering|inactive|paused/i.test(a.estado) && a.gasto === 0).length; if (sinEntrega) ia.push(`⏸️ ${sinEntrega} anuncio${sinEntrega === 1 ? '' : 's'} sin entrega y sin gasto en el período.`);
+  if (A.length && A.every(a => a.leads === null)) ia.push('🔗 Para saber leads, cotizaciones y ventas por anuncio, el lead debe guardar el nombre del anuncio de origen (campo «anuncio_origen»): hoy ninguno coincide con la pauta.');
+  if (r.sinPunto) ia.push(`📍 ${r.sinPunto} fila${r.sinPunto === 1 ? '' : 's'} sin punto: agrega la columna «punto» (Itagüí o Los Colores) en la hoja.`);
+  const fm = x => x === null || x === undefined ? '—' : money(x), n0 = x => x === null || x === undefined ? '—' : x;
+  return `${hero(cls, 'ti-brand-meta', 'Pauta en Facebook e Instagram', `${r.filas} fila${r.filas === 1 ? '' : 's'} leídas de Ads Manager`)}
+    ${!r.hoja ? `<div class="pn-card"><h3>Cómo cargar la pauta</h3><ol class="small"><li>En Ads Manager exporta el reporte de <b>Anuncios</b> (CSV) del período que quieras.</li><li>Pega las filas en la hoja <b>Pauta_Meta</b> del libro de Leads (con los mismos encabezados).</li><li>Agrega al final la columna <b>punto</b> con «Itagüí» o «Los Colores».</li><li>Vuelve aquí: se actualiza solo.</li></ol></div>` : `
+    ${kpiRow([['Inversión', money(t.gasto), 'COP en el período'], ['Conversaciones iniciadas', t.resultados || 0, 'por mensaje en WhatsApp/Messenger'], ['Costo por conversación', fm(cpc), 'promedio'], ['Impresiones', num(t.impresiones) ?? 0, `alcance ${num(t.alcance) ?? 0}`], ['Clics en el enlace', t.clics || 0, `CTR ${ctr} %`]])}
+    ${ia.length ? `<div class="lectura"><b>🤖 Lectura de la pauta</b>${ia.map(x => `<div class="small" style="margin-top:4px">${esc(x)}</div>`).join('')}</div>` : ''}
+    <div class="pn-card"><h3>📍 Por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Inversión</th><th class="r">Conversaciones</th><th class="r">Costo/conv.</th><th class="r">Impresiones</th><th class="r">Clics</th></tr></thead><tbody>${(r.puntos || []).map(p => `<tr><td><b>${esc(p.punto)}</b></td><td class="r">${money(p.gasto)}</td><td class="r">${p.resultados}</td><td class="r">${fm(p.costoConversacion)}</td><td class="r">${num(p.impresiones)}</td><td class="r">${p.clics}</td></tr>`).join('')}</tbody></table></div></div>
+    <div class="pn-card" style="margin-top:14px"><h3>📣 Por anuncio</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Anuncio</th><th>Punto</th><th>Estado</th><th class="r">Inversión</th><th class="r">Conv.</th><th class="r">Costo/conv.</th><th class="r">CTR</th><th class="r">Leads</th><th class="r">Ventas</th><th class="r">Costo/venta</th></tr></thead><tbody>${A.map(a => `<tr><td><b>${esc(a.anuncio)}</b><div class="tiny muted">${esc(a.desde)} → ${esc(a.hasta)}</div></td><td>${esc(a.punto)}</td><td class="small">${esc(a.estado)}</td><td class="r">${money(a.gasto)}</td><td class="r">${a.resultados}</td><td class="r">${fm(a.costoConversacion)}</td><td class="r">${a.ctr === null ? '—' : String(a.ctr).replace('.', ',') + ' %'}</td><td class="r">${n0(a.leads)}</td><td class="r">${n0(a.ventas)}</td><td class="r">${fm(a.costoVenta)}</td></tr>`).join('')}</tbody></table></div></div>`}`;
+}
 function filtrosPanel(p) {
   const f = p.filtro || {}, sedeSel = f.sede || '', diasSel = f.dias || 30, b = (k, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pan-filtro" data-k="${k}" data-v="${v}">${txt}</button>`;
   return `<div class="row wrap" style="gap:10px;margin:0 0 12px"><div class="seg">${b('sede', '', 'Antioquia', !sedeSel)}${b('sede', 'Itagüí', 'Itagüí', sedeSel === 'Itagüí')}${b('sede', 'Los Colores', 'Los Colores', sedeSel === 'Los Colores')}</div><div class="seg">${b('dias', 1, 'Hoy', diasSel === 1)}${b('dias', 7, 'Semana', diasSel === 7)}${b('dias', 30, 'Mes', diasSel === 30)}</div></div>`;
@@ -585,10 +610,10 @@ function vistasDeRol() {
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas'), it('misventas', 'ti-report-money', 'Mis Ventas'), it('entregas', 'ti-motorbike', 'Mis Entregas'), it('comisiones', 'ti-coin', 'Mi Comisión')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('misventas', 'ti-report-money', 'Ventas'), it('entregas', 'ti-motorbike', 'Entregas'),
-    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('alertas', 'ti-bell-ringing', 'Alertas'), it('comisiones', 'ti-coin', 'Comisiones')];
+    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas'), it('comisiones', 'ti-coin', 'Comisiones')];
   return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Inteligencia IA'), it('embudo', 'ti-layout-kanban', 'Embudo Comercial'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
     it('metas', 'ti-target', 'Metas'), it('ventas', 'ti-report-money', 'Cifras'), it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
-    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('comisiones', 'ti-coin', 'Comisiones'),
+    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('comisiones', 'ti-coin', 'Comisiones'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
 }
 function homeDeRol() { return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
@@ -629,7 +654,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
+  const base = { pauta: vPauta, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
     alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
