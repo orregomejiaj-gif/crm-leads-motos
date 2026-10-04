@@ -319,6 +319,10 @@ function construirModelo() {
     else if (cotizado) estado = 'Cotizado';
     else if (contactado) estado = 'Contactado';
 
+    // Cerrado ganado: la venta ya aparece en Síntesis (factura cruzada por celular) → el lead pasa solo a ganado.
+    const cerrado = fac.length > 0;
+    if (cerrado) estado = 'Facturado';
+
     const incons = [];
     if ((estado === 'Cotizado' || (estado === 'Facturado' && cotizado)) && !cot.length) incons.push('Marcado cotizado sin cotización en el CRM');
     if (estado === 'Facturado' && !fac.length) incons.push('Marcado vendido sin factura (pendiente de facturar)');
@@ -338,7 +342,7 @@ function construirModelo() {
     const alertas = uniq([].concat(alertasLead[String(l.id_lead)] || [], l.id_contacto ? alertasLead[String(l.id_contacto)] || [] : []));
 
     return {
-      id, raw: l, g, estado, incons, cot, fac, alertas, tel, asign, contactadoEn, hAsign, hPrimera, ultimaAct,
+      id, raw: l, g, estado, cerrado, incons, cot, fac, alertas, tel, asign, contactadoEn, hAsign, hPrimera, ultimaAct,
       contactado, cotizado, resultado: res, motivo: (g && g.motivo_perdida) || '',
       nombre: String(l.nombre_completo || l.username_whatsapp || '').trim() || 'Sin nombre',
       usuario: l.username_whatsapp || '', sede: sedeCanon(l.punto_asignado), asesor: String(l.nombre_asesor || '').trim(),
@@ -428,9 +432,11 @@ function toast(msg, tipo) {
   setTimeout(() => t.remove(), tipo === 'bad' ? 6500 : 3200);
 }
 function empty(icon, txt) { return `<div class="empty"><i class="ti ${icon}"></i>${txt}</div>`; }
-function pillEstado(e) {
+// Nombres que ve el usuario: Retenido = «Detenido»; Facturado con la venta ya en Síntesis = «Cerrado ganado».
+function lblEstado(e, cerrado) { return e === 'Retenido' ? 'Detenido' : e === 'Facturado' ? (cerrado ? 'Cerrado ganado' : 'Facturado') : e; }
+function pillEstado(e, cerrado) {
   const c = { Nuevo: 'pill-info', Contactado: '', Cotizado: 'pill-warn', Facturado: 'pill-ok', Perdido: 'pill-bad', Retenido: 'pill-dark' }[e] || '';
-  return `<span class="pill ${c}">${esc(e)}</span>`;
+  return `<span class="pill ${c}">${cerrado && e === 'Facturado' ? '<i class="ti ti-circle-check"></i> ' : ''}${esc(lblEstado(e, cerrado))}</span>`;
 }
 function pillTemp(t, pref) { return t ? `<span class="pill t-${norm(t)}">${pref || ''}${esc(t)}</span>` : ''; }
 // Ícono del KPI según lo que mide (el texto de la etiqueta decide)
@@ -486,13 +492,16 @@ function leadCard(l) {
   const acciones = [];
   if (ed && l.estado === 'Nuevo') acciones.push(`<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}"><i class="ti ti-phone-check"></i> Contactado</button>`);
   if (ed && (l.estado === 'Nuevo' || l.estado === 'Contactado')) acciones.push(`<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}"><i class="ti ti-file-dollar"></i> Cotizado</button>`);
+  if (ed && ['Contactado', 'Cotizado', 'Retenido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="facturado" data-id="${esc(l.id)}"><i class="ti ti-receipt"></i> Pasa a facturado</button>`);
+  if (ed && ['Nuevo', 'Contactado', 'Cotizado'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="detenido" data-id="${esc(l.id)}" title="No avanza: no hay la moto disponible o está reuniendo el dinero"><i class="ti ti-player-pause"></i> Detenido</button>`);
   if (ed && !['Facturado', 'Perdido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="perdido" data-id="${esc(l.id)}"><i class="ti ti-x"></i> Perdido</button>`);
+  if (ed && l.cerrado) acciones.push(`<button class="btn btn-sm btn-dark" data-act="abrir" data-id="${esc(l.id)}"><i class="ti ti-tool"></i> Agendar revisión técnica</button>`);
   // El chat se atiende dentro de la app con el número del negocio (no desde el WhatsApp personal del asesor)
   acciones.push(`<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>`);
   return `<article class="lead ${s}">
     <div class="lead-top"><div class="lead-id"><div class="av av-${norm(l.tempIA || l.temp)}">${esc(iniciales(l.nombre))}</div><div><div class="lead-name" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</div>
       <div class="lead-sub">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div></div>
-      <div class="row" style="flex-direction:column;align-items:flex-end;gap:4px">${pillEstado(l.estado)}${timer}</div></div>
+      <div class="row" style="flex-direction:column;align-items:flex-end;gap:4px">${pillEstado(l.estado, l.cerrado)}${timer}</div></div>
     <div class="lead-facts">${contactoTxt(l)}
       ${r.modelo_interes ? `<span><i class="ti ti-motorbike"></i>${esc(r.modelo_interes)}</span>` : ''}
       ${r.zona ? `<span><i class="ti ti-map-pin"></i>${esc(r.zona)}</span>` : ''}
@@ -606,7 +615,7 @@ function abrirLead(id) {
         <div class="grid g2">
           <div><label class="f">Contactado</label><div class="row"><span class="pill ${l.contactado ? 'pill-ok' : ''}">${l.contactado ? 'Sí' + (l.contactadoEn ? ' · ' + fmtFecha(l.contactadoEn) : '') : 'No'}</span>${!l.contactado ? `<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}">Marcar contactado</button>` : ''}</div></div>
           <div><label class="f">Cotizado</label><div class="row"><span class="pill ${l.cotizado ? 'pill-warn' : ''}">${l.cotizado ? 'Sí' : 'No'}</span>${!l.cotizado && !['Facturado', 'Perdido'].includes(l.estado) ? `<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}">Marcar cotizado</button>` : ''}</div></div>
-          <div><label class="f">Resultado</label><select class="sel w100" data-act-ch="resultado" data-id="${esc(l.id)}">${opts([{ v: '', t: 'En proceso' }, { v: 'ganado', t: 'Ganado (facturado)' }, { v: 'perdido', t: 'Perdido' }, { v: 'retenido', t: 'Retenido' }], norm(g.resultado) === 'perdido' ? 'perdido' : norm(g.resultado).startsWith('gan') ? 'ganado' : norm(g.resultado).startsWith('ret') ? 'retenido' : '')}</select></div>
+          <div><label class="f">Resultado</label><select class="sel w100" data-act-ch="resultado" data-id="${esc(l.id)}">${opts([{ v: '', t: 'En proceso' }, { v: 'ganado', t: 'Ganado (facturado)' }, { v: 'perdido', t: 'Perdido' }, { v: 'retenido', t: 'Detenido' }], norm(g.resultado) === 'perdido' ? 'perdido' : norm(g.resultado).startsWith('gan') ? 'ganado' : norm(g.resultado).startsWith('ret') ? 'retenido' : '')}</select></div>
           <div><label class="f">Motivo de pérdida</label><div class="row"><span class="small">${esc(g.motivo_perdida || '—')}</span></div></div>
         </div>
         <div style="margin-top:10px"><label class="f">Respuesta del cliente</label><textarea class="inp" id="resp-cli" maxlength="500" placeholder="¿Qué respondió el cliente?">${esc(g.respuesta_cliente || '')}</textarea>
@@ -649,10 +658,13 @@ function cardAvance(l, ed) {
     <div class="row wrap" style="gap:4px">${alcanzadas.length ? alcanzadas.map(x => { const e = et.filter(y => y.etapa === x).pop(); return `<span class="pill ${x === 'Perdido' || x === 'Crédito negado' || x === 'No asistió a la cita' ? 'pill-bad' : x === 'Facturado' || x === 'Entregado' ? 'pill-ok' : 'pill-info'}" title="${esc(fmtFecha(parseFecha(e.fecha)))}${e.por ? ' · ' + esc(e.por) : ''}">${esc(x)}</span>`; }).join('') : '<span class="small muted">Aún sin etapas registradas.</span>'}</div>
     ${ed && pendientes.length ? `<div class="row wrap" style="gap:6px;margin-top:8px">${pendientes.map(x => `<button class="btn btn-sm" data-act="etapa" data-id="${esc(l.id)}" data-v="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>` : ''}
     <h4 class="muted" style="margin:12px 0 6px">Citas (${citas.length})</h4>
-    ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${esc(l.sede || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
+    ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${c.tipo === 'revision' ? '<b>Revisión técnica</b> · ' : ''}${esc(l.sede || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
       ${ed && c.estado === 'agendada' ? ['asistió', 'no asistió', 'cancelada'].map(s => `<button class="btn btn-sm" data-act="cita-estado" data-id="${esc(l.id)}" data-cita="${esc(c.id_cita)}" data-v="${s}">${s === 'asistió' ? 'Asistió' : s === 'no asistió' ? 'No asistió' : 'Cancelar'}</button>`).join('') : ''}</div>`).join('') : '<p class="small muted" style="margin:0">Sin citas registradas.</p>'}
     ${ed ? `<div class="row wrap" style="gap:6px;margin-top:8px"><input class="inp" type="date" id="cita-f" min="${hoy}" style="max-width:160px"><input class="inp" type="time" id="cita-h" style="max-width:120px"><button class="btn btn-sm btn-dark" data-act="cita-nueva" data-id="${esc(l.id)}"><i class="ti ti-calendar-plus"></i> Agendar cita</button></div>
       <p class="tiny muted" style="margin:6px 0 0">Al agendar, el cliente recibe recordatorio 24 h y 2 h antes, y tú 2 h antes.</p>` : ''}
+    ${ed && l.cerrado ? `<h4 class="muted" style="margin:12px 0 6px"><i class="ti ti-tool"></i> Revisión técnica</h4>
+      <p class="small" style="margin:0 0 6px">Venta cerrada ✔ Agenda la primera revisión técnica de la moto; el cliente recibe recordatorio.</p>
+      <div class="row wrap" style="gap:6px"><input class="inp" type="date" id="rev-f" min="${hoy}" style="max-width:160px"><input class="inp" type="time" id="rev-h" style="max-width:120px"><button class="btn btn-sm btn-dark" data-act="cita-revision" data-id="${esc(l.id)}"><i class="ti ti-tool"></i> Agendar revisión técnica</button></div>` : ''}
     ${encs.length ? `<h4 class="muted" style="margin:12px 0 6px">Encuestas</h4>${encs.map(e => `<div class="small">${e.tipo === 'nps' ? 'NPS' : '¿Por qué no compró?'} · ${e.respondida ? (e.tipo === 'nps' ? `nota <b>${esc(e.nota)}</b> (${esc(e.clasificacion)})` : `<b>${esc(e.motivo)}</b>`) : esc(e.estado)}</div>`).join('')}` : ''}
   </div>`;
 }
@@ -666,6 +678,11 @@ async function accionAvance(act, a) {
       const f = $('#cita-f').value, h = $('#cita-h').value;
       if (!f || !h) { toast('Elige el día y la hora de la cita.', 'bad'); a.disabled = false; return; }
       await api('cita', { id_lead: l.id, fecha: f, hora: h }); toast('Cita agendada', 'ok');
+    }
+    if (act === 'cita-revision') {
+      const f = $('#rev-f').value, h = $('#rev-h').value;
+      if (!f || !h) { toast('Elige el día y la hora de la revisión técnica.', 'bad'); a.disabled = false; return; }
+      await api('cita', { id_lead: l.id, fecha: f, hora: h, tipo: 'revision' }); toast('Revisión técnica agendada', 'ok');
     }
     await recargarLead();
   } catch (e) { toast(e.message, 'bad'); a.disabled = false; }
@@ -735,7 +752,7 @@ function cargarBandeja() {
 function vChats() {
   if (!S.bandeja) { cargarBandeja(); }
   setTimeout(() => {
-    pintarBandeja();
+    pintarBandeja(); ajustarBandeja();
     const b = $('#chat-buscar'), f = $('#chat-filtro');
     if (b) b.oninput = () => { S.chatBuscar = b.value; pintarBandeja(); };
     if (f) f.onchange = () => { S.chatFiltro = f.value; pintarBandeja(); };
@@ -796,7 +813,7 @@ function pintarChat(id, r2, forzarScroll) {
   const pausado = at.estado !== 'bot' && at.asesor;
   const vence = at.vence_reasignacion ? new Date(at.vence_reasignacion) : null;
   $('#chat-estado').innerHTML = (pausado
-    ? `<span class="pill pill-info"><i class="ti ti-player-pause"></i> Bot en pausa · atiende ${esc(at.asesor)}</span>${vence ? `<span class="pill ${vence - Date.now() < 3 * 3600e3 ? 'pill-warn' : ''}" title="A las 20 h sin gestión se le recuerda al asesor y se escribe al cliente; a las 23 h se reasigna a otro asesor del punto">Gestiona antes de: ${fmtFecha(vence)}</span>` : ''}`
+    ? `<span class="pill pill-info"><i class="ti ti-player-pause"></i> Bot en pausa · atiende ${esc(at.asesor)}</span>${vence ? `<span class="pill ${vence - Date.now() < 90 * 60e3 ? 'pill-warn' : ''}" title="Lead nuevo: seguimiento a las 2 h y reasignación a las 4 h sin que el asesor lo toque. En proceso: seguimiento a las 13 h y reasignación a las 24 h en el mismo estado. Crédito en estudio: +12 h. Horas hábiles (7 a. m. – 9 p. m.). No aplica a retenidos.">Gestiona antes de: ${fmtFecha(vence)}</span>` : ''}`
     : `<span class="pill pill-ok"><i class="ti ti-robot"></i> Bot activo</span>`)
     + `<span class="pill ${at.ventana_abierta ? 'pill-ok' : 'pill-bad'}" title="WhatsApp permite texto libre solo 24 h después del último mensaje del cliente">${at.ventana_abierta ? 'Ventana WhatsApp abierta hasta ' + fmtFecha(new Date(at.ventana_cierra)) : 'Ventana de 24 h cerrada'}</span>`
     + (at.gestionado ? '<span class="pill pill-ok"><i class="ti ti-check"></i> Gestionado por el asesor</span>' : '')
@@ -806,10 +823,12 @@ function pintarChat(id, r2, forzarScroll) {
   const box = $('#chat-box');
   if (!box.dataset.listo) {
     box.dataset.listo = '1';
-    box.innerHTML = at.puede_escribir ? `${chipsRespuestas(id, at)}<div class="chat-box"><textarea class="inp" id="chat-txt" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
+    box.innerHTML = at.puede_escribir ? `${chipsRespuestas(id, at)}<div class="emoji-panel" id="emoji-panel" hidden></div><div class="chat-box"><button type="button" class="icon-btn emoji-btn" data-act="emoji-abrir" title="Emojis" aria-label="Emojis">😊</button><textarea class="inp" id="chat-txt" rows="1" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
       <button class="btn btn-primary" data-act="chat-enviar" data-id="${esc(id)}"><i class="ti ti-send"></i> Enviar</button></div><div class="chat-aviso" id="chat-aviso"></div>`
       : '<p class="chat-aviso">Solo el asesor asignado (o su jefe/administrador) puede escribirle a este cliente.</p>';
+    const ta = $('#chat-txt'); if (ta) ta.addEventListener('input', () => autoAltoChat(ta));
   }
+  ajustarBandeja();
   const aviso = $('#chat-aviso'), btn = box.querySelector('[data-act="chat-enviar"]');
   if (aviso) {
     const motivo = !at.envio_configurado ? 'El envío por WhatsApp no está configurado en el servidor.' : !at.ventana_abierta ? 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp exige una plantilla aprobada para retomarlo.' : '';
@@ -817,6 +836,35 @@ function pintarChat(id, r2, forzarScroll) {
     if (btn) btn.disabled = !!motivo;
   }
 }
+// ── Ajuste automático del chat a la pantalla y emojis ──
+function ajustarBandeja() {
+  const ib = document.querySelector('.inbox'); if (!ib) return;
+  const alto = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+  const nav = $('#nav'), navFijo = nav && getComputedStyle(nav).position === 'fixed' ? nav.offsetHeight : 0;
+  ib.style.height = Math.max(340, alto - ib.getBoundingClientRect().top - navFijo - 14) + 'px';
+}
+function autoAltoChat(ta) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; }
+const EMOJIS = {
+  '😊': '😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😎 🤩 🤗 🤔 😬 🙄 😮 😢 😭 😡 😴',
+  '👍': '👍 👎 👌 ✌️ 🤞 🤝 🙏 👏 🙌 💪 👋 ☝️ 👉 👈 👇 ✅ ❌ ⭐ 🌟 🔥 💯 ❤️ 💙 🎉 🎁',
+  '🏍️': '🏍️ 🛵 🛞 ⛽ 🔧 🛠️ 🪖 🏁 🚦 🛣️ 🗺️ 📍 🏢 🏬 🕒 📅 📞 📱 💬 📲 🪪 📄 💳 💵 💰 🧾',
+  '🚀': '🚀 🎯 🏆 🥇 ⚡ ✨ 🎊 🤩 😎 👀 🙋 🙋‍♂️ 🙋‍♀️ 🤙 💥 🆕 🔔 📣 ⏰ ➡️ ▶️ ☑️ 🔜 🆗 💡'
+};
+function pintarEmojis(cat) {
+  const p = $('#emoji-panel'); if (!p) return;
+  cat = cat || p.dataset.cat || '😊'; p.dataset.cat = cat;
+  p.innerHTML = `<div class="emoji-tabs">${Object.keys(EMOJIS).map(k => `<button type="button" class="emoji-tab ${k === cat ? 'on' : ''}" data-act="emoji-cat" data-c="${k}">${k}</button>`).join('')}</div>
+    <div class="emoji-grid">${EMOJIS[cat].split(' ').map(e => `<button type="button" class="emoji-e" data-act="emoji-add" data-e="${e}">${e}</button>`).join('')}</div>`;
+}
+function insertarEmoji(e) {
+  const t = $('#chat-txt'); if (!t) return;
+  const a = t.selectionStart == null ? t.value.length : t.selectionStart, b = t.selectionEnd == null ? a : t.selectionEnd;
+  t.value = t.value.slice(0, a) + e + t.value.slice(b);
+  t.focus(); t.selectionStart = t.selectionEnd = a + e.length; autoAltoChat(t);
+}
+window.addEventListener('resize', ajustarBandeja);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', ajustarBandeja);
+
 // ── Copiloto del asesor: respuestas rápidas con los datos del lead (y sugerencia con IA si el Jefe activó la clave) ──
 const RESPUESTAS_RAPIDAS = [
   { t: 'Saludo', k: 'saludo', m: '¡Hola {nombre}! Soy {asesor}, asesor de Moto Racing {punto}. Vi que te interesó la {modelo}. ¿Te cuento los detalles y simulamos tu cuota? 🏍️' },
@@ -958,14 +1006,14 @@ async function moverA(l, destino) {
     if (!l.contactado && !(await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí'))) return refrescar();
     await setCampo(l, 'Gestion_Asesor', 'cotizado', 'Sí');
   } else if (destino === 'Facturado') {
-    if (!l.fac.length && !(await confirmar('Sin factura', `No hay factura vinculada a ${leadTxt}. Quedará como <b>pendiente de facturar</b> hasta que el Jefe cargue la factura.`, 'Marcar ganado'))) return;
+    if (!l.fac.length && !(await confirmar('Pasa a facturado', `${leadTxt} queda como <b>Facturado</b>. Cuando la venta aparezca en Síntesis (mismo celular) pasa sola a <b>Cerrado ganado</b> y se habilita la revisión técnica.`, 'Pasar a facturado'))) return;
     if (!(await cerrarLead(l, 'ganado'))) return refrescar();
   } else if (destino === 'Perdido') {
     const m = await pedirMotivo(l);
     if (!m) return;
     if (!(await cerrarLead(l, 'perdido', m))) return refrescar();
   } else if (destino === 'Retenido') {
-    if (!(await confirmar('Marcar como retenido', `La definición de "Retenido" está pendiente del Jefe Comercial. ¿Marcar ${leadTxt} como retenido?`, 'Marcar retenido'))) return;
+    if (!(await confirmar('Marcar como detenido', `${leadTxt} queda <b>Detenido</b>: no avanza porque no hay la moto disponible o el cliente está reuniendo el dinero. No recibirá seguimientos ni reasignaciones automáticas.`, 'Marcar detenido'))) return;
     if (!(await cerrarLead(l, 'retenido'))) return refrescar();
   }
   toast(`${l.nombre} → ${destino}`, 'ok');
@@ -1001,7 +1049,7 @@ function vEmbudo() {
     ${filtrosHTML()}
     <div class="kanban">${ESTADOS.map(e => {
       const items = ls.filter(l => l.estado === e);
-      return `<div class="col" data-col="${e}"><div class="col-h">${e} <small>${items.length}</small></div>
+      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Facturado / Cerrado' : lblEstado(e)} <small>${items.length}</small></div>
         ${items.slice(0, 150).map(l => `<div class="kcard ${l.incons.length ? 'incons' : ''}" draggable="${puedeEditar(l)}" data-drag="${esc(l.id)}">
           <b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b>
           <div class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')}</div>
@@ -1661,7 +1709,10 @@ document.addEventListener('click', async e => {
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
-  if (['etapa', 'cita-estado', 'cita-nueva'].includes(act)) return accionAvance(act, a);
+  if (act === 'emoji-abrir') { const p = $('#emoji-panel'); if (p) { p.hidden = !p.hidden; if (!p.hidden) pintarEmojis(); } return; }
+  if (act === 'emoji-cat') return pintarEmojis(a.dataset.c);
+  if (act === 'emoji-add') return insertarEmoji(a.dataset.e);
+  if (['etapa', 'cita-estado', 'cita-nueva', 'cita-revision'].includes(act)) return accionAvance(act, a);
   if (act === 'ind-recargar') { S.indT = 0; S.ind = null; cargarIndicadores(); return render(); }
   if (act === 'chat-abrir') return abrirChatBandeja(a.dataset.id);
   if (act === 'ir-chat') { cerrarSheet(); S.chatSel = a.dataset.id; S.view = 'chats'; renderNav(); return render(); }
@@ -1674,6 +1725,8 @@ document.addEventListener('click', async e => {
   if (act === 'contactado' && l) { a.disabled = true; if (await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí')) toast('Marcado como contactado', 'ok'); return refrescar(); }
   if (act === 'cotizado' && l) return moverA(l, 'Cotizado');
   if (act === 'perdido' && l) return moverA(l, 'Perdido');
+  if (act === 'detenido' && l) return moverA(l, 'Retenido');
+  if (act === 'facturado' && l) return moverA(l, 'Facturado');
   if (act === 'temp' && l) { const v = l.temp === a.dataset.v ? '' : a.dataset.v; await setCampo(l, 'Leads', 'etiqueta_asesor', v); return refrescar(); }
   if (act === 'respuesta' && l) { if (await setCampo(l, 'Gestion_Asesor', 'respuesta_cliente', $('#resp-cli').value.trim())) toast('Respuesta guardada', 'ok'); return refrescar(); }
   if (act === 'reasignar' && l) {

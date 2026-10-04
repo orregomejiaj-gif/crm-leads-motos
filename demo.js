@@ -221,8 +221,8 @@
       if (action === 'etapa') { DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: p.etapa, fecha: ahoraB, por: u.nombre }); return { ok: true, etapa: p.etapa }; }
       if (action === 'cita') {
         if (p.id_cita) { const c = DEMO_F2.citas.find(x => x.id_cita === p.id_cita); if (c) c.estado = p.estado; if (p.estado === 'asistió') DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: 'Visitó', fecha: ahoraB, por: u.nombre }); return { ok: true, estado: p.estado }; }
-        DEMO_F2.citas.push({ id_cita: 'C' + Date.now(), id_lead: l.id_lead, fecha: p.fecha, hora: p.hora, estado: 'agendada', punto: sedeCanon(l.punto_asignado) });
-        DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: 'Cita agendada', fecha: ahoraB, por: u.nombre });
+        DEMO_F2.citas.push({ id_cita: 'C' + Date.now(), id_lead: l.id_lead, fecha: p.fecha, hora: p.hora, estado: 'agendada', punto: sedeCanon(l.punto_asignado), tipo: p.tipo === 'revision' ? 'revision' : '' });
+        DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: p.tipo === 'revision' ? 'Revisión técnica agendada' : 'Cita agendada', fecha: ahoraB, por: u.nombre });
         return { ok: true };
       }
       if (p.resultado === 'perdido' && !p.motivo) fail('Para marcar un lead como perdido debes indicar el motivo.', 'INVALID');
