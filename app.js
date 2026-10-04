@@ -574,6 +574,7 @@ function pulsoHtml() {
       k.calientesSinGestion ? `🔥 <b>${k.calientesSinGestion}</b> lead${k.calientesSinGestion > 1 ? 's calientes' : ' caliente'} sin gestión` : '',
       k.cotizacionesVencidas ? `📝 <b>${k.cotizacionesVencidas}</b> cotizaci${k.cotizacionesVencidas > 1 ? 'ones' : 'ón'} con seguimiento vencido` : '',
       k.pendientesEntrega ? `🏍️ <b>${k.pendientesEntrega}</b> venta${k.pendientesEntrega > 1 ? 's' : ''} pendiente${k.pendientesEntrega > 1 ? 's' : ''} de entrega` : '',
+      k.posventaPendiente ? `🤝 <b>${k.posventaPendiente}</b> contacto${k.posventaPendiente > 1 ? 's' : ''} de posventa por hacer` : '',
       k.enRiesgo ? `⚠️ <b>${k.enRiesgo}</b> negociaci${k.enRiesgo > 1 ? 'ones' : 'ón'} en riesgo` : ''].filter(Boolean).map(x => `<span style="display:inline-block;margin-right:14px">${x}</span>`).join('') || '✅ Sin alertas críticas ahora mismo.'}</div>
     ${meta && falta ? `<div class="small" style="margin:0 0 10px"><b>🎯 Acción de hoy:</b> para llegar a la meta necesitamos ${p.cierresDiarios} cierre${p.cierresDiarios === 1 ? '' : 's'} por día durante ${p.diasRestantes} día${p.diasRestantes === 1 ? '' : 's'}. Pregúntate: ¿cuál es mi próxima venta y qué le falta para cerrar?</div>` : ''}
     <div class="grid g-kpi">
@@ -769,7 +770,8 @@ function cargarOportunidadesCliente(l) {
     const cls = { Facturado: 'pill-ok', Perdida: 'pill-bad', Cotizado: 'pill-warn' };
     c.innerHTML = `<h3 style="margin-bottom:8px">Oportunidades del cliente <span class="pill">${(r.oportunidades || []).length}</span></h3>` + ((r.oportunidades || []).length
       ? (r.oportunidades || []).map(o => `<div class="row wrap small" style="gap:6px;margin-bottom:4px"><span class="muted">${esc(o.fecha)}</span><b>${esc(o.modelo || '—')}</b><span class="pill ${cls[o.estado] || ''}">${esc(o.estado)}</span><span class="tiny muted">cotización ${esc(o.id)}${o.factura ? ' · factura ' + esc(o.factura) : ''}${o.origen === 'VENTA EN SALA' ? ' · venta en sala' : ''}</span></div>`).join('')
-      : '<p class="small muted" style="margin:0">Sin cotizaciones ni ventas registradas todavía para este cliente.</p>');
+      : '<p class="small muted" style="margin:0">Sin cotizaciones ni ventas registradas todavía para este cliente.</p>')
+      + ((r.timeline || []).length ? `<details style="margin-top:10px"><summary class="small" style="cursor:pointer"><b>🕒 Línea de tiempo (${r.timeline.length})</b></summary>${r.timeline.map(e => `<div class="small" style="margin:4px 0;padding-left:8px;border-left:2px solid var(--line,#ccc)"><span class="muted">${esc(String(e.f).slice(0, 16))}</span> · <b>${esc(e.t)}</b>${e.d ? ' · ' + esc(e.d) : ''}${e.por ? `<span class="tiny muted"> · ${esc(e.por)}</span>` : ''}</div>`).join('')}</details>` : '');
   }).catch(() => { const c = $('#oport-cli'); if (c) c.remove(); });
 }
 
@@ -835,11 +837,11 @@ function ctlTareas(r) {
       <span class="pill ${colores[t.prioridad] || ''}">${esc(t.tarea)}</span> <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> <span class="muted small">· ${esc(t.producto || '')}${t.asesor ? ' · ' + esc(t.asesor) : ''}</span>
       <div class="small" style="margin-top:4px">${esc(t.detalle || '')}</div>
       ${t.ia ? `<div class="small" style="margin-top:3px"><b>🤖 IA:</b> ${esc(t.ia)}</div>` : ''}${t.porque && t.porque.length ? `<div class="tiny muted">Por qué: ${esc(t.porque.join(' · '))}${t.fase ? ' · fase ' + esc(t.fase) : ''}</div>` : ''}</div>
-      <div class="row" style="gap:6px"><span class="tiny muted" title="Puntaje del lead">★ ${t.score}</span><button class="btn btn-sm" data-act="abrir" data-id="${esc(t.id_lead)}">Abrir</button><button class="btn btn-sm btn-dark" data-act="prox-abrir" data-id="${esc(t.id_lead)}"><i class="ti ti-calendar-time"></i> Programar acción</button></div></div></div>`).join('') : empty('ti-checks', 'Sin tareas pendientes. Buen trabajo.')}`;
+      <div class="row" style="gap:6px"><span class="tiny muted" title="Puntaje del lead">★ ${t.score}</span><button class="btn btn-sm" data-act="abrir" data-id="${esc(t.id_lead)}">Abrir</button>${t.pv ? `<button class="btn btn-sm btn-dark" data-act="pv-hecho" data-id="${esc(t.id_lead)}" data-tipo="${esc(t.pv)}"><i class="ti ti-check"></i> Hecho</button>` : `<button class="btn btn-sm btn-dark" data-act="prox-abrir" data-id="${esc(t.id_lead)}"><i class="ti ti-calendar-time"></i> Programar acción</button>`}</div></div></div>`).join('') : empty('ti-checks', 'Sin tareas pendientes. Buen trabajo.')}`;
 }
 function ctlSupervision(r) {
-  const fila = a => { const sem = a.vencidos >= 3 || a.sinContacto >= 3 ? 'pill-bad' : (a.vencidos || a.sinContacto ? 'pill-warn' : 'pill-ok'); return `<tr><td>${esc(a.k)}</td><td class="r">${a.leads}</td><td class="r">${a.sinContacto}</td><td class="r">${pct(a.contactados, a.leads) === null ? '—' : pct(a.contactados, a.leads) + ' %'}</td><td class="r">${a.tResp === null || a.tResp === undefined ? '—' : fmtHoras(a.tResp)}</td><td class="r"><span class="pill ${sem}">${a.vencidos}</span></td><td class="r">${a.abandonados}</td><td class="r">${a.oportunidades}</td><td class="r">${a.ventas}</td><td class="r">${a.conv} %</td></tr>`; };
-  return `<h3 style="margin-bottom:8px">Cumplimiento por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Seg. vencidos</th><th class="r">Abandonados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Conversión</th></tr></thead><tbody>${(r.asesores || []).map(fila).join('') || '<tr><td colspan="10" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
+  const fila = a => { const sem = a.vencidos >= 3 || a.sinContacto >= 3 ? 'pill-bad' : (a.vencidos || a.sinContacto ? 'pill-warn' : 'pill-ok'); return `<tr><td>${esc(a.k)}</td><td class="r">${a.leads}</td><td class="r">${a.sinContacto}</td><td class="r">${pct(a.contactados, a.leads) === null ? '—' : pct(a.contactados, a.leads) + ' %'}</td><td class="r">${a.tResp === null || a.tResp === undefined ? '—' : fmtHoras(a.tResp)}</td><td class="r"><span class="pill ${sem}">${a.vencidos}</span></td><td class="r">${a.abandonados}</td><td class="r">${a.oportunidades}</td><td class="r">${a.ventas}</td><td class="r">${a.entregadas || 0}</td><td class="r">${a.conv} %</td></tr>`; };
+  return `<h3 style="margin-bottom:8px">Cumplimiento por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Seg. vencidos</th><th class="r">Abandonados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Entregadas</th><th class="r">Conversión</th></tr></thead><tbody>${(r.asesores || []).map(fila).join('') || '<tr><td colspan="11" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
     <p class="tiny muted" style="margin:8px 0 0">Escalera automática: alerta a los 15 min (lead nuevo) → recordatorio → escalamiento al administrador → reasignación. Los seguimientos vencidos son los que superaron su plazo o la próxima acción programada.</p>`;
 }
 /** Panel del piloto: qué medir durante la prueba real (atención, conversión por etapa, facturadas sin entrega, ritmo por sede, integridad de datos). */
@@ -1658,8 +1660,34 @@ function metricasPersona(nombre, mes) {
     valor: facts.reduce((s, f) => s + (num(f.valor) || 0), 0),
     meta: meta ? num(meta.meta_motos) : null,
     perdidos: mis.filter(l => l.estado === 'Perdido').length,
-    mis
+    mis, facts
   };
+}
+/** Detalle de la comisión por venta: valor vendido (Síntesis cruzado con la factura), descuento frente al precio final del catálogo y cuánto se gana o se deja de ganar. */
+function detalleComision(filas) {
+  const tasaBase = COMISION.escala[COMISION.escala.length - 1].tasa, fmtT = t => (t * 100).toFixed(1).replace('.', ',') + ' %';
+  const cards = filas.filter(f => f.facts && f.facts.length).map(f => {
+    const c = comisionDe(f), tasa = c.tasa || tasaBase, ventas = f.facts.map(x => {
+      const v = num(x.valor) || 0, fin = num(x.precio_final) || 0, desc = fin ? (fin - v) * 100 / fin : null;
+      return { x, v, fin, desc, com: Math.round((COMISION.valorIncluyeIva ? v / (1 + COMISION.iva) : v) * c.tasa), perdida: fin && v < fin ? Math.round((fin - v) * tasa) : 0 };
+    });
+    const conPrecio = ventas.filter(s => s.desc !== null), prom = conPrecio.length ? conPrecio.reduce((a, s) => a + s.desc, 0) / conPrecio.length : null;
+    const dejado = ventas.reduce((a, s) => a + s.perdida, 0), sube = c.siguiente ? Math.round(f.valor * c.siguiente.tasa) - c.valor : 0;
+    const chip = s => s.desc === null ? '<span class="tiny muted">sin precio de catálogo</span>' : s.desc <= 0 ? `<span class="pill pill-ok">✅ ${s.desc < -0.05 ? 'por encima del precio final' : 'sin descuento'}</span>` : s.desc <= 2 ? `<span class="pill pill-ok">🟢 ${s.desc.toFixed(1).replace('.', ',')} % desc.</span>` : `<span class="pill pill-warn">🟠 ${s.desc.toFixed(1).replace('.', ',')} % desc.</span>`;
+    return `<div class="card" style="margin-bottom:10px;padding:12px"><div class="row between wrap" style="gap:8px"><b>${esc(f.p.nombre)}</b><span class="small">${c.cumpl === null ? 'sin meta' : `📊 ${c.cumpl.toFixed(0)} % de la meta`} · tasa <b>${c.tasa ? fmtT(c.tasa) : '—'}</b> · comisión <b>${money(c.valor)}</b></span></div>
+      <div class="small" style="margin:6px 0">${prom === null ? '' : `🏷️ Descuento promedio sobre el precio final: <b>${prom.toFixed(1).replace('.', ',')} %</b>. `}${dejado ? `💸 Por descuentos dejaste de ganar ~<b>${money(dejado)}</b>${c.tasa ? '' : ' (con la tasa del 90 %)'}. ` : '✅ Sin descuentos que resten comisión. '}${c.siguiente && c.cumpl !== null ? `🚀 Con ${c.siguiente.motos} moto${c.siguiente.motos > 1 ? 's' : ''} más llegas al ${fmtT(c.siguiente.tasa)} y tu comisión sube ~<b>${money(Math.max(0, sube))}</b> (la tasa aplica a todas tus motos).` : c.tasa ? '🏆 Estás en la escala máxima.' : ''}</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Factura</th><th>Modelo</th><th class="r">Valor vendido</th><th class="r">Precio final</th><th>Descuento</th><th class="r">Comisión</th></tr></thead><tbody>${ventas.map(s => `<tr><td>${esc(s.x.id_factura)}</td><td>${esc(s.x.modelo || '')}</td><td class="r num">${money(s.v)}</td><td class="r num">${s.fin ? money(s.fin) : '—'}</td><td>${chip(s)}</td><td class="r num">${money(s.com)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  }).join('');
+  return cards ? `<div class="section-title"><i class="ti ti-receipt-2"></i>Comisión por venta y descuentos</div><p class="small muted" style="margin:0 0 8px">El valor a comisionar es el valor de la venta en Síntesis, cruzado con su factura (neto de notas crédito). Mientras más alto se venda y menos descuento se dé, mayor la comisión. El precio final es el de la hoja «precios de venta con bonos».</p>${cards}` : '';
+}
+// Escala de comisión (regla del Jefe Comercial): según el % de cumplimiento de la meta de motos, se paga ese porcentaje sobre cada moto facturada, antes de IVA.
+const COMISION = { escala: [{ min: 120, tasa: 0.014 }, { min: 110, tasa: 0.012 }, { min: 100, tasa: 0.01 }, { min: 90, tasa: 0.006 }], valorIncluyeIva: false, iva: 0.19 };
+function comisionDe(f) {
+  const cumpl = f.meta ? f.facturados * 100 / f.meta : null;
+  const esc = cumpl === null ? null : COMISION.escala.find(e => cumpl >= e.min), base = COMISION.valorIncluyeIva ? f.valor / (1 + COMISION.iva) : f.valor;
+  const sig = cumpl === null ? null : COMISION.escala.slice().reverse().find(e => cumpl < e.min);
+  return { cumpl, tasa: esc ? esc.tasa : 0, valor: esc ? Math.round(base * esc.tasa) : 0, base,
+    siguiente: sig ? { tasa: sig.tasa, motos: Math.max(1, Math.ceil(f.meta * sig.min / 100 - 1e-9) - f.facturados), min: sig.min } : null };
 }
 function vComisiones() {
   const u = S.data.user, M = S.M;
@@ -1670,8 +1698,8 @@ function vComisiones() {
   const sinFact = !S.data.hojas.Facturas, sinMetas = !S.data.hojas.Metas;
   return `<div class="page-h"><div><h2>Comisiones</h2><p class="muted small">Por asesor y mes. Las motos facturadas salen de la hoja Facturas.</p></div>
       <select class="sel" data-ch="mes">${opts(mesesRecientes(12).map(m => ({ v: m, t: fmtMes(m) })), S.mes)}</select></div>
-    <div class="notice" style="margin-bottom:10px"><i class="ti ti-info-circle"></i><div><b>La comisión queda en blanco</b> hasta que el Jefe Comercial entregue la regla numérica (valor o porcentaje, escalas por meta, bonos por modelo, ventas fuera del bot y fecha de inicio).<br>
-      <span class="small">Referencias dadas: meta de 40 motos por punto; la meta del administrador es una moto menos que la del asesor. No se aplican automáticamente.</span></div></div>
+    <div class="notice" style="margin-bottom:10px"><i class="ti ti-coin"></i><div><b>Escala de comisión por cumplimiento de la meta</b> (sobre cada moto facturada, antes de IVA):<br>
+      <span class="small">🔹 90 % → 0,6 % · 🔹 100 % → 1 % · 🔹 110 % → 1,2 % · 🔹 120 % → 1,4 %. Por debajo de 90 % no hay comisión. Base: valor facturado en Síntesis, neto de notas crédito${COMISION.valorIncluyeIva ? ` (se le descuenta el IVA ${COMISION.iva * 100} %)` : ' (se toma como valor antes de IVA)'}. Estimada: la liquidación oficial la define el Jefe.</span></div></div>
     ${sinFact ? '<div class="notice bad" style="margin-bottom:10px"><i class="ti ti-file-off"></i><div>Falta la hoja <b>Facturas</b>: facturados y valor se muestran en 0 hasta que exista (solicitud al Sheet).</div></div>' : ''}
     ${sinMetas ? '<div class="notice" style="margin-bottom:10px"><i class="ti ti-target-off"></i><div>Falta la hoja <b>Metas</b>: la meta se muestra en blanco.</div></div>' : ''}
     ${filas.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th class="r">Asignados</th><th class="r">Contactados a tiempo</th><th class="r">Cotizados</th><th class="r">Facturados</th><th class="r">Meta</th><th class="r">% meta</th><th class="r">Valor facturado</th><th class="r">Comisión</th></tr></thead><tbody>
@@ -1679,8 +1707,9 @@ function vComisiones() {
         <td class="r num">${f.asignados}</td><td class="r num">${f.aTiempo} <span class="muted tiny">${fmtPct(pct(f.aTiempo, f.asignados))}</span></td><td class="r num">${f.cotizados}</td>
         <td class="r num">${f.facturados}${f.marcadosGanados > f.facturados ? ` <span class="pill pill-warn" title="Marcados ganados sin factura">+${f.marcadosGanados - f.facturados} sin factura</span>` : ''}</td>
         <td class="r num">${f.meta === null ? '<span class="muted">—</span>' : f.meta}</td><td class="r num">${f.meta ? fmtPct(pct(f.facturados, f.meta)) : '—'}</td>
-        <td class="r num">${money(f.valor)}</td><td class="r muted">Pendiente de regla</td></tr>`).join('')}
+        <td class="r num">${money(f.valor)}</td><td class="r num">${(() => { const c = comisionDe(f); return f.meta ? `<b>${money(c.valor)}</b> <span class="tiny muted">(${(c.tasa * 100).toFixed(1).replace('.', ',')} %)</span>${c.siguiente ? `<div class="tiny muted">🎯 ${c.siguiente.motos} moto${c.siguiente.motos > 1 ? 's' : ''} más para el ${(c.siguiente.tasa * 100).toFixed(1).replace('.', ',')} %</div>` : '<div class="tiny muted">🏆 escala máxima</div>'}` : '<span class="muted">Sin meta</span>'; })()}</td></tr>`).join('')}
     </tbody></table></div>` : empty('ti-users', 'No hay asesores en la hoja Equipo para este alcance.')}
+    ${detalleComision(filas)}
     ${u.rol !== 'asesor' ? `<div class="section-title"><i class="ti ti-building-store"></i>Por punto</div><div class="grid g2">${['Itagüí', 'Los Colores'].filter(s => u.rol === 'jefe' || s === u.sede).map(s => {
       const fs = (S.data.facturas || []).filter(f => sedeCanon(f.sede) === s && mesKey(f.fecha) === S.mes);
       const meta = (S.data.metas || []).find(m => sedeCanon(m.persona) === s && mesKey(m.mes) === S.mes) || (S.data.metas || []).find(m => sedeCanon(m.sede) === s && norm(m.rol) === 'punto' && mesKey(m.mes) === S.mes);
@@ -2052,6 +2081,7 @@ document.addEventListener('click', async e => {
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'pv-hecho') { a.disabled = true; try { await api('posventa', { id_lead: a.dataset.id, tipo: a.dataset.tipo }); toast('Posventa registrada', 'ok'); S.ctl = null; S.ctlT = 0; render(); } catch (e) { toast(e.message, 'bad'); a.disabled = false; } return; }
   if (act === 'ctl-recargar') { S.ctl = null; S.ctlT = 0; return render(); }
   if (act === 'prox-abrir') { const lp = S.M.byId[a.dataset.id]; if (lp) return programarProxima(lp); toast('Ese lead no está en tu lista actual.', 'bad'); return; }
   if (act === 'rec-abrir') return registrarRecuperacion(a.dataset.id);
