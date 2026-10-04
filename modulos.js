@@ -711,35 +711,64 @@ function vSimulador(d) {
 }
 
 function vCotizaciones() {
-  const lista = [['sim', 'Simulador web'], ['cruce', 'Cruce Síntesis vs CRM'], ['cargar', 'Cargar exportes']];
+  const lista = [['sim', 'Simulador web'], ['cruce', 'Ventas ↔ cotizaciones CRM'], ['cargar', 'Cargar cotizaciones del CRM']];
   const d = datos('cotizaciones');
-  const head = cabecera('Cotizaciones', 'Simulaciones del cotizador web y cruce de Síntesis vs CRM (por cédula, celular o correo).', 'cotizaciones');
+  const head = cabecera('Cotizaciones', 'Simulaciones del cotizador web y cruce de las ventas facturadas (Síntesis) con las cotizaciones del CRM, por cédula o celular.', 'cotizaciones');
   if (!d) return head + tabs('cot', lista) + loading();
   if (d.error) return head + tabs('cot', lista) + errorMod(d);
   if (T.cot === 'sim') return head + tabs('cot', lista) + vSimulador(d);
   if (!d.repoOk) return head + tabs('cot', lista) + sinRepo('Cotizaciones');
-  if (T.cot === 'cargar') return head + tabs('cot', lista) + importador('cotizaciones', [['Cotizaciones_Sintesis', 'Cotizaciones exportadas de Síntesis'], ['Cotizaciones_CRM', 'Cotizaciones importadas del CRM']]);
-  const desde = F.periodoCot === 'todo' ? null : new Date(Date.now() - Number(F.periodoCot) * 864e5);
-  const enP = r => { const f = parseFecha(col(r, P.fecha)); return !desde || !f || f >= desde; };
-  const pSel = esJefe() ? F.punto : u().sede;
-  const enPunto = r => !pSel || !col(r, P.bodega) || sedeCanon(col(r, P.bodega)) === pSel;
-  const sin = d.sintesis.filter(r => enP(r) && enPunto(r)), crm = d.crm.filter(r => enP(r) && enPunto(r));
-  const ixC = indexar(crm), ixS = indexar(sin);
-  const telLeads = new Set(S.M.leads.map(l => l.tel).filter(Boolean));
-  const res = sin.map(r => ({ r, en: buscar(ixC, r).length > 0, bot: telLeads.has(claves(r).tel) }));
-  const soloCrm = crm.filter(r => !buscar(ixS, r).length);
-  const sinClave = sin.filter(r => { const k = claves(r); return !k.ced && !k.tel && !k.mail; }).length;
-  const asesores = uniq(res.map(x => String(col(x.r, P.asesor) || 'Sin asesor').trim()));
-  const porAs = asesores.map(a => { const g = res.filter(x => String(col(x.r, P.asesor) || 'Sin asesor').trim() === a); return { a, n: g.length, en: g.filter(x => x.en).length, bot: g.filter(x => x.bot).length }; }).sort((x, y) => y.n - x.n);
-  const pend = res.filter(x => !x.en);
-  return head + tabs('cot', lista) + `<div class="filters"><select class="sel" data-mch="f" data-k="periodoCot">${opts([{ v: '30', t: 'Últimos 30 días' }, { v: '60', t: 'Últimos 60 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'todo', t: 'Todo' }], F.periodoCot)}</select>
+  if (T.cot === 'cargar') return head + tabs('cot', lista) + importador('cotizaciones', [['CRM', 'Cotizaciones del CRM: agenda y seguimientos (se separa sola en Mes en curso e Histórico)']])
+    + `<p class="tiny muted">Se guardan cédula, celular, referencia, estado del negocio, asesor y seguimientos; no se guarda el correo. Si vuelves a subir el mismo archivo, solo se agregan las filas nuevas.</p>`;
+  return head + tabs('cot', lista) + tCruceVentas(d);
+}
+/** Cruce: cada venta facturada (Síntesis) contra las cotizaciones del CRM, por cédula o celular. */
+function tCruceVentas(d) {
+  const meses = uniq((d.ventas || []).map(v => v.mes)).sort().reverse();
+  if (!meses.length) return empty('ti-report-off', 'Aún no hay ventas cargadas. Súbelas en Cifras → Cargar ventas para poder cruzarlas con el CRM.');
+  if (!F.mesCif || !meses.includes(F.mesCif)) F.mesCif = meses[0];
+  const mes = F.mesCif, pSel = esJefe() ? F.punto : u().sede;
+  const enPunto = x => !pSel || x.punto === pSel;
+  const quotes = {}; (d.crm || []).forEach(q => { if (!quotes[q.cotizacion]) quotes[q.cotizacion] = q; });
+  const qs = Object.values(quotes), ced = x => digits(x.identificacion), tel = x => tel10(x.telefono);
+  const ixQ = { ced: {}, tel: {} };
+  qs.forEach(q => { if (ced(q).length >= 5) (ixQ.ced[ced(q)] = ixQ.ced[ced(q)] || []).push(q); if (tel(q)) (ixQ.tel[tel(q)] = ixQ.tel[tel(q)] || []).push(q); });
+  // Ventas netas: cada nota crédito (cantidad negativa) anula una venta del mismo cliente
+  const del = (d.ventas || []).filter(v => v.mes === mes && enPunto(v));
+  const pos = del.filter(v => v.cantidad > 0).map(v => ({ v, vivo: true }));
+  del.filter(v => v.cantidad < 0).forEach(nc => { const c = pos.find(x => x.vivo && digits(x.v.identificacion) === digits(nc.identificacion) && x.v.referencia === nc.referencia) || pos.find(x => x.vivo && digits(x.v.identificacion) === digits(nc.identificacion)); if (c) c.vivo = false; });
+  const ventas = pos.filter(x => x.vivo).map(x => x.v);
+  const cotDe = v => { const a = (ixQ.ced[ced(v)] || []).concat(ixQ.tel[tel(v)] || []); return uniq(a).filter(q => !q.fecha_cotizacion || q.fecha_cotizacion <= v.fecha); };
+  const res = ventas.map(v => ({ v, q: cotDe(v) }));
+  const conCot = res.filter(x => x.q.length), sinCot = res.filter(x => !x.q.length);
+  // Cotizaciones del mes y cuántas terminaron en venta (en cualquier mes cargado)
+  const todasVentas = (d.ventas || []).filter(v => v.cantidad > 0 && enPunto(v));
+  const ixV = { ced: {}, tel: {} };
+  todasVentas.forEach(v => { if (ced(v).length >= 5) (ixV.ced[ced(v)] = ixV.ced[ced(v)] || []).push(v); if (tel(v)) (ixV.tel[tel(v)] = ixV.tel[tel(v)] || []).push(v); });
+  const vendidaDe = q => (ixV.ced[ced(q)] || []).concat(ixV.tel[tel(q)] || []).some(v => v.fecha >= (q.fecha_cotizacion || ''));
+  const delMes = qs.filter(q => q.mes === mes && enPunto(q));
+  const vendidas = delMes.filter(vendidaDe);
+  const fact = qs.filter(q => /facturad/i.test(q.estado_negocio) && q.mes >= (meses[meses.length - 1] || '') && enPunto(q) && !vendidaDe(q));
+  const asesores = uniq(ventas.map(v => v.asesor).concat(delMes.map(q => q.asesor)));
+  const porAs = asesores.map(a => { const vs = res.filter(x => x.v.asesor === a), cs = delMes.filter(q => q.asesor === a);
+    return { a, ventas: vs.length, conCot: vs.filter(x => x.q.length).length, cots: cs.length, vendidas: cs.filter(vendidaDe).length }; }).sort((x, y) => y.ventas - x.ventas);
+  const botTel = new Set(S.M.leads.map(l => l.tel).filter(Boolean));
+  const delBot = ventas.filter(v => botTel.has(tel(v))).length;
+  return `<div class="filters"><select class="sel" data-mch="f" data-k="mesCif">${opts(meses.map(m => ({ v: m, t: H.fmtMes(m) })), mes)}</select>
       ${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}</div>
-    <div class="grid g-kpi">${kpi('En Síntesis', sin.length)}${kpi('En CRM', crm.length)}${kpi('En ambos', res.filter(x => x.en).length, fmtPct(pct(res.filter(x => x.en).length, sin.length)) + ' registradas en CRM', 'ok')}${kpi('Solo en Síntesis', pend.length, 'no están en el CRM', pend.length ? 'warn' : 'ok')}${kpi('Solo en CRM', soloCrm.length, 'sin cotización en Síntesis')}${kpi('Vinieron del bot', res.filter(x => x.bot).length, 'celular coincide con un lead')}</div>
-    ${sinClave ? `<div class="notice" style="margin-top:10px"><i class="ti ti-alert-triangle"></i><div>${sinClave} cotización(es) de Síntesis no traen cédula, celular ni correo: no se pueden cruzar.</div></div>` : ''}
+    <div class="grid g-kpi">${kpi('Ventas del mes', ventas.length, 'motos facturadas (neto)')}
+      ${kpi('Con cotización en el CRM', conCot.length, fmtPct(pct(conCot.length, ventas.length)) + ' de las ventas', conCot.length === ventas.length ? 'ok' : '')}
+      ${kpi('Venta sin cotización', sinCot.length, 'no estaban en el CRM', sinCot.length ? 'warn' : 'ok')}
+      ${kpi('Cotizaciones del mes', delMes.length, 'creadas en el CRM')}
+      ${kpi('Convertidas en venta', vendidas.length, fmtPct(pct(vendidas.length, delMes.length)) + ' de las cotizaciones', 'ok')}
+      ${kpi('Vinieron del bot', delBot, 'el celular coincide con un lead')}</div>
+    ${!qs.length ? '<div class="notice" style="margin-top:10px"><i class="ti ti-info-circle"></i><div>Todavía no hay cotizaciones del CRM cargadas. Súbelas en la pestaña “Cargar cotizaciones del CRM”.</div></div>' : ''}
     <div class="section-title"><i class="ti ti-users"></i>Por asesor</div>
-    ${porAs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Cotizaciones Síntesis</th><th class="r">Registradas en CRM</th><th class="r">%</th><th class="r">Del bot</th></tr></thead><tbody>${porAs.map(x => `<tr><td><b>${esc(x.a)}</b></td><td class="r num">${x.n}</td><td class="r num">${x.en}</td><td class="r num">${fmtPct(pct(x.en, x.n))}</td><td class="r num">${x.bot}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-file-off', 'Sin cotizaciones de Síntesis en el período.')}
-    <div class="section-title"><i class="ti ti-file-alert"></i>Solo en Síntesis (falta registrarlas en el CRM)<span class="count">${pend.length}</span></div>
-    ${pend.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Cédula</th><th>Celular</th><th>Asesor</th><th>Modelo</th></tr></thead><tbody>${pend.slice(0, 150).map(x => { const k = claves(x.r); return `<tr><td>${esc(fechaTxt(col(x.r, P.fecha)))}</td><td>${esc(col(x.r, P.nombre))}</td><td>${esc(k.ced)}</td><td>${esc(k.tel)}</td><td>${esc(col(x.r, P.asesor))}</td><td>${esc(col(x.r, P.modelo))}</td></tr>`; }).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo de Síntesis está en el CRM.')}`;
+    ${porAs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Ventas</th><th class="r">Con cotización CRM</th><th class="r">%</th><th class="r">Cotizaciones del mes</th><th class="r">Convertidas</th><th class="r">Conversión</th></tr></thead><tbody>${porAs.map(x => `<tr><td><b>${esc(x.a)}</b></td><td class="r num">${x.ventas}</td><td class="r num">${x.conCot}</td><td class="r num">${fmtPct(pct(x.conCot, x.ventas))}</td><td class="r num">${x.cots}</td><td class="r num">${x.vendidas}</td><td class="r num">${fmtPct(pct(x.vendidas, x.cots))}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-file-off', 'Sin datos en el período.')}
+    <div class="section-title"><i class="ti ti-file-alert"></i>Ventas sin cotización en el CRM<span class="count">${sinCot.length}</span></div>
+    ${sinCot.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Cédula</th><th>Celular</th><th>Asesor</th><th>Moto</th><th>Pago</th></tr></thead><tbody>${sinCot.slice(0, 200).map(x => `<tr><td>${esc(x.v.fecha)}</td><td>${esc(x.v.cliente)}</td><td>${esc(x.v.identificacion)}</td><td>${esc(x.v.telefono)}</td><td>${esc(x.v.asesor)}</td><td>${esc(x.v.referencia)}</td><td>${esc(x.v.forma_pago)}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todas las ventas del mes tienen una cotización previa en el CRM.')}
+    <div class="section-title"><i class="ti ti-alert-triangle"></i>Estado “facturado” en el CRM sin venta en Síntesis<span class="count">${fact.length}</span></div>
+    ${fact.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cotización</th><th>Fecha</th><th>Cliente</th><th>Cédula</th><th>Asesor</th><th>Moto</th><th>Estado</th></tr></thead><tbody>${fact.slice(0, 150).map(q => `<tr><td>${esc(q.cotizacion)}</td><td>${esc(q.fecha_cotizacion)}</td><td>${esc(q.cliente)}</td><td>${esc(q.identificacion)}</td><td>${esc(q.asesor)}</td><td>${esc(q.referencia)}</td><td>${esc(q.estado_negocio)}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo que el CRM marca como facturado aparece en las ventas.')}`;
 }
 
 // ═══════════════════════ CARGADOR DE EXPORTES (Síntesis/CRM) ══════════════
@@ -749,15 +778,14 @@ const DETECTA = {
   Motos_Itagui: DET_INV, Motos_Los_Colores: DET_INV, Repuestos_Itagui: DET_INV, Repuestos_Los_Colores: DET_INV,
   Facturacion: [['Fecha', P.fecha], ['Modelo / artículo', P.modelo], ['Bodega / punto', P.bodega]],
   Ingresos_Taller: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Valor', P.valor]],
-  Cotizaciones_Sintesis: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Asesor', P.asesor]],
-  Cotizaciones_CRM: [['Fecha', P.fecha], ['Cédula', P.ced], ['Celular', P.tel], ['Correo', P.mail], ['Asesor', P.asesor]],
-  Historico_Ventas: [['Factura', ['nrofactura']], ['Fecha', ['fechadocumento']], ['Vendedor', ['vendedor']], ['Bodega', ['bodega']], ['Referencia', ['producto']], ['Cantidad', ['cantidad']], ['Cédula', P.ced], ['Celular', P.tel]]
+  CRM: [['Cotización', ['referencia']], ['Fecha cotización', ['fechacotizacion']], ['Cédula', P.ced], ['Celular', P.tel], ['Asesor', ['asesoragenda']], ['Estado del negocio', ['estadonegocio']], ['Moto', ['productoreferencia']]],
+  Ventas: [['Factura', ['nrofactura']], ['Fecha', ['fechadocumento']], ['Vendedor', ['vendedor']], ['Bodega', ['bodega']], ['Referencia', ['producto']], ['Cantidad', ['cantidad']], ['Cédula', P.ced], ['Celular', P.tel]]
 };
 function importador(repo, hojas) {
   if (!IMP || IMP.repo !== repo) IMP = { repo, hoja: hojas[0][0], filas: null, lote: hoyTxt() };
   const det = IMP.filas ? (DETECTA[IMP.hoja] || []).map(([t, pats]) => [t, IMP.filas.some(r => String(col(r, pats) || '').trim() !== '')]) : [];
   const cols = IMP.filas ? uniq([].concat(...IMP.filas.slice(0, 50).map(r => Object.keys(r)))) : [];
-  const cruce = ['Ingresos_Taller', 'Cotizaciones_Sintesis', 'Cotizaciones_CRM'].includes(IMP.hoja);
+  const cruce = ['Ingresos_Taller', 'CRM', 'Ventas'].includes(IMP.hoja);
   const faltaClave = cruce && IMP.filas && !det.slice(1, 4).some(x => x[1]);
   const esperado = PUNTO_HOJA[IMP.hoja];
   const bodegas = IMP.filas && esperado ? uniq(IMP.filas.map(r => String(col(r, P.bodega) || '').trim())) : [];
@@ -790,18 +818,22 @@ async function leerArchivo(input) {
     const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
     // Los exportes de ventas traen una tabla dinámica en la primera hoja: se usa la hoja que tiene la columna «Nro Factura» (o la más grande).
     let nombreHoja = wb.SheetNames[0];
-    if (IMP.hoja === 'Historico_Ventas') {
+    if (IMP.hoja === 'Ventas') {
       const rango = n => { const r = wb.Sheets[n]['!ref']; return r ? XLSX.utils.decode_range(r).e.r : 0; };
       nombreHoja = wb.SheetNames.slice().sort((a, b) => rango(b) - rango(a))[0];
     }
     const m = XLSX.utils.sheet_to_json(wb.Sheets[nombreHoja], { header: 1, raw: false, defval: '', dateNF: 'yyyy-mm-dd' });
     IMP.filas = filasDeMatriz(m);
-    if (IMP.hoja === 'Historico_Ventas') {
+    if (IMP.hoja === 'Ventas') {
       // Solo motocicletas, y las columnas sensibles ni siquiera salen del navegador
       const total = IMP.filas.length, SENS = /^(direccion|correo|serie|costo|usolibre|proveedor|caja|iva|inc|ivafac|incfac)$/;
       IMP.filas = IMP.filas.filter(r => String(col(r, ['categoriaproducto']) || '').trim().toUpperCase() === 'MOTOCICLETA')
         .map(r => { const o = {}; Object.keys(r).forEach(k => { if (!SENS.test(nkey(k))) o[k] = r[k]; }); return o; });
       IMP.descartadas = total - IMP.filas.length;
+    }
+    if (IMP.hoja === 'CRM') { // el correo y los identificadores internos del CRM no se guardan
+      const SENSC = /^(email|correo|tercero|usuario|identificacionasesor|identificacionusuario|alias)/;
+      IMP.filas = IMP.filas.map(r => { const o = {}; Object.keys(r).forEach(k => { if (!SENSC.test(nkey(k))) o[k] = r[k]; }); return o; });
     }
     if (PUNTO_HOJA[IMP.hoja]) { const fc = IMP.filas.map(r => fechaTxt(r.FECHACORTE || r.fechacorte || '')).find(Boolean); if (fc) IMP.lote = fc; }
     render();
@@ -810,17 +842,19 @@ async function leerArchivo(input) {
 async function subirImport(btn) {
   const filas = IMP.filas; if (!filas || !filas.length) return;
   btn.disabled = true;
-  let agregadas = 0, repetidas = 0;
+  let agregadas = 0, repetidas = 0, descartadas = 0; const porHoja = {};
   try {
     for (let i = 0; i < filas.length; i += 1000) {
       btn.innerHTML = `<i class="ti ti-loader-2 spin"></i> ${Math.min(i + 1000, filas.length)}/${filas.length}`;
       const r = await api('importar', { repo: IMP.repo, hoja: IMP.hoja, lote: IMP.lote, filas: filas.slice(i, i + 1000), continuar: i > 0, ultima: i + 1000 >= filas.length });
-      agregadas += r.agregadas; repetidas += r.repetidas;
+      agregadas += r.agregadas; repetidas += r.repetidas; descartadas += r.descartadas || 0;
+      Object.keys(r.porHoja || {}).forEach(h => { porHoja[h] = (porHoja[h] || 0) + r.porHoja[h]; });
     }
-    toast(`${agregadas} filas cargadas${repetidas ? ` · ${repetidas} ya existían` : ''}`, 'ok');
+    const dest = Object.keys(porHoja).map(h => `${porHoja[h]} → ${h.replace(/_/g, ' ')}`).join(' · ');
+    toast(`${agregadas} filas cargadas${dest ? ' (' + dest + ')' : ''}${repetidas ? ` · ${repetidas} ya existían` : ''}${descartadas ? ` · ${descartadas} fuera de Antioquia o sin formato` : ''}`, 'ok');
     IMP.filas = null;
     IMP.descartadas = 0;
-    D.ventas = null; // el histórico cambió: se vuelve a leer al abrir Cifras
+    D.ventas = null; D.cotizaciones = null; // el histórico cambió: se vuelve a leer al abrir Cifras o Cotizaciones
     await cargarMod(IMP.repo === 'posventa' ? 'posventa' : IMP.repo === 'metas' ? 'ventas' : IMP.repo, true);
     H.cargar(true); // refresca las metas con lo vendido
   } catch (e) { toast(e.message, 'bad'); btn.disabled = false; btn.textContent = 'Reintentar'; }
@@ -876,12 +910,14 @@ function vCifras() {
   if (!d) return head + tabs('cif', lista) + loading();
   if (d.error) return head + tabs('cif', lista) + errorMod(d);
   if (!d.repoOk) return head + sinRepo('Metas y Cifras Comerciales');
-  if (T.cif === 'cargar') return head + tabs('cif', lista) + importador('metas', [['Historico_Ventas', 'Ventas facturadas de Síntesis (cierre de mes)']])
+  if (T.cif === 'cargar') return head + tabs('cif', lista) + importador('metas', [['Ventas', 'Ventas facturadas de Síntesis (se separa sola en Mes en curso e Histórico)']])
     + `<p class="tiny muted">Se cargan solo las motocicletas (con sus notas crédito). No se guardan serie, costo, dirección ni correo. Si subes de nuevo el mismo mes, solo se agregan las facturas nuevas.</p>`;
   if (!d.meses.length) return head + tabs('cif', lista) + empty('ti-report-off', 'Aún no hay ventas cargadas. Ve a “Cargar ventas” y sube el exporte de ventas de Síntesis.');
   if (!F.mesCif || !d.meses.includes(F.mesCif)) F.mesCif = d.meses[0];
   const hist = d.historico.filter(h => h.punto === 'Itagüí' || h.punto === 'Los Colores');
-  return head + tabs('cif', lista) + `<div class="filters"><select class="sel" data-mch="f" data-k="mesCif">${opts(d.meses.map(m => ({ v: m, t: H.fmtMes(m) })), F.mesCif)}</select></div>`
+  return head + tabs('cif', lista) + `<div class="filters"><select class="sel" data-mch="f" data-k="mesCif">${opts(d.meses.map(m => ({ v: m, t: H.fmtMes(m) + (m === d.mesActual ? ' · mes en curso' : '') })), F.mesCif)}</select>
+      ${F.mesCif === d.mesActual ? '<span class="pill pill-info">Mes en curso: se cierra solo al cambiar de mes</span>' : '<span class="pill">Mes cerrado · Histórico</span>'}
+      ${esJefe() ? '<button class="btn btn-sm" data-act="m-cerrar-mes" title="Pasa a Histórico lo que ya no es del mes en curso"><i class="ti ti-archive"></i> Cerrar mes ahora</button>' : ''}</div>`
     + (T.cif === 'top' ? tTop(d, F.mesCif) : tCierre(d, F.mesCif))
     + (T.cif !== 'top' && hist.length > 1 ? `<div class="section-title"><i class="ti ti-chart-line"></i>Histórico por mes</div>${bars(hist.sort((a, b) => String(b.mes).localeCompare(String(a.mes))).slice(0, 12).map(h => ({ l: `${H.fmtMes(h.mes)} · ${h.punto}`, v: h.cantidad })))}` : '');
 }
@@ -939,6 +975,12 @@ async function onClick(act, el) {
   if (act === 'm-imp-leer') { const p = H.parsePegado($('#imp-txt').value); if (p.error) return toast(p.error, 'bad'); IMP.filas = p.rows; return render(); }
   if (act === 'm-imp-subir') return subirImport(el);
   if (act === 'm-cierre-excel') return excelCierre(el.dataset.mes);
+  if (act === 'm-cerrar-mes') {
+    if (!(await confirmar('Cerrar mes', 'Las ventas y las cotizaciones del CRM de meses anteriores pasan de “Mes en curso” a “Histórico”. Esto también se hace solo cada día; el botón sirve para forzarlo ahora.', 'Cerrar mes'))) return;
+    try { const r = await api('cerrarMes'); toast(r.ventas || r.cotizaciones ? `Pasaron a Histórico ${r.ventas} ventas y ${r.cotizaciones} cotizaciones` : 'No había nada por pasar a Histórico', 'ok'); D.ventas = null; D.cotizaciones = null; cargarMod('ventas', true); }
+    catch (e) { toast(e.message, 'bad'); }
+    return;
+  }
   if (act === 'm-ir-repos') { S.view = 'config'; S.cfgTab = 'repos'; H.renderNav(); return render(); }
   if (act === 'm-repos-crear') {
     if (!(await confirmar('Crear repositorios', 'Se crearán los archivos faltantes en el Google Drive de la cuenta dueña del script, con sus hojas y encabezados. Financieras y Bonos se copian del libro principal.', 'Crear'))) return;

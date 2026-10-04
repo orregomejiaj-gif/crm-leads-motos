@@ -361,10 +361,16 @@
           top('punto', 'Los Colores', 25, [['AK125NKD EIII', 11], ['AK125FLEX EIII', 5], ['AK150CR4', 4]]), top('punto', 'Itagüí', 12, [['AK125NKD EIII', 4], ['AK110NV EIII', 1], ['AK125CR4 EIII', 1]]),
           top('zona', 'Antioquia', 37, [['AK125NKD EIII', 15], ['AK125FLEX EIII', 5], ['AK150CR4', 4]]), top('zona', 'Llanos', 400, [['AK125NKD EIII', 139], ['AK200ZW', 35], ['AK125TTR EIII', 16]]),
           top('red', 'Toda la red', 595, [['AK125NKD EIII', 229], ['AK150CR4', 60], ['AK125TTR EIII', 48]]));
-        return { ok: true, repoOk: true, meses: ['2026-09'], cierre: esJefe ? cierre : cierre.filter(r => r.punto === u.sede && (u.rol !== 'asesor' || norm(r.asesor) === norm(u.nombre))), tops,
+        return { ok: true, repoOk: true, mesActual: '2026-10', meses: ['2026-09'], cierre: esJefe ? cierre : cierre.filter(r => r.punto === u.sede && (u.rol !== 'asesor' || norm(r.asesor) === norm(u.nombre))), tops,
           historico: [{ mes: '2026-09', punto: 'Itagüí', cantidad: 12 }, { mes: '2026-09', punto: 'Los Colores', cantidad: 34 }], filas: 595 };
       }
-      if (p.m === 'cotizaciones') return { ok: true, repoOk: true, sintesis: R.cotizaciones.sintesis, crm: R.cotizaciones.crm, simulaciones: R.cotizaciones.simulaciones };
+      if (p.m === 'cotizaciones') {
+        const as = ['DEMO Ana Asesora', 'DEMO Beto Asesor', 'DEMO Carla Asesora', 'DEMO Diego Asesor'], pts = ['Itagüí', 'Itagüí', 'Los Colores', 'Los Colores'], refs = ['AK125NKD EIII', 'AK125FLEX EIII', 'AK150CR4', 'AK110NV EIII'];
+        const crm = [], ventas = [];
+        for (let i = 0; i < 24; i++) crm.push({ cotizacion: 'DEM-' + (1000 + i), mes: '2026-09', fecha_cotizacion: '2026-09-' + String(1 + i % 28).padStart(2, '0'), identificacion: String(1000000 + i), telefono: '31000000' + String(10 + i), cliente: 'Cliente demo ' + i, referencia: refs[i % 4], estado_negocio: i % 5 === 0 ? 'CREDITO-FINANCIERA - FACTURADO' : 'CONTADO - PROSPECTO', asesor: as[i % 4], punto: pts[i % 4] });
+        for (let i = 0; i < 14; i++) ventas.push({ fecha: '2026-09-' + String(5 + i).padStart(2, '0'), mes: '2026-09', nro_factura: 'FDEM-' + i, identificacion: String(1000000 + (i < 9 ? i * 2 : 90 + i)), telefono: '31000000' + String(10 + i * 2), cliente: 'Cliente demo ' + i, punto: pts[i % 4], asesor: as[i % 4], referencia: refs[i % 4], cantidad: 1, valor: 5200000, forma_pago: i % 3 ? 'A CREDITO' : 'CONVENCIONAL' });
+        return { ok: true, repoOk: true, crm, ventas, simulaciones: R.cotizaciones.simulaciones, mesActual: '2026-10' };
+      }
     }
     if (action === 'registrar') {
       const [rk, arr] = REPO_HOJA[p.hoja] || [];

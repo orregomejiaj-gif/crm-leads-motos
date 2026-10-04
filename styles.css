@@ -186,6 +186,13 @@ table.tbl{border-collapse:collapse;width:100%;font-size:.84rem}
 .funnel .st{background:var(--ink);color:#fff;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between;font-size:.84rem;min-width:180px}
 .funnel .conv{font-size:.72rem;color:var(--muted)}
 
+/* Copiloto: respuestas rápidas del chat */
+.qr{display:flex;gap:6px;align-items:center;overflow-x:auto;padding:6px 2px;white-space:nowrap}
+.qr-chip{flex:none;border:1px solid var(--border);background:#fff;color:var(--ink);border-radius:999px;padding:5px 11px;font-size:.78rem;cursor:pointer}
+.qr-chip:hover{background:var(--soft)}
+.qr-chip.sug{border-color:var(--red);color:var(--red-d);background:var(--red-l);font-weight:600}
+.qr-chip.qr-ia{border-color:var(--ink);background:var(--ink);color:#fff}
+
 /* Metas: barras de avance */
 .mt-barra{position:relative;height:14px;background:#e6ebf4;border-radius:8px;overflow:visible}
 .mt-barra.grande{height:30px;border-radius:15px}

@@ -398,7 +398,7 @@ function renderNav() {
   const badges = {
     hoy: M.leads.filter(l => l.sla === 'bad' || l.citaHoy).length,
     chats: (S.bandeja || []).filter(c => c.espera && c.estado !== 'bot').length,
-    conciliacion: M.leads.filter(l => l.incons.length).length + M.facSinOrigen.length + M.cotHuerfanas.length
+    conciliacion: M.leads.filter(l => l.incons.length).length
   };
   $('#nav').innerHTML = vistasDeRol().map(v =>
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
@@ -781,7 +781,7 @@ function pintarChat(id, r2, forzarScroll) {
   const box = $('#chat-box');
   if (!box.dataset.listo) {
     box.dataset.listo = '1';
-    box.innerHTML = at.puede_escribir ? `<div class="chat-box"><textarea class="inp" id="chat-txt" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
+    box.innerHTML = at.puede_escribir ? `${chipsRespuestas(id, at)}<div class="chat-box"><textarea class="inp" id="chat-txt" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
       <button class="btn btn-primary" data-act="chat-enviar" data-id="${esc(id)}"><i class="ti ti-send"></i> Enviar</button></div><div class="chat-aviso" id="chat-aviso"></div>`
       : '<p class="chat-aviso">Solo el asesor asignado (o su jefe/administrador) puede escribirle a este cliente.</p>';
   }
@@ -791,6 +791,45 @@ function pintarChat(id, r2, forzarScroll) {
     aviso.textContent = motivo || 'El mensaje sale desde el número del negocio y queda registrado. Tu primer mensaje marca el lead como contactado.';
     if (btn) btn.disabled = !!motivo;
   }
+}
+// ── Copiloto del asesor: respuestas rápidas con los datos del lead (y sugerencia con IA si el Jefe activó la clave) ──
+const RESPUESTAS_RAPIDAS = [
+  { t: 'Saludo', k: 'saludo', m: '¡Hola {nombre}! Soy {asesor}, asesor de Moto Racing {punto}. Vi que te interesó la {modelo}. ¿Te cuento los detalles y simulamos tu cuota? 🏍️' },
+  { t: 'Enviar simulador', k: 'cotizador', m: '{nombre}, aquí puedes simular tu cuota con el precio y el bono vigentes, sin compromiso: {cotizador}' },
+  { t: 'Proponer visita', k: 'visita', m: '¿Te parece si te esperamos en {punto} para que conozcas la {modelo}? Dime qué día y a qué hora te queda mejor.' },
+  { t: 'Confirmar cita', k: 'cita', m: '¡Perfecto {nombre}! Quedamos para tu visita en {punto}. Te esperamos 🙌' },
+  { t: 'Dirección', k: 'dir', m: 'Estamos en {punto}{direccion}. ¡Te esperamos, {nombre}!' },
+  { t: 'Objeción: precio', k: 'precio', m: 'Te entiendo, {nombre}. Podemos simular distintas cuotas iniciales y plazos para que la {modelo} se ajuste a tu presupuesto. ¿Qué cuota mensual te resultaría cómoda?' },
+  { t: 'Objeción: crédito', k: 'credito', m: 'Tranquilo, {nombre}: hay opciones de financiación con varias entidades y la simulación es sin compromiso. Si quieres, lo revisamos juntos en el punto. ¿Cuándo puedes pasar?' },
+  { t: 'Lo voy a pensar', k: 'pensar', m: 'Claro que sí, {nombre}, tómate tu tiempo. Si quieres te dejo la simulación de cuota para que la revises con calma y me escribes cuando quieras. ¿Te la envío?' },
+  { t: 'Seguimiento', k: 'seg', m: 'Hola {nombre}, ¿pudiste revisar la {modelo}? Quedo atento para ayudarte con la cuota o agendar tu visita.' }
+];
+function chipsRespuestas(id, at) {
+  const l = S.M.byId[id]; if (!l) return '';
+  const per = ((S.data.fase2 || {}).perfiles || []).find(p => String(p.id_lead) === f2Key(l)) || {};
+  const obj = norm(per.objecion_principal), paso = norm(per.siguiente_paso);
+  const sug = new Set();
+  if (/precio/.test(obj)) sug.add('precio'); if (/cuota|credito/.test(obj)) sug.add('credito'); if (/visita/.test(paso)) sug.add('visita'); if (/cotizador|credito/.test(paso)) sug.add('cotizador');
+  if (!l.contactado) sug.add('saludo');
+  return `<div class="qr" id="qr"><span class="tiny muted">Respuestas rápidas</span>${RESPUESTAS_RAPIDAS.map((r, i) => `<button type="button" class="qr-chip ${sug.has(r.k) ? 'sug' : ''}" data-act="qr-usar" data-i="${i}" data-id="${esc(id)}">${esc(r.t)}</button>`).join('')}
+    ${at.ia_disponible ? `<button type="button" class="qr-chip qr-ia" data-act="qr-ia" data-id="${esc(id)}"><i class="ti ti-sparkles"></i> Sugerir con IA</button>` : ''}</div>`;
+}
+function textoRapido(i, id) {
+  const l = S.M.byId[id], r = RESPUESTAS_RAPIDAS[i], u = S.data.user;
+  const cap1 = s => { s = String(s || '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : ''; };
+  const modelo = l.raw.modelo_interes || l.raw.producto_cotizado || 'moto';
+  const link = 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador.html' + (l.tel ? '?c=57' + l.tel + '&m=' + encodeURIComponent(modelo) : '');
+  const dir = String(l.raw.direccion_punto || '').trim();
+  return r.m.replace(/\{nombre\}/g, cap1(String(l.nombre).split(' ')[0]) || 'amigo').replace(/\{asesor\}/g, cap1(String(u.nombre).split(' ')[0]))
+    .replace(/\{punto\}/g, l.sede || 'nuestro punto').replace(/\{modelo\}/g, modelo).replace(/\{direccion\}/g, dir ? ' · ' + dir : '').replace(/\{cotizador\}/g, link);
+}
+async function usarRespuestaRapida(a) {
+  const t = $('#chat-txt'); if (!t) return;
+  if (a.dataset.act === 'qr-usar') { const txt = textoRapido(Number(a.dataset.i), a.dataset.id); t.value = t.value.trim() ? t.value.trim() + '\n' + txt : txt; t.focus(); return; }
+  a.disabled = true; const antes = a.innerHTML; a.innerHTML = '<i class="ti ti-loader-2 spin"></i> Pensando…';
+  try { const r = await api('sugerir', { id_lead: a.dataset.id, intencion: t.value.trim() }); t.value = r.texto; t.focus(); toast('Sugerencia lista: revísala y edítala antes de enviar.', 'ok'); }
+  catch (e) { toast(e.message, 'bad'); }
+  finally { a.disabled = false; a.innerHTML = antes; }
 }
 function cargarChat(id, forzarScroll) {
   clearTimeout(chatTimer);
@@ -1413,20 +1452,12 @@ function vConciliacion() {
   const pendFact = M.leads.filter(l => l.estado === 'Facturado' && !l.fac.length);
   const tabs = [
     ['incons', 'Inconsistencias', incons.length], ['pendfact', 'Pendientes de facturar', pendFact.length],
-    ['sinorigen', 'Facturas sin origen', M.facSinOrigen.length], ['huerfanas', 'Cotizaciones huérfanas', M.cotHuerfanas.length]
+    ['sinorigen', 'Ventas fuera del bot', M.facSinOrigen.length]
   ];
-  const leadOpts = M.leads.slice().sort((a, b) => a.nombre.localeCompare(b.nombre)).map(l => ({ v: l.id, t: `${l.nombre} · ${l.tel || l.usuario || l.id}` }));
   let body = '';
   if (S.concTab === 'incons') body = incons.length ? `<div class="list">${incons.map(leadCard).join('')}</div>` : empty('ti-circle-check', 'Sin inconsistencias.');
-  if (S.concTab === 'pendfact') body = pendFact.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lead</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th>Marcado</th><th></th></tr></thead><tbody>${pendFact.map(l => `<tr><td><a href="#" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</a></td><td>${esc(l.asesor)}</td><td>${esc(l.sede)}</td><td>${esc(l.raw.modelo_interes || '')}</td><td>${fmtFecha(l.ultimaAct, false)}</td>
-      <td><button class="btn btn-sm" data-act="cargarFactura" data-id="${esc(l.id)}">Cargar factura</button></td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo marcado como vendido tiene factura.');
-  if (S.concTab === 'sinorigen') body = !S.data.hojas.Facturas ? empty('ti-table-off', 'La hoja Facturas aún no existe (solicitud al Sheet).') : M.facSinOrigen.length ? `<p class="small muted">Ventas que no vinieron del bot o sin id_lead. Vincúlalas a un lead si sí vinieron del bot.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Factura</th><th>Fecha</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th class="r">Valor</th><th>Vincular a lead</th></tr></thead><tbody>${M.facSinOrigen.map(f => `<tr><td>${esc(f.id_factura)}</td><td>${fmtFecha(parseFecha(f.fecha), false)}</td><td>${esc(f.asesor)}</td><td>${esc(f.sede)}</td><td>${esc(f.modelo)}</td><td class="r num">${money(num(f.valor))}</td>
-      <td><div class="row"><select class="sel" data-vinc="fac-${f._row}" style="max-width:220px">${opts(leadOpts, '', '— Lead —')}</select><button class="btn btn-sm" data-act="vincularFac" data-row="${f._row}">Vincular</button></div></td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todas las facturas tienen lead de origen.');
-  if (S.concTab === 'huerfanas') {
-    const colLead = (S.data.hojas.Cotizaciones || []).includes('id_contacto') ? 'id_contacto' : 'telefono_lead';
-    body = M.cotHuerfanas.length ? `<p class="small muted">Cotizaciones del CRM que no cruzan con ningún lead (por teléfono${colLead === 'id_contacto' ? ' o id_contacto' : ''}). Al vincular se escribe <code>${colLead}</code> en Cotizaciones.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cotización</th><th>Fecha</th><th>Cliente</th><th>Teléfono</th><th>Asesor</th><th>Modelo</th><th>Vincular a lead</th></tr></thead><tbody>${M.cotHuerfanas.map(q => `<tr><td>${esc(q.id_cotizacion)}</td><td>${fmtFecha(parseFecha(q.fecha), false)}</td><td>${esc(q.nombre_cliente)}</td><td>${esc(q.telefono_lead)}</td><td>${esc(q.asesor)}</td><td>${esc(q.modelo)}</td>
-      <td><div class="row"><select class="sel" data-vinc="cot-${q._row}" style="max-width:220px">${opts(leadOpts, '', '— Lead —')}</select><button class="btn btn-sm" data-act="vincularCot" data-row="${q._row}" data-col="${colLead}">Vincular</button></div></td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Sin cotizaciones huérfanas.');
-  }
+  if (S.concTab === 'pendfact') body = pendFact.length ? `<p class="small muted">Leads que el asesor marcó como vendidos y que todavía no aparecen en las ventas de Síntesis. Se cruzan solos por celular cuando subes las ventas en Cifras → Cargar ventas.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lead</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th>Marcado</th></tr></thead><tbody>${pendFact.map(l => `<tr><td><a href="#" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</a></td><td>${esc(l.asesor)}</td><td>${esc(l.sede)}</td><td>${esc(l.raw.modelo_interes || '')}</td><td>${fmtFecha(l.ultimaAct, false)}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo marcado como vendido aparece en las ventas.');
+  if (S.concTab === 'sinorigen') body = M.facSinOrigen.length ? `<p class="small muted">Ventas facturadas (Síntesis) cuyo celular no coincide con ningún lead del bot: clientes que llegaron por otros canales o que no pasaron por el bot.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Factura</th><th>Fecha</th><th>Asesor</th><th>Punto</th><th>Moto</th><th class="r">Valor</th></tr></thead><tbody>${M.facSinOrigen.slice(0, 300).map(f => `<tr><td>${esc(f.id_factura)}</td><td>${fmtFecha(parseFecha(f.fecha), false)}</td><td>${esc(f.asesor)}</td><td>${esc(f.sede)}</td><td>${esc(f.modelo)}</td><td class="r num">${money(num(f.valor))}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todas las ventas cargadas vinieron del bot (o aún no hay ventas cargadas).');
   return `<div class="page-h"><div><h2>Conciliación</h2><p class="muted small">Cruce entre lo que marca el asesor y la evidencia del CRM de la empresa.</p></div></div>
     <div class="seg" style="margin-bottom:12px">${tabs.map(t => `<button class="${S.concTab === t[0] ? 'on' : ''}" data-tab="concTab" data-v="${t[0]}">${t[1]} (${t[2]})</button>`).join('')}</div>${body}`;
 }
@@ -1468,7 +1499,7 @@ function vAccesos() {
 
 function vConfig() {
   const d = S.data, tab = S.cfgTab;
-  const tabs = [['sheet', 'Estado del Sheet'], ['repos', 'Repositorios'], ['umbrales', 'Umbrales'], ['equipo', 'Equipo y accesos'], ['metas', 'Metas'], ['carga', 'Carga masiva'], ['catalogos', 'Catálogos']];
+  const tabs = [['sheet', 'Estado del Sheet'], ['repos', 'Repositorios'], ['umbrales', 'Umbrales'], ['equipo', 'Equipo y accesos'], ['metas', 'Metas'], ['catalogos', 'Catálogos']];
   let body = '';
   if (tab === 'sheet') {
     const sol = d.solicitudes || {};
@@ -1510,18 +1541,10 @@ function vConfig() {
   }
   if (tab === 'metas') {
     const ms = d.metas || [];
-    body = !d.hojas.Metas ? empty('ti-table-off', 'La hoja Metas aún no existe (solicitud al Sheet).') : `<p class="small muted">Meta mensual por persona o punto. Para el punto, usa el nombre del punto en <code>persona</code>. Carga nuevas metas en “Carga masiva”.</p>
+    body = !d.hojas.Metas ? empty('ti-table-off', 'La hoja Metas aún no existe (solicitud al Sheet).') : `<p class="small muted">Meta mensual por persona o punto. Para el punto, usa el nombre del punto en <code>persona</code>. Las metas viven en el repositorio «Metas y Cifras Comerciales»: edita las celdas aquí o agrega filas nuevas directamente en ese Sheet.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>${d.hojas.Metas.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
       ${ms.map(m => `<tr>${d.hojas.Metas.map(c => `<td contenteditable="true" data-edit="Metas" data-row="${m._row}" data-field="${esc(c)}" data-orig="${esc(m[c] ?? '')}">${esc(m[c] ?? '')}</td>`).join('')}</tr>`).join('') || `<tr><td class="muted" colspan="5">Sin metas cargadas.</td></tr>`}
       </tbody></table></div>`;
-  }
-  if (tab === 'carga') {
-    const hoja = S.cargaHoja || 'Cotizaciones';
-    body = `<div class="card stack"><div class="grid g2"><div><label class="f">Hoja destino</label><select class="sel w100" data-ch="cargaHoja">${opts(Object.keys(CARGAS), hoja)}</select></div>
-        <div class="small muted" style="align-self:end">${d.hojas[hoja] ? 'Columnas: ' + d.hojas[hoja].map(esc).join(', ') : `<span class="pill pill-bad">La hoja ${hoja} no existe</span>`}</div></div>
-      <div><label class="f">Pega aquí desde Excel o el CRM (primera fila = encabezados con los mismos nombres de columna)</label><textarea class="inp" id="carga-txt" style="min-height:160px;font-family:monospace;font-size:.78rem" placeholder="${(d.hojas[hoja] || []).join('\t')}">${esc(S.cargaTxt || '')}</textarea></div>
-      <div class="row" style="justify-content:flex-end"><button class="btn" data-act="validarCarga">Validar</button></div>
-      <div id="carga-prev">${S.cargaPrev || ''}</div></div>`;
   }
   if (tab === 'catalogos') {
     body = `<div class="grid g2"><div class="card"><h3 style="margin-bottom:8px">Motivos de pérdida</h3>${MOTIVOS.map(m => `<span class="pill" style="margin:2px">${cap(m)}</span>`).join('')}<p class="tiny muted">Lista fija del brief (la API solo acepta estos valores).</p></div>
@@ -1596,6 +1619,7 @@ document.addEventListener('click', async e => {
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
+  if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
   if (['etapa', 'cita-estado', 'cita-nueva'].includes(act)) return accionAvance(act, a);
   if (act === 'ind-recargar') { S.indT = 0; S.ind = null; cargarIndicadores(); return render(); }
   if (act === 'chat-abrir') return abrirChatBandeja(a.dataset.id);
@@ -1632,46 +1656,13 @@ document.addEventListener('click', async e => {
     try { await api('config', { valores }); toast('Umbrales guardados', 'ok'); await cargar(true); } catch (err) { toast(err.message, 'bad'); a.disabled = false; }
     return;
   }
-  if (act === 'validarCarga') return validarCarga();
-  if (act === 'subirCarga') {
-    a.disabled = true;
-    try {
-      const r = await api('append', { sheet: S.cargaHoja || 'Cotizaciones', rows: S.cargaRows });
-      toast(`${r.agregadas} fila(s) cargadas${r.repetidas.length ? ` · ${r.repetidas.length} repetidas omitidas` : ''}`, 'ok');
-      S.cargaTxt = ''; S.cargaPrev = ''; S.cargaRows = null; await cargar(true);
-    } catch (err) { toast(err.message, 'bad'); a.disabled = false; }
-    return;
-  }
-  if (act === 'cargarFactura' && l) {
-    S.view = 'config'; S.cfgTab = 'carga'; S.cargaHoja = 'Facturas';
-    const cols = S.data.hojas.Facturas || CARGAS.Facturas.req.concat(['id_lead', 'modelo']);
-    const v = { id_lead: l.raw.id_lead, asesor: l.asesor, sede: l.sede, modelo: l.raw.modelo_interes || '', telefono_cliente: l.tel || '' };
-    S.cargaTxt = cols.join('\t') + '\n' + cols.map(c => v[c] || '').join('\t'); S.cargaPrev = '';
-    renderNav(); render(); toast('Completa id_factura, fecha y valor, y valida.'); return;
-  }
-  if (act === 'vincularFac' || act === 'vincularCot') {
-    const tipo = act === 'vincularFac' ? 'fac' : 'cot';
-    const lid = $(`[data-vinc="${tipo}-${a.dataset.row}"]`).value; const lead = S.M.byId[lid];
-    if (!lead) return toast('Elige un lead.', 'bad');
-    const sheet = tipo === 'fac' ? 'Facturas' : 'Cotizaciones';
-    const field = tipo === 'fac' ? 'id_lead' : a.dataset.col;
-    const value = tipo === 'fac' ? lead.raw.id_lead : (field === 'id_contacto' ? lead.raw.id_contacto : lead.tel);
-    if (!value) return toast(`El lead no tiene ${field === 'id_lead' ? 'id_lead' : field === 'id_contacto' ? 'id_contacto' : 'teléfono'} para vincular.`, 'bad');
-    const fila = (tipo === 'fac' ? S.data.facturas : S.data.cotizaciones).find(x => String(x._row) === a.dataset.row);
-    a.disabled = true;
-    try {
-      const r = await api('adminUpdate', { sheet, row: Number(a.dataset.row), field, value, expected: String(fila[field] ?? '') });
-      if (r.conflict) toast(r.error, 'bad'); else toast('Vinculado a ' + lead.nombre, 'ok');
-      await cargar(true);
-    } catch (err) { toast(err.message, 'bad'); a.disabled = false; }
-  }
 });
 document.addEventListener('change', e => {
   const t = e.target;
   if (MOD && t.dataset.mch !== undefined) return MOD.onChange(t, e);
   if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
   if (t.dataset.sf !== undefined) { S.segFiltro[t.dataset.sf] = t.value; render(); return; }
-  if (t.dataset.ch) { S[t.dataset.ch] = t.value; if (t.dataset.ch === 'cargaHoja') { S.cargaPrev = ''; } render(); return; }
+  if (t.dataset.ch) { S[t.dataset.ch] = t.value; render(); return; }
   if (t.dataset.mover) { const l = S.M.byId[t.dataset.mover]; if (l && t.value) moverA(l, t.value); t.value = ''; return; }
   if (t.dataset.actCh === 'resultado') {
     const l = S.M.byId[t.dataset.id]; const v = t.value;
