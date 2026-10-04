@@ -219,6 +219,22 @@ function salir(msg) {
   mostrarLogin(msg);
 }
 
+// ── Versión nueva: la app abierta se entera sola (el navegador guarda index.html hasta 10 min) y ofrece actualizar ──
+async function buscarVersionNueva() {
+  try {
+    const t = await fetch('index.html?_=' + Date.now(), { cache: 'no-store' }).then(r => r.text());
+    const v = (t.match(/AKT_VERSION = '([^']+)'/) || [])[1];
+    if (!v || v === window.AKT_VERSION || document.getElementById('nueva-version')) return;
+    const b = document.createElement('div'); b.id = 'nueva-version';
+    b.style.cssText = 'position:fixed;left:50%;bottom:78px;transform:translateX(-50%);z-index:9999;background:#0b2e6e;color:#fff;padding:10px 16px;border-radius:14px;box-shadow:0 10px 30px -8px rgba(0,0,0,.5);display:flex;gap:12px;align-items:center;font-size:.9rem';
+    b.innerHTML = `<span>🚀 Hay una versión nueva (v${v})</span><button class="btn btn-sm btn-primary" id="nv-btn">Actualizar ahora</button>`;
+    document.body.appendChild(b);
+    $('#nv-btn').onclick = () => { location.href = location.pathname + '?v=' + v + (DEMO ? '&demo=1' : ''); };
+  } catch (e) { /* sin red: se reintenta */ }
+}
+setTimeout(buscarVersionNueva, 4000); setInterval(buscarVersionNueva, 5 * 60e3);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) buscarVersionNueva(); });
+
 async function arrancar() {
   $('#login').hidden = true; $('#app').hidden = false;
   $('#view').innerHTML = '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Cargando leads…</div></div>';
