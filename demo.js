@@ -262,6 +262,22 @@
         perfil: { uso_moto: { trabajo: 8, domicilios: 5, ciudad: 4 }, objecion: { precio: 7, cuota: 5, 'reporte en centrales': 2 }, forma_pago: { credito: 11, contado: 6 } },
         calidad: { sin_zona: 2, sin_modelo: 1, sin_asesor: 0, agendado_sin_cita: 3, sin_etiqueta: 0 } };
     }
+    if (action === 'proximaAccion' || action === 'recuperar') return { ok: true };
+    if (action === 'control') {
+      const vis = DB.Leads.filter(l => puedeVer(u, l)), n = vis.length;
+      const gest = id => DB.Gestion_Asesor.find(x => x.id_lead === id) || {};
+      const grp = fn => { const m = {}; vis.forEach(l => { const k = fn(l) || 'Sin dato', r = m[k] || (m[k] = { k, leads: 0, contactados: 0, oportunidades: 0, ventas: 0, perdidos: 0, vencidos: 0, abandonados: 0, sinContacto: 0, tResp: 0.8 }); r.leads++;
+        const g = gest(l.id_lead); if (/^s/i.test(g.contactado || '')) r.contactados++; else r.sinContacto++; if (/^s/i.test(g.cotizado || '')) r.oportunidades++; if (/gan/i.test(g.resultado || '')) r.ventas++; if (/perd/i.test(g.resultado || '')) r.perdidos++; if (l.sla === 'bad') r.vencidos++; });
+        return Object.values(m).map(r => Object.assign(r, { conv: r.leads ? Math.round(r.ventas * 1000 / r.leads) / 10 : 0 })).sort((a, b) => b.leads - a.leads); };
+      const ops = vis.filter(l => /perd|reten/i.test(gest(l.id_lead).resultado || '') || /^s/i.test(gest(l.id_lead).cotizado || '')).slice(0, 12).map((l, i) => ({ id_lead: l.id_lead, nombre: l.nombre_completo, asesor: l.nombre_asesor, sede: sedeCanon(l.punto_asignado), estado: 'Cotizado', abierto: true, producto: String(l.modelo_interes || '').toUpperCase(), score: 40 + i * 4, vencido: i % 3 === 0,
+        recuperar: { cat: ['Silencio tras cotización', 'Perdido recuperable', 'Abandonado'][i % 3], porque: ['Recibió cotización y dejó de responder hace 4 días', 'Se perdió por: precio', 'Sin actividad hace 6 días'][i % 3], accion: 'Escríbele con un beneficio concreto (bono, entrega inmediata) y propón una visita.', prob: ['alta', 'media', 'baja'][i % 3], intentos: i % 2, ultimoIntento: '' } }));
+      const tareas = vis.slice(0, 10).map((l, i) => ({ id_lead: l.id_lead, nombre: l.nombre_completo, asesor: l.nombre_asesor, sede: sedeCanon(l.punto_asignado), producto: String(l.modelo_interes || '').toUpperCase(), tarea: ['Contactar lead nuevo', 'Seguimiento vencido', 'Próxima acción de hoy', 'Negociación en riesgo'][i % 4], detalle: 'Demo: lleva ' + (i + 1) + ' h hábiles sin movimiento.', prioridad: 1 + (i % 4), cuando: '', score: 80 - i * 5 }));
+      return { ok: true, dias: p.dias || 30, kpis: { recibidos: n, nuevos: Math.round(n * 0.3), asignados: n, sinContacto: Math.round(n * 0.2), contactados: Math.round(n * 0.7), abandonados: 2, mediana1raRespuestaH: 0.7, contactosRealizados: n * 2, seguimientosPendientes: 6, seguimientosVencidos: 4, cotizaciones: Math.round(n * 0.4), financiacion: Math.round(n * 0.25), negociacionesActivas: Math.round(n * 0.3), oportunidades: Math.round(n * 0.45), ventas: Math.round(n * 0.08), perdidos: Math.round(n * 0.2), detenidos: 2, enRiesgo: 3, porRecuperar: ops.length, leadAOportunidad: 45, oportunidadAVenta: 17.8, conversion: 8, motivosPerdida: { precio: 5, 'financiación negada': 3, 'no contesta': 2 } },
+        presupuesto: { mes: '2026-10', meta: 80, ventas: 12, cumplimiento: 15, proyeccion: 90 > 80 ? 80 : 90, brecha: 68 }, pronostico: { ventasMes: 12, pipelineEsperado: 21.4, cierreProyectado: 33, cierreAlRitmo: 62, meta: 80, brechaProyectada: 47, pipeline: {} },
+        tareas, auditoria: [{ fecha: '4/10/2026 15:00:00', usuario: 'DEMO Jefe Comercial', rol: 'jefe', hoja: 'Gestion_Asesor', llave: 'L-DEMO', campo: 'contactado', antes: 'No', despues: 'Sí', origen: 'app' }],
+        asesores: grp(l => l.nombre_asesor || 'Sin asesor'), grupos: { canal: grp(l => l.origen), campana: grp(l => l.anuncio_origen || 'Sin campaña'), producto: grp(l => String(l.modelo_interes || '').toUpperCase()), tipo: grp(l => l.tipo_consulta), sede: grp(l => sedeCanon(l.punto_asignado)) },
+        oportunidades: ops, alertas: [{ fecha: '2026-10-04 14:19:00', tipo: 'sla_primer_contacto', nivel: 'media', destinatario: 'VALERIA', mensaje: 'Lead nuevo sin primer contacto (20 min hábiles)', id_lead: 'L-DEMO' }] };
+    }
     if (action === 'chats') {
       const l = DB.Leads.find(x => x.id_lead === p.id_lead);
       if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');

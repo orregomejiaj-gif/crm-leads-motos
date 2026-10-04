@@ -401,6 +401,7 @@ function vistasDeRol() {
     { id: 'hoy', icon: 'ti-checklist', label: 'Hoy' },
     { id: 'chats', icon: 'ti-messages', label: 'Chats' },
     { id: 'embudo', icon: 'ti-layout-kanban', label: 'Embudo' },
+    { id: 'control', icon: 'ti-radar-2', label: 'Control' },
     { id: 'metas', icon: 'ti-target', label: 'Metas' },
     { id: 'ventas', icon: 'ti-report-money', label: 'Cifras' },
     { id: 'indicadores', icon: 'ti-chart-dots', label: 'Indicadores' }
@@ -431,7 +432,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
+  const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
@@ -678,6 +679,7 @@ function cardAvance(l, ed) {
     <h4 class="muted" style="margin:12px 0 6px">Citas (${citas.length})</h4>
     ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${c.tipo === 'revision' ? '<b>Revisión técnica</b> · ' : ''}${esc(l.sede || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
       ${ed && c.estado === 'agendada' ? ['asistió', 'no asistió', 'cancelada'].map(s => `<button class="btn btn-sm" data-act="cita-estado" data-id="${esc(l.id)}" data-cita="${esc(c.id_cita)}" data-v="${s}">${s === 'asistió' ? 'Asistió' : s === 'no asistió' ? 'No asistió' : 'Cancelar'}</button>`).join('') : ''}</div>`).join('') : '<p class="small muted" style="margin:0">Sin citas registradas.</p>'}
+    ${ed && l.estado !== 'Perdido' ? `<div class="row wrap" style="gap:6px;margin-top:10px"><button class="btn btn-sm" data-act="prox-abrir" data-id="${esc(l.id)}"><i class="ti ti-calendar-time"></i> Programar próxima acción</button><span class="tiny muted">Si no la cumples: alerta → recordatorio → escalamiento al administrador.</span></div>` : ''}
     ${ed ? `<div class="row wrap" style="gap:6px;margin-top:8px"><input class="inp" type="date" id="cita-f" min="${hoy}" style="max-width:160px"><input class="inp" type="time" id="cita-h" style="max-width:120px"><button class="btn btn-sm btn-dark" data-act="cita-nueva" data-id="${esc(l.id)}"><i class="ti ti-calendar-plus"></i> Agendar cita</button></div>
       <p class="tiny muted" style="margin:6px 0 0">Al agendar, el cliente recibe recordatorio 24 h y 2 h antes, y tú 2 h antes.</p>` : ''}
     ${ed && l.cerrado ? `<h4 class="muted" style="margin:12px 0 6px"><i class="ti ti-tool"></i> Revisión técnica</h4>
@@ -704,6 +706,134 @@ async function accionAvance(act, a) {
     }
     await recargarLead();
   } catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+}
+
+// ── Centro de control comercial: tareas, supervisión, conversión, recuperación, alertas y auditoría ──
+const ACCIONES_PROX = ['Llamar', 'Escribir por WhatsApp', 'Enviar cotización', 'Agendar visita', 'Esperar respuesta de crédito', 'Cierre y facturación', 'Otra'];
+function cargarControl() {
+  if (S.ctlBusy) return; S.ctlBusy = true;
+  api('control', { dias: S.ctlDias || 30 }).then(r => { S.ctl = r; S.ctlErr = ''; S.ctlT = Date.now(); })
+    .catch(e => { S.ctlErr = e.message; })
+    .finally(() => { S.ctlBusy = false; if (S.view === 'control') { const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); } });
+}
+function vControl() {
+  if (!S.ctl || Date.now() - (S.ctlT || 0) > 60000) cargarControl();
+  const tabs = [['tareas', 'Mis tareas'], ['supervision', 'Supervisión'], ['conversion', 'Conversión'], ['recuperacion', 'Recuperación'], ['alertas', 'Alertas'], ['auditoria', 'Auditoría']];
+  const tab = S.ctlTab || 'tareas';
+  return `<div class="page-h"><div><h2>Centro de control comercial</h2><p class="muted small">Qué pasa con cada lead, qué debe hacer cada asesor ahora y dónde se está perdiendo la venta. ${S.data.user.rol === 'asesor' ? 'Solo tus oportunidades.' : ''}</p></div>
+    <div class="row"><select class="sel" id="ctl-dias">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: '0', t: 'Todo' }], String(S.ctlDias === undefined ? 30 : S.ctlDias))}</select>
+    <button class="btn btn-sm" data-act="ctl-recargar"><i class="ti ti-refresh"></i> Actualizar</button></div></div>
+    <div class="seg" style="margin-bottom:12px">${tabs.map(t => `<button class="${tab === t[0] ? 'on' : ''}" data-tab="ctlTab" data-v="${t[0]}">${t[1]}</button>`).join('')}</div>
+    <div id="ctl-cuerpo">${cuerpoControl()}</div>`;
+}
+function cuerpoControl() {
+  const r = S.ctl;
+  if (!r) return S.ctlErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.ctlErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Calculando el centro de control…</div></div>';
+  const k = r.kpis || {}, p = r.presupuesto || {}, f = r.pronostico || {};
+  const num = v => v === null || v === undefined ? '—' : v;
+  const kpis = `<div class="grid g-kpi">${kpi('Leads recibidos', k.recibidos || 0, `${k.nuevos || 0} nuevos · ${k.asignados || 0} asignados`)}
+    ${kpi('Sin contacto', k.sinContacto || 0, 'Leads que nadie ha contactado', k.sinContacto ? 'warn' : '')}
+    ${kpi('Abandonados', k.abandonados || 0, `${DIAS_ABANDONO_UI}+ días sin actividad`, k.abandonados ? 'warn' : '')}
+    ${kpi('Seguimientos vencidos', k.seguimientosVencidos || 0, `${k.seguimientosPendientes || 0} pendientes al día`, k.seguimientosVencidos ? 'warn' : '')}
+    ${kpi('1ª respuesta (mediana)', k.mediana1raRespuestaH === null || k.mediana1raRespuestaH === undefined ? '—' : fmtHoras(k.mediana1raRespuestaH), `${k.contactosRealizados || 0} contactos registrados`)}
+    ${kpi('Negociaciones activas', k.negociacionesActivas || 0, `${k.cotizaciones || 0} cotizaciones · ${k.financiacion || 0} con financiación`)}
+    ${kpi('En riesgo', k.enRiesgo || 0, 'Clientes que se enfrían', k.enRiesgo ? 'warn' : '')}
+    ${kpi('Por recuperar', k.porRecuperar || 0, 'Oportunidades rescatables')}</div>
+    <div class="grid g-kpi" style="margin-top:12px">${kpi('Lead → oportunidad', k.leadAOportunidad === null || k.leadAOportunidad === undefined ? '—' : k.leadAOportunidad + ' %', `${k.oportunidades || 0} oportunidades`)}
+    ${kpi('Oportunidad → venta', k.oportunidadAVenta === null || k.oportunidadAVenta === undefined ? '—' : k.oportunidadAVenta + ' %', `${k.ventas || 0} ventas`)}
+    ${kpi('Conversión total', k.conversion === null || k.conversion === undefined ? '—' : k.conversion + ' %', `${k.perdidos || 0} perdidos · ${k.detenidos || 0} detenidos`)}
+    ${kpi('Presupuesto del mes', p.meta ? (p.cumplimiento || 0) + ' %' : '—', `${p.ventas || 0} de ${p.meta || 0} motos · brecha ${num(p.brecha)}`)}
+    ${kpi('Pronóstico de cierre', f.cierreProyectado !== undefined ? f.cierreProyectado : '—', `${f.ventasMes || 0} vendidas + ${f.pipelineEsperado || 0} esperadas · al ritmo ${num(f.cierreAlRitmo)}`)}
+    ${kpi('Brecha proyectada', f.brechaProyectada !== undefined ? f.brechaProyectada : '—', f.meta ? `Meta ${f.meta} motos` : 'Sin meta cargada', f.brechaProyectada > 0 ? 'warn' : '')}</div>`;
+  const tab = S.ctlTab || 'tareas';
+  const cuerpo = { tareas: ctlTareas, supervision: ctlSupervision, conversion: ctlConversion, recuperacion: ctlRecuperacion, alertas: ctlAlertas, auditoria: ctlAuditoria }[tab](r);
+  return kpis + `<div style="margin-top:14px">${cuerpo}</div>`;
+}
+const DIAS_ABANDONO_UI = 5;
+function ctlTareas(r) {
+  const u = S.data.user, asesores = uniq((r.tareas || []).map(t => t.asesor).filter(Boolean)).sort();
+  const sel = S.ctlAsesor || (u.rol === 'asesor' ? u.nombre : '');
+  const ts = (r.tareas || []).filter(t => !sel || norm(t.asesor) === norm(sel));
+  const colores = { 1: 'pill-bad', 2: 'pill-warn', 3: 'pill-info', 4: '' };
+  return `<div class="row between wrap" style="margin-bottom:8px"><h3>Bandeja de tareas <span class="pill">${ts.length}</span></h3>
+    ${u.rol !== 'asesor' ? `<select class="sel" data-ch="ctlAsesor">${opts(asesores, sel, 'Todo el equipo')}</select>` : ''}</div>
+    ${ts.length ? ts.slice(0, 80).map(t => `<div class="card" style="margin-bottom:8px;padding:10px 12px"><div class="row between wrap" style="gap:8px"><div>
+      <span class="pill ${colores[t.prioridad] || ''}">${esc(t.tarea)}</span> <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> <span class="muted small">· ${esc(t.producto || '')}${t.asesor ? ' · ' + esc(t.asesor) : ''}</span>
+      <div class="small" style="margin-top:4px">${esc(t.detalle || '')}</div></div>
+      <div class="row" style="gap:6px"><span class="tiny muted" title="Puntaje del lead">★ ${t.score}</span><button class="btn btn-sm" data-act="abrir" data-id="${esc(t.id_lead)}">Abrir</button><button class="btn btn-sm btn-dark" data-act="prox-abrir" data-id="${esc(t.id_lead)}"><i class="ti ti-calendar-time"></i> Programar acción</button></div></div></div>`).join('') : empty('ti-checks', 'Sin tareas pendientes. Buen trabajo.')}`;
+}
+function ctlSupervision(r) {
+  const fila = a => { const sem = a.vencidos >= 3 || a.sinContacto >= 3 ? 'pill-bad' : (a.vencidos || a.sinContacto ? 'pill-warn' : 'pill-ok'); return `<tr><td>${esc(a.k)}</td><td class="r">${a.leads}</td><td class="r">${a.sinContacto}</td><td class="r">${pct(a.contactados, a.leads) === null ? '—' : pct(a.contactados, a.leads) + ' %'}</td><td class="r">${a.tResp === null || a.tResp === undefined ? '—' : fmtHoras(a.tResp)}</td><td class="r"><span class="pill ${sem}">${a.vencidos}</span></td><td class="r">${a.abandonados}</td><td class="r">${a.oportunidades}</td><td class="r">${a.ventas}</td><td class="r">${a.conv} %</td></tr>`; };
+  return `<h3 style="margin-bottom:8px">Cumplimiento por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Seg. vencidos</th><th class="r">Abandonados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Conversión</th></tr></thead><tbody>${(r.asesores || []).map(fila).join('') || '<tr><td colspan="10" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
+    <p class="tiny muted" style="margin:8px 0 0">Escalera automática: alerta a los 15 min (lead nuevo) → recordatorio → escalamiento al administrador → reasignación. Los seguimientos vencidos son los que superaron su plazo o la próxima acción programada.</p>`;
+}
+function ctlConversion(r) {
+  const g = S.ctlGrupo || 'canal', nombres = { canal: 'Canal de origen', campana: 'Campaña', producto: 'Producto / modelo', tipo: 'Tipo de cliente', sede: 'Sede' };
+  const rows = ((r.grupos || {})[g] || []).slice(0, 40);
+  return `<div class="seg" style="margin-bottom:10px">${Object.keys(nombres).map(x => `<button class="${g === x ? 'on' : ''}" data-tab="ctlGrupo" data-v="${x}">${nombres[x]}</button>`).join('')}</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>${nombres[g]}</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">Oportunidades</th><th class="r">Ventas</th><th class="r">Perdidos</th><th class="r">Conversión</th><th class="r">1ª resp.</th></tr></thead>
+    <tbody>${rows.map(a => `<tr><td>${esc(a.k)}</td><td class="r">${a.leads}</td><td class="r">${a.contactados}</td><td class="r">${a.oportunidades}</td><td class="r">${a.ventas}</td><td class="r">${a.perdidos}</td><td class="r"><b>${a.conv} %</b></td><td class="r">${a.tResp === null || a.tResp === undefined ? '—' : fmtHoras(a.tResp)}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin datos.</td></tr>'}</tbody></table></div>
+    ${(r.kpis || {}).motivosPerdida && Object.keys(r.kpis.motivosPerdida).length ? `<h3 style="margin:14px 0 8px">Por qué se pierden las ventas</h3>${bars(Object.entries(r.kpis.motivosPerdida).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v))}` : ''}`;
+}
+function ctlRecuperacion(r) {
+  const op = (r.oportunidades || []).filter(o => o.recuperar).sort((a, b) => (b.recuperar.prob === 'alta') - (a.recuperar.prob === 'alta') || b.score - a.score);
+  const u = S.data.user, mias = u.rol === 'asesor' ? op.filter(o => norm(o.asesor) === norm(u.nombre)) : op;
+  return `<h3 style="margin-bottom:8px">Motor de recuperación <span class="pill">${mias.length}</span></h3><p class="small muted" style="margin:0 0 8px">Oportunidades que no se cerraron: por qué, cuánta probabilidad tienen y qué hacer. Registra cada intento: queda en la trazabilidad y, si el cliente se recupera, vuelve a gestión.</p>
+    ${mias.length ? mias.slice(0, 60).map(o => `<div class="card" style="margin-bottom:8px;padding:10px 12px"><div class="row between wrap" style="gap:8px"><div>
+      <span class="pill ${o.recuperar.prob === 'alta' ? 'pill-ok' : o.recuperar.prob === 'media' ? 'pill-warn' : ''}">Prob. ${esc(o.recuperar.prob)}</span> <span class="pill">${esc(o.recuperar.cat)}</span>
+      <b data-act="abrir" data-id="${esc(o.id_lead)}" style="cursor:pointer">${esc(o.nombre)}</b> <span class="muted small">· ${esc(o.producto)} · ${esc(o.asesor || 'Sin asesor')} · ★ ${o.score}</span>
+      <div class="small" style="margin-top:4px"><b>Por qué:</b> ${esc(o.recuperar.porque)}</div><div class="small"><b>Qué hacer:</b> ${esc(o.recuperar.accion)}</div>
+      ${o.recuperar.intentos ? `<div class="tiny muted">${o.recuperar.intentos} intento(s) de recuperación</div>` : ''}</div>
+      <div class="row" style="gap:6px"><button class="btn btn-sm" data-act="abrir" data-id="${esc(o.id_lead)}">Abrir</button><button class="btn btn-sm btn-dark" data-act="rec-abrir" data-id="${esc(o.id_lead)}"><i class="ti ti-recycle"></i> Registrar intento</button></div></div></div>`).join('') : empty('ti-recycle', 'No hay oportunidades por recuperar ahora.')}`;
+}
+function ctlAlertas(r) {
+  const nombres = { sla_primer_contacto: 'Primer contacto', escalamiento_admin: 'Escalamiento', reasignacion: 'Reasignación', lead_caliente_sin_atender: 'Lead caliente', negociacion_en_riesgo: 'En riesgo', lead_abandonado: 'Abandonado', alta_probabilidad_sin_gestion: 'Alta probabilidad', asesor_seguimientos_vencidos: 'Asesor con vencidos', proxima_accion_vencida: 'Próxima acción', contacto_sin_whatsapp: 'Contacto sin WhatsApp', moto_requerida: 'Moto requerida', nota_credito: 'Nota crédito' };
+  return `<h3 style="margin-bottom:8px">Alertas recientes</h3>${(r.alertas || []).length ? (r.alertas || []).map(a => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><div class="row between wrap"><span><span class="pill ${a.nivel === 'alta' ? 'pill-bad' : 'pill-warn'}">${esc(nombres[a.tipo] || a.tipo)}</span> <span class="small">${esc(String(a.mensaje).replace(/[\u{1F300}-\u{1FAFF}]|\n.*$/gu, '').trim())}</span></span><span class="tiny muted">${esc(a.fecha)}${a.destinatario ? ' · ' + esc(a.destinatario) : ''}</span></div></div>`).join('') : empty('ti-bell-off', 'Sin alertas recientes.')}`;
+}
+function ctlAuditoria(r) {
+  return `<h3 style="margin-bottom:8px">Auditoría de actividades</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Usuario</th><th>Dónde</th><th>Qué cambió</th><th>Antes → Después</th><th>Origen</th></tr></thead><tbody>${(r.auditoria || []).map(a => `<tr><td class="small">${esc(a.fecha)}</td><td class="small">${esc(a.usuario)}</td><td class="small">${esc(a.hoja)} · ${esc(a.llave)}</td><td class="small">${esc(a.campo)}</td><td class="small">${esc(a.antes || '—')} → ${esc(a.despues || '—')}</td><td class="small">${esc(a.origen)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin registros.</td></tr>'}</tbody></table></div>`;
+}
+// Próxima acción: qué hará el asesor y cuándo (si no cumple: alerta → recordatorio → escalamiento)
+function pedirProxima(l) {
+  const dt = new Date(Date.now() + 2 * 3600e3), loc = d => new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>Próxima acción</h3><p class="small muted" style="margin:0">${esc(l.nombre)} · si no cumples, se te alerta, se te recuerda y se escala al administrador.</p>
+      <label class="f" for="px-a">¿Qué vas a hacer?</label><select class="sel w100" id="px-a"><option value="">Elige…</option>${ACCIONES_PROX.map(a => `<option>${a}</option>`).join('')}</select>
+      <label class="f" for="px-c">¿Cuándo?</label><input class="inp w100" type="datetime-local" id="px-c" value="${loc(dt)}" min="${loc(new Date())}">
+      <label class="f" for="px-n">Nota (opcional)</label><input class="inp w100" id="px-n" maxlength="200" placeholder="Ej.: confirmar cuota inicial">
+      <div class="row" style="justify-content:space-between"><button class="btn btn-sm" id="px-hecha">Marcar como hecha</button><span class="row"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-primary" id="c-si" disabled>Guardar</button></span></div></div>`, true);
+    const val = () => { $('#c-si').disabled = !($('#px-a').value && $('#px-c').value); };
+    $('#px-a').onchange = val; $('#px-c').oninput = val;
+    $('#c-no').onclick = () => { cerrarModal(); res(null); };
+    $('#px-hecha').onclick = () => { cerrarModal(); res({ hecha: true }); };
+    $('#c-si').onclick = () => { const r = { accion: $('#px-a').value, cuando: $('#px-c').value, nota: $('#px-n').value.trim() }; cerrarModal(); res(r); };
+    S._modalCancel = () => res(null);
+  });
+}
+async function programarProxima(l) {
+  const r = await pedirProxima(l); if (!r) return;
+  try { await api('proximaAccion', Object.assign({ id_lead: l.id }, r)); toast(r.hecha ? 'Acción marcada como hecha' : 'Próxima acción programada', 'ok'); S.ctlT = 0; if (S.view === 'control') { cargarControl(); } }
+  catch (e) { toast(e.message, 'bad'); }
+}
+function pedirRecuperacion(o) {
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>Registrar intento de recuperación</h3><p class="small muted" style="margin:0">${esc(o.nombre)} · ${esc(o.recuperar.porque)}</p>
+      <div class="notice small" style="padding:8px 10px"><i class="ti ti-bulb"></i><div><b>Sugerencia:</b> ${esc(o.recuperar.accion)}</div></div>
+      <label class="f">¿Cómo salió?</label><div class="stack-sm">${[['sin_respuesta', 'Lo intenté y no respondió'], ['respondio', 'Respondió, sigue en conversación'], ['recuperado', 'Recuperado: vuelve a gestión'], ['descartado', 'Descartado: no hay posibilidad']].map(([v, t]) => `<label class="row small" style="padding:8px;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer"><input type="radio" name="rc" value="${v}"> ${t}</label>`).join('')}</div>
+      <label class="f" for="rc-n">¿Qué hiciste y qué dijo el cliente?</label><textarea class="inp w100" id="rc-n" rows="3" maxlength="250"></textarea>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-primary" id="c-si" disabled>Guardar intento</button></div></div>`, true);
+    const val = () => { $('#c-si').disabled = !($('input[name=rc]:checked') && $('#rc-n').value.trim().length >= 5); };
+    $$('input[name=rc]').forEach(i => { i.onchange = val; }); $('#rc-n').oninput = val;
+    $('#c-no').onclick = () => { cerrarModal(); res(null); };
+    $('#c-si').onclick = () => { const r = { resultado: $('input[name=rc]:checked').value, nota: $('#rc-n').value.trim() }; cerrarModal(); res(r); };
+    S._modalCancel = () => res(null);
+  });
+}
+async function registrarRecuperacion(id) {
+  const o = ((S.ctl || {}).oportunidades || []).find(x => x.id_lead === id); if (!o || !o.recuperar) return;
+  const r = await pedirRecuperacion(o); if (!r) return;
+  try { await api('recuperar', Object.assign({ id_lead: id }, r)); toast('Intento registrado', 'ok'); S.ctlT = 0; cargarControl(); if (r.resultado === 'recuperado') await cargar(true); }
+  catch (e) { toast(e.message, 'bad'); }
 }
 
 // ── Indicadores: embudo, asistencia a citas, cierre, NPS y calidad de datos ──
@@ -1789,6 +1919,9 @@ document.addEventListener('click', async e => {
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'ctl-recargar') { S.ctl = null; S.ctlT = 0; return render(); }
+  if (act === 'prox-abrir') { const lp = S.M.byId[a.dataset.id]; if (lp) return programarProxima(lp); toast('Ese lead no está en tu lista actual.', 'bad'); return; }
+  if (act === 'rec-abrir') return registrarRecuperacion(a.dataset.id);
   if (act === 'emoji-abrir') { const p = $('#emoji-panel'); if (p) { p.hidden = !p.hidden; if (!p.hidden) pintarEmojis(); } return; }
   if (act === 'emoji-cat') return pintarEmojis(a.dataset.c);
   if (act === 'emoji-add') return insertarEmoji(a.dataset.e);
@@ -1835,6 +1968,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if (MOD && t.dataset.mch !== undefined) return MOD.onChange(t, e);
+  if (t.id === 'ctl-dias') { S.ctlDias = Number(t.value); S.ctl = null; S.ctlT = 0; render(); return; }
   if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
   if (t.dataset.sf !== undefined) { S.segFiltro[t.dataset.sf] = t.value; render(); return; }
   if (t.dataset.ch) { S[t.dataset.ch] = t.value; render(); return; }
