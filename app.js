@@ -492,7 +492,7 @@ function leadCard(l) {
   const acciones = [];
   if (ed && l.estado === 'Nuevo') acciones.push(`<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}"><i class="ti ti-phone-check"></i> Contactado</button>`);
   if (ed && (l.estado === 'Nuevo' || l.estado === 'Contactado')) acciones.push(`<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}"><i class="ti ti-file-dollar"></i> Cotizado</button>`);
-  if (ed && ['Contactado', 'Cotizado', 'Retenido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="facturado" data-id="${esc(l.id)}"><i class="ti ti-receipt"></i> Pasa a facturar</button>`);
+  if (ed && ['Nuevo', 'Contactado', 'Cotizado', 'Retenido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="facturado" data-id="${esc(l.id)}"><i class="ti ti-receipt"></i> Pasa a facturar</button>`);
   if (ed && ['Nuevo', 'Contactado', 'Cotizado'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="detenido" data-id="${esc(l.id)}" title="No avanza: no hay la moto disponible o está reuniendo el dinero"><i class="ti ti-player-pause"></i> Detenido</button>`);
   if (ed && !['Facturado', 'Perdido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="perdido" data-id="${esc(l.id)}"><i class="ti ti-x"></i> Perdido</button>`);
   if (ed && l.cerrado) acciones.push(`<button class="btn btn-sm btn-dark" data-act="abrir" data-id="${esc(l.id)}"><i class="ti ti-tool"></i> Agendar revisión técnica</button>`);
