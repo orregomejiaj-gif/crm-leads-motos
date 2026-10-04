@@ -10,6 +10,7 @@
   const pick = a => a[Math.floor(rnd() * a.length)];
   const pad = n => String(n).padStart(2, '0');
   const OFF = 5 * 3600e3;
+  const DEMO_CHAT = {}; // chats del asesor en modo demo (solo en memoria)
   const fmtB = d => { const x = new Date(d.getTime() - OFF); return `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-${pad(x.getUTCDate())}T${pad(x.getUTCHours())}:${pad(x.getUTCMinutes())}:00`; };
   const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
   const sedeCanon = s => norm(s).includes('itag') ? 'Itagüí' : norm(s).includes('colores') ? 'Los Colores' : String(s || '');
@@ -213,12 +214,29 @@
       if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
       const t0 = Date.parse(l.fecha_primer_contacto + 'Z') + OFF; // hora Colombia → instante real
       const m = (min, r, txt) => ({ fecha_hora: fmtB(new Date(t0 + min * 6e4)), telefono_whatsapp: l.telefono_whatsapp, nombre_completo: l.nombre_completo, remitente: r, mensaje: txt });
+      const k = l.id_lead, extra = (DEMO_CHAT[k] = DEMO_CHAT[k] || { estado: l.nombre_asesor ? 'asesor' : 'bot', msgs: [] });
+      const ahoraD = Date.now();
       return { ok: true, mensajes: [
         m(0, 'cliente', 'Hola, info de la ' + (l.modelo_interes || 'moto') + ' (mensaje demo)'),
         m(1, 'bot', '¡Hola! Soy el asistente virtual del punto de venta. ¿La quieres de contado o a crédito? (demo)'),
         m(3, 'cliente', l.forma_pago || 'Todavía no sé'),
-        m(4, 'bot', 'Perfecto. Te asigno a ' + l.nombre_asesor + ' del punto ' + sedeCanon(l.punto_asignado) + '. (demo)')
-      ] };
+        m(4, 'bot', 'Perfecto. Te asigno a ' + l.nombre_asesor + ' del punto ' + sedeCanon(l.punto_asignado) + '. (demo)'),
+        { fecha_hora: fmtB(new Date(ahoraD - 2 * 3600e3)), remitente: 'cliente', mensaje: '¿Me confirman si hay en color negro? (demo)' }
+      ].concat(extra.msgs), atencion: { estado: extra.estado, asesor: l.nombre_asesor || '', ventana_abierta: true, ventana_cierra: new Date(ahoraD + 22 * 3600e3).toISOString(),
+        vence_reasignacion: extra.estado === 'asesor' ? new Date(ahoraD + 20 * 3600e3).toISOString() : '', puede_escribir: puedeVer(u, l), envio_configurado: true } };
+    }
+    if (action === 'enviarMensaje') {
+      const l = DB.Leads.find(x => x.id_lead === p.id_lead);
+      if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
+      const c = (DEMO_CHAT[l.id_lead] = DEMO_CHAT[l.id_lead] || { estado: 'asesor', msgs: [] });
+      c.msgs.push({ fecha_hora: fmtB(new Date()), remitente: 'asesor', mensaje: String(p.texto) + ' (demo: no se envía)' }); c.estado = 'asesor';
+      return { ok: true };
+    }
+    if (action === 'atencion') {
+      const l = DB.Leads.find(x => x.id_lead === p.id_lead);
+      if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
+      (DEMO_CHAT[l.id_lead] = DEMO_CHAT[l.id_lead] || { msgs: [] }).estado = p.estado === 'bot' ? 'bot' : 'asesor';
+      return { ok: true, estado: DEMO_CHAT[l.id_lead].estado };
     }
     if (action === 'update') {
       const f = (EDITABLE[p.sheet] || {})[p.field];

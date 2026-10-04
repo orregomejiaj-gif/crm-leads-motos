@@ -203,6 +203,11 @@ table.tbl{border-collapse:collapse;width:100%;font-size:.84rem}
 .msg small{display:block;font-size:.66rem;opacity:.65;margin-top:3px}
 .msg.cli{background:#fff;border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px}
 .msg.bot{background:#dcf8c6;align-self:flex-end;border-bottom-right-radius:4px}
+.msg.ase{background:#dbe8ff;border:1px solid #c4d6fb;align-self:flex-end;border-bottom-right-radius:4px}
+.chat-estado{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px}
+.chat-box{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
+.chat-box textarea{flex:1;min-height:44px;max-height:140px;resize:vertical}
+.chat-aviso{font-size:.76rem;color:var(--ink-2,#5b6475);margin-top:6px}
 .timeline{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--border)}
 .timeline li{position:relative;padding:0 0 12px 10px;font-size:.84rem}
 .timeline li::before{content:"";position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid var(--ink)}

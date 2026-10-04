@@ -582,17 +582,77 @@ function abrirLead(id) {
         ${!S.data.hojas.Facturas ? '<p class="small muted" style="margin:0">La hoja Facturas aún no existe (solicitud al Sheet).</p>' : l.fac.length ? l.fac.map(f => `<div class="small">${esc(f.id_factura || '')} · ${esc(f.modelo || '')} · ${money(num(f.valor))} · ${fmtFecha(parseFecha(f.fecha), false)}</div>`).join('') : '<p class="small muted" style="margin:0">Sin factura vinculada.</p>'}
       </div>
       <div class="card"><h3 style="margin-bottom:8px">Línea de tiempo</h3>${eventos.length ? `<ul class="timeline">${eventos.map(e => `<li class="${e.al ? 'al' : ''}">${e.html ? e.t : esc(e.t)}<small>${fmtFecha(e.f)}${e.s ? ' · ' + esc(e.s) : ''}</small></li>`).join('')}</ul>` : '<p class="small muted" style="margin:0">Sin eventos.</p>'}</div>
-      <div class="card"><div class="card-h"><h3>Conversación reciente</h3><span class="tiny muted">Solo lectura</span></div><div id="chat" class="chat"><div class="muted small"><i class="ti ti-loader-2 spin"></i> Cargando…</div></div></div>
+      <div class="card"><div class="card-h"><h3>Chat con el cliente</h3><span class="tiny muted">Mismo número de WhatsApp del negocio</span></div>
+        <div id="chat-estado" class="chat-estado"></div>
+        <div id="chat" class="chat"><div class="muted small"><i class="ti ti-loader-2 spin"></i> Cargando…</div></div>
+        <div id="chat-box"></div></div>
     </div>`);
-  api('chats', { id_lead: l.id }).then(r2 => {
-    if (S.leadAbierto !== id) return;
-    const ms = r2.mensajes || [];
-    $('#chat').innerHTML = ms.length ? ms.map(m => {
-      const bot = /bot|ia|asistente|agente/.test(norm(m.remitente));
-      return `<div class="msg ${bot ? 'bot' : 'cli'}">${esc(m.mensaje)}<small>${esc(m.remitente || '')} · ${fmtFecha(parseFecha(m.fecha_hora))}</small></div>`;
+  cargarChat(id, true);
+}
+
+// ── Chat del asesor (Fase 1): responde desde la app; el bot se pausa mientras hay asesor asignado ──
+let chatTimer = null, chatSig = '';
+function pintarChat(id, r2, forzarScroll) {
+  if (S.leadAbierto !== id || !$('#chat')) return;
+  const ms = r2.mensajes || [], at = r2.atencion || {};
+  const sig = ms.length + '|' + (ms.length ? ms[ms.length - 1].fecha_hora : '') + '|' + at.estado;
+  const c = $('#chat');
+  const abajo = c.scrollHeight - c.scrollTop - c.clientHeight < 40;
+  if (sig !== chatSig) {
+    chatSig = sig;
+    c.innerHTML = ms.length ? ms.map(m => {
+      const rm = norm(m.remitente);
+      const cls = rm.startsWith('asesor') ? 'ase' : /bot|ia|asistente|agente/.test(rm) ? 'bot' : 'cli';
+      const quien = cls === 'ase' ? 'Asesor' : cls === 'bot' ? 'Bot' : 'Cliente';
+      return `<div class="msg ${cls}">${esc(m.mensaje)}<small>${quien} · ${fmtFecha(parseFecha(m.fecha_hora))}</small></div>`;
     }).join('') : '<p class="small muted">Sin mensajes en Historial_Chats para este contacto.</p>';
-    const c = $('#chat'); c.scrollTop = c.scrollHeight;
-  }).catch(e => { if ($('#chat')) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; });
+    if (forzarScroll || abajo) c.scrollTop = c.scrollHeight;
+  }
+  const pausado = at.estado !== 'bot' && at.asesor;
+  const vence = at.vence_reasignacion ? new Date(at.vence_reasignacion) : null;
+  $('#chat-estado').innerHTML = (pausado
+    ? `<span class="pill pill-info"><i class="ti ti-player-pause"></i> Bot en pausa · atiende ${esc(at.asesor)}</span>${vence ? `<span class="pill ${vence - Date.now() < 3 * 3600e3 ? 'pill-warn' : ''}" title="Si no hay gestión, el lead se reasigna a otro asesor del punto">Se reasigna si no hay gestión: ${fmtFecha(vence)}</span>` : ''}`
+    : `<span class="pill pill-ok"><i class="ti ti-robot"></i> Bot activo</span>`)
+    + `<span class="pill ${at.ventana_abierta ? 'pill-ok' : 'pill-bad'}" title="WhatsApp permite texto libre solo 24 h después del último mensaje del cliente">${at.ventana_abierta ? 'Ventana WhatsApp abierta hasta ' + fmtFecha(new Date(at.ventana_cierra)) : 'Ventana de 24 h cerrada'}</span>`
+    + (at.puede_escribir ? (pausado ? `<button class="btn btn-sm" data-act="chat-bot" data-id="${esc(id)}"><i class="ti ti-robot"></i> Devolver al bot</button>`
+      : `<button class="btn btn-sm btn-dark" data-act="chat-tomar" data-id="${esc(id)}"><i class="ti ti-hand-stop"></i> Tomar chat (pausar bot)</button>`) : '');
+  const box = $('#chat-box');
+  if (!box.dataset.listo) {
+    box.dataset.listo = '1';
+    box.innerHTML = at.puede_escribir ? `<div class="chat-box"><textarea class="inp" id="chat-txt" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
+      <button class="btn btn-primary" data-act="chat-enviar" data-id="${esc(id)}"><i class="ti ti-send"></i> Enviar</button></div><div class="chat-aviso" id="chat-aviso"></div>`
+      : '<p class="chat-aviso">Solo el asesor asignado (o su jefe/administrador) puede escribirle a este cliente.</p>';
+  }
+  const aviso = $('#chat-aviso'), btn = box.querySelector('[data-act="chat-enviar"]');
+  if (aviso) {
+    const motivo = !at.envio_configurado ? 'El envío por WhatsApp no está configurado en el servidor.' : !at.ventana_abierta ? 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp exige una plantilla aprobada para retomarlo.' : '';
+    aviso.textContent = motivo || 'El mensaje sale desde el número del negocio y queda registrado. Tu primer mensaje marca el lead como contactado.';
+    if (btn) btn.disabled = !!motivo;
+  }
+}
+function cargarChat(id, forzarScroll) {
+  clearTimeout(chatTimer);
+  if (forzarScroll) chatSig = '';
+  const l = S.M.byId[id];
+  if (!l || S.leadAbierto !== id) return;
+  api('chats', { id_lead: l.id }).then(r2 => pintarChat(id, r2, forzarScroll))
+    .catch(e => { if ($('#chat') && forzarScroll) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; })
+    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), 15000); });
+}
+async function enviarChat(id, btn) {
+  const t = $('#chat-txt'), texto = (t.value || '').trim();
+  if (!texto) return;
+  btn.disabled = true;
+  try {
+    await api('enviarMensaje', { id_lead: S.M.byId[id].id, texto });
+    t.value = ''; toast('Mensaje enviado', 'ok');
+    cargarChat(id, true);
+  } catch (e) { toast(e.message, 'bad'); }
+  finally { btn.disabled = false; }
+}
+async function cambiarAtencionChat(id, estado) {
+  try { await api('atencion', { id_lead: S.M.byId[id].id, estado }); toast(estado === 'bot' ? 'El bot vuelve a atender a este cliente' : 'Tomaste el chat: el bot queda en pausa', 'ok'); cargarChat(id, true); }
+  catch (e) { toast(e.message, 'bad'); }
 }
 
 // ── Escrituras ────────────────────────────────────────────────────────────
@@ -1221,6 +1281,9 @@ document.addEventListener('click', async e => {
   if (MOD && a.dataset.act.startsWith('m-')) { if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault(); return MOD.onClick(a.dataset.act, a, e); }
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
+  if (act === 'chat-enviar') return enviarChat(a.dataset.id, a);
+  if (act === 'chat-bot') return cambiarAtencionChat(a.dataset.id, 'bot');
+  if (act === 'chat-tomar') return cambiarAtencionChat(a.dataset.id, 'asesor');
   if (act === 'copiar-acceso') { try { await navigator.clipboard.writeText(a.dataset.url); toast('Enlace copiado', 'ok'); } catch (err) { toast(a.dataset.url); } return; }
   if (act === 'abrir' && l) return abrirLead(l.id);
   if (act === 'contactado' && l) { a.disabled = true; if (await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí')) toast('Marcado como contactado', 'ok'); return refrescar(); }
