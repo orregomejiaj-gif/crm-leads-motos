@@ -7,7 +7,9 @@
 
 const APP_VERSION = 'akt-crm-1.1.0';
 const CFG = Object.assign({ API_URL: '', REFRESH_MS: 90000 }, window.AKT_CONFIG || {});
-const DEMO = /[?&]demo=1\b/.test(location.search);
+// El modo demo (datos ficticios) solo existe en el equipo de desarrollo: en el enlace real no se carga ni se ofrece.
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const DEMO = LOCAL && /[?&]demo=1\b/.test(location.search);
 
 const ESTADOS = ['Nuevo', 'Contactado', 'Cotizado', 'Facturado', 'Perdido', 'Retenido'];
 const MOTIVOS = ['precio', 'financiación negada', 'no aprobó financiación', 'sin capacidad de pago', 'compró en otro lado', 'compró en la competencia', 'cambió de modelo', 'cambió de decisión', 'no interesado', 'no contesta', 'atención', 'aún no decide', 'sin inventario', 'tiempo de entrega', 'no cumplió requisitos', 'cliente fuera de zona', 'solo cotizaba', 'dato errado', 'otro'];
@@ -185,11 +187,12 @@ function mostrarLogin(msg) {
   const box = $('#login-msg');
   box.hidden = !msg; box.textContent = msg || '';
   $('#login-ver').textContent = 'Versión ' + (window.AKT_VERSION || '?');
-  if (DEMO) { $('#demo-link').hidden = true; return; }
+  $('#demo-link').hidden = !LOCAL || DEMO;
+  if (DEMO) return;
   if (!CFG.API_URL) {
     $('#login-form').hidden = true;
     box.hidden = false;
-    box.textContent = 'Falta configurar API_URL en config.js (la URL /exec del Apps Script, ver backend/README.md). Mientras tanto puedes revisar el modo demo.';
+    box.textContent = 'Falta configurar API_URL en config.js (la URL /exec del Apps Script, ver backend/README.md).';
     return;
   }
   $('#login-form').hidden = false;
@@ -851,6 +854,17 @@ function cargarPiloto() {
     .catch(e => { S.pilErr = e.message; })
     .finally(() => { S.pilBusy = false; if (S.view === 'control' && (S.ctlTab || 'tareas') === 'piloto') { const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); } });
 }
+/** Pronóstico del mes en tres escenarios, contra la meta y contra el ritmo del mes anterior. */
+function pronosticoHtml(r) {
+  const f = r.pronostico, p = r.presupuesto; if (!f || !f.escenarios) return '';
+  const e = f.escenarios, m = f.mesAnterior || {}, meta = f.meta;
+  return `<h3 style="margin:16px 0 8px">🔮 Pronóstico del mes</h3>
+    <div class="grid g-kpi">${kpi('🔻 Bajo', e.bajo, 'solo lo ya facturado')}
+    ${kpi('🎯 Esperado', e.medio, meta ? `${f.cumplimientoProyectado} % de la meta de ${meta}` : 'sin meta cargada', meta && e.medio >= meta ? 'ok' : 'warn')}
+    ${kpi('🚀 Alto', e.alto, 'si el pipeline rinde 50 % más')}
+    ${kpi('📆 vs mes anterior', m.diferencia === null || m.diferencia === undefined ? '—' : (m.diferencia > 0 ? '+' : '') + m.diferencia, m.ventas ? `${m.ventas} ventas en ${m.mes}; a hoy se esperaban ${m.esperadoAHoy}` : 'sin ventas del mes anterior', m.diferencia < 0 ? 'bad' : 'ok')}</div>
+    ${p && p.meta ? `<p class="small" style="margin:6px 0 0">${p.brecha > 0 ? `Faltan <b>${p.brecha}</b> motos para la meta: hacen falta <b>${p.cierresDiarios}</b> cierres por día durante ${p.diasRestantes} días.` : '🏆 La meta del mes ya está cumplida.'}</p>` : ''}`;
+}
 function ctlPiloto() {
   if (!S.pil || Date.now() - (S.pilT || 0) > 60000) cargarPiloto();
   const r = S.pil;
@@ -868,6 +882,8 @@ function ctlPiloto() {
     ${kpi('⏰ Seg. vencidos', k.seguimientosVencidos || 0, 'fuera de plazo', k.seguimientosVencidos ? 'bad' : 'ok')}</div>
     <h3 style="margin:16px 0 8px">Conversión por etapa</h3>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Paso</th><th class="r">Entran</th><th class="r">Pasan</th><th class="r">%</th></tr></thead><tbody>${(r.conversion || []).map(c => `<tr><td>${esc(c.etapa)}</td><td class="r">${c.de || 0}</td><td class="r">${c.a || 0}</td><td class="r"><b>${c.pct === null ? '—' : c.pct + ' %'}</b></td></tr>`).join('')}</tbody></table></div>
+    ${pronosticoHtml(r)}
+    ${Object.keys(r.pagos || {}).length ? `<h3 style="margin:16px 0 8px">💳 Cómo pagan los clientes (ventas de los últimos 45 días)</h3>${bars(Object.entries(r.pagos).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v))}` : ''}
     <h3 style="margin:16px 0 8px">🔴 Ventas facturadas sin entrega <span class="pill ${r.pendientes && r.pendientes.length ? 'pill-bad' : 'pill-ok'}">${(r.pendientes || []).length}</span></h3>
     ${(r.pendientes || []).length ? (r.pendientes || []).map(p => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b ${p.id_lead ? `data-act="abrir" data-id="${esc(p.id_lead)}" style="cursor:pointer"` : ''}>${esc(p.cliente || 'Cliente')}</b> <span class="muted small">· factura ${esc(p.factura)} · ${esc(p.modelo || '')} · ${esc(p.asesor || '')} · ${esc(p.sede || '')}</span> <span class="pill ${p.dias >= 3 ? 'pill-bad' : 'pill-warn'}">${p.dias} día${p.dias === 1 ? '' : 's'} pendiente</span></div>`).join('') : '<p class="small muted">Todo lo facturado ya está entregado ✅</p>'}
     ${(r.ritmo || []).length ? `<h3 style="margin:16px 0 8px">Ritmo por sede (mes en curso)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Sede</th><th class="r">Meta</th><th class="r">Esperado a hoy</th><th class="r">Facturado</th><th class="r">Entregado</th><th class="r">Diferencia</th></tr></thead><tbody>${r.ritmo.map(x => `<tr><td>${esc(x.sede)}</td><td class="r">${x.meta}</td><td class="r">${x.esperado}</td><td class="r">${x.facturado}</td><td class="r">${x.entregado}</td><td class="r"><span class="pill ${x.diferencia < 0 ? 'pill-bad' : 'pill-ok'}">${x.diferencia > 0 ? '+' : ''}${x.diferencia}</span></td></tr>`).join('')}</tbody></table></div>` : ''}
@@ -1681,7 +1697,7 @@ function detalleComision(filas) {
   return cards ? `<div class="section-title"><i class="ti ti-receipt-2"></i>Comisión por venta y descuentos</div><p class="small muted" style="margin:0 0 8px">El valor a comisionar es el valor de la venta en Síntesis, cruzado con su factura (neto de notas crédito). Mientras más alto se venda y menos descuento se dé, mayor la comisión. El precio final es el de la hoja «precios de venta con bonos».</p>${cards}` : '';
 }
 // Escala de comisión (regla del Jefe Comercial): según el % de cumplimiento de la meta de motos, se paga ese porcentaje sobre cada moto facturada, antes de IVA.
-const COMISION = { escala: [{ min: 120, tasa: 0.014 }, { min: 110, tasa: 0.012 }, { min: 100, tasa: 0.01 }, { min: 90, tasa: 0.006 }], valorIncluyeIva: false, iva: 0.19 };
+const COMISION = { escala: [{ min: 120, tasa: 0.014 }, { min: 110, tasa: 0.012 }, { min: 100, tasa: 0.01 }, { min: 90, tasa: 0.006 }], valorIncluyeIva: true, iva: 0.19 }; // El valor de Síntesis coincide con el precio final al público del catálogo (que incluye IVA); la comisión se liquida antes de IVA.
 function comisionDe(f) {
   const cumpl = f.meta ? f.facturados * 100 / f.meta : null;
   const esc = cumpl === null ? null : COMISION.escala.find(e => cumpl >= e.min), base = COMISION.valorIncluyeIva ? f.valor / (1 + COMISION.iva) : f.valor;
