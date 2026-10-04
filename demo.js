@@ -229,7 +229,7 @@
       const g = DB.Gestion_Asesor.find(x => x.id_lead === l.id_lead);
       if (g) { g.resultado = p.resultado; g.motivo_perdida = p.motivo || ''; g.fecha_ultima_actualizacion = ahoraB; }
       l.resultado_venta = p.resultado; l.fecha_cierre = ahoraB;
-      DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: p.resultado === 'ganado' ? 'Facturado' : p.resultado === 'perdido' ? 'Perdido' : 'Retenido', fecha: ahoraB, por: u.nombre });
+      DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: p.resultado === 'por facturar' ? 'Pasa a facturar' : p.resultado === 'perdido' ? 'Perdido' : 'Retenido', fecha: ahoraB, por: u.nombre });
       return { ok: true, resultado: p.resultado };
     }
     if (action === 'indicadores') {

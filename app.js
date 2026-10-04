@@ -313,7 +313,7 @@ function construirModelo() {
     let estado = 'Nuevo';
     const ec = norm(l.estado_crm);
     if (ec) estado = ESTADOS.find(e => ec.startsWith(norm(e).slice(0, 5))) || (ec.startsWith('ganad') ? 'Facturado' : 'Nuevo');
-    else if (/^(ganad|factur|vendid)/.test(res)) estado = 'Facturado';
+    else if (/^(ganad|factur|vendid|por fac)/.test(res)) estado = 'Facturado';
     else if (res.startsWith('perd')) estado = 'Perdido';
     else if (res.startsWith('reten')) estado = 'Retenido';
     else if (cotizado) estado = 'Cotizado';
@@ -433,7 +433,7 @@ function toast(msg, tipo) {
 }
 function empty(icon, txt) { return `<div class="empty"><i class="ti ${icon}"></i>${txt}</div>`; }
 // Nombres que ve el usuario: Retenido = «Detenido»; Facturado con la venta ya en Síntesis = «Cerrado ganado».
-function lblEstado(e, cerrado) { return e === 'Retenido' ? 'Detenido' : e === 'Facturado' ? (cerrado ? 'Cerrado ganado' : 'Facturado') : e; }
+function lblEstado(e, cerrado) { return e === 'Retenido' ? 'Detenido' : e === 'Facturado' ? (cerrado ? 'Cerrado ganado' : 'Pasa a facturar') : e; }
 function pillEstado(e, cerrado) {
   const c = { Nuevo: 'pill-info', Contactado: '', Cotizado: 'pill-warn', Facturado: 'pill-ok', Perdido: 'pill-bad', Retenido: 'pill-dark' }[e] || '';
   return `<span class="pill ${c}">${cerrado && e === 'Facturado' ? '<i class="ti ti-circle-check"></i> ' : ''}${esc(lblEstado(e, cerrado))}</span>`;
@@ -492,7 +492,7 @@ function leadCard(l) {
   const acciones = [];
   if (ed && l.estado === 'Nuevo') acciones.push(`<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}"><i class="ti ti-phone-check"></i> Contactado</button>`);
   if (ed && (l.estado === 'Nuevo' || l.estado === 'Contactado')) acciones.push(`<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}"><i class="ti ti-file-dollar"></i> Cotizado</button>`);
-  if (ed && ['Contactado', 'Cotizado', 'Retenido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="facturado" data-id="${esc(l.id)}"><i class="ti ti-receipt"></i> Pasa a facturado</button>`);
+  if (ed && ['Contactado', 'Cotizado', 'Retenido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="facturado" data-id="${esc(l.id)}"><i class="ti ti-receipt"></i> Pasa a facturar</button>`);
   if (ed && ['Nuevo', 'Contactado', 'Cotizado'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="detenido" data-id="${esc(l.id)}" title="No avanza: no hay la moto disponible o está reuniendo el dinero"><i class="ti ti-player-pause"></i> Detenido</button>`);
   if (ed && !['Facturado', 'Perdido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="perdido" data-id="${esc(l.id)}"><i class="ti ti-x"></i> Perdido</button>`);
   if (ed && l.cerrado) acciones.push(`<button class="btn btn-sm btn-dark" data-act="abrir" data-id="${esc(l.id)}"><i class="ti ti-tool"></i> Agendar revisión técnica</button>`);
@@ -615,7 +615,7 @@ function abrirLead(id) {
         <div class="grid g2">
           <div><label class="f">Contactado</label><div class="row"><span class="pill ${l.contactado ? 'pill-ok' : ''}">${l.contactado ? 'Sí' + (l.contactadoEn ? ' · ' + fmtFecha(l.contactadoEn) : '') : 'No'}</span>${!l.contactado ? `<button class="btn btn-sm btn-dark" data-act="contactado" data-id="${esc(l.id)}">Marcar contactado</button>` : ''}</div></div>
           <div><label class="f">Cotizado</label><div class="row"><span class="pill ${l.cotizado ? 'pill-warn' : ''}">${l.cotizado ? 'Sí' : 'No'}</span>${!l.cotizado && !['Facturado', 'Perdido'].includes(l.estado) ? `<button class="btn btn-sm" data-act="cotizado" data-id="${esc(l.id)}">Marcar cotizado</button>` : ''}</div></div>
-          <div><label class="f">Resultado</label><select class="sel w100" data-act-ch="resultado" data-id="${esc(l.id)}">${opts([{ v: '', t: 'En proceso' }, { v: 'ganado', t: 'Ganado (facturado)' }, { v: 'perdido', t: 'Perdido' }, { v: 'retenido', t: 'Detenido' }], norm(g.resultado) === 'perdido' ? 'perdido' : norm(g.resultado).startsWith('gan') ? 'ganado' : norm(g.resultado).startsWith('ret') ? 'retenido' : '')}</select></div>
+          <div><label class="f">Resultado</label><select class="sel w100" data-act-ch="resultado" data-id="${esc(l.id)}">${opts([{ v: '', t: 'En proceso' }, { v: 'ganado', t: 'Pasa a facturar' }, { v: 'perdido', t: 'Perdido' }, { v: 'retenido', t: 'Detenido' }], norm(g.resultado) === 'perdido' ? 'perdido' : /^(gan|por fac)/.test(norm(g.resultado)) ? 'ganado' : norm(g.resultado).startsWith('ret') ? 'retenido' : '')}</select></div>
           <div><label class="f">Motivo de pérdida</label><div class="row"><span class="small">${esc(g.motivo_perdida || '—')}</span></div></div>
         </div>
         <div style="margin-top:10px"><label class="f">Respuesta del cliente</label><textarea class="inp" id="resp-cli" maxlength="500" placeholder="¿Qué respondió el cliente?">${esc(g.respuesta_cliente || '')}</textarea>
@@ -977,7 +977,7 @@ async function cerrarLead(l, resultado, motivo) {
     const ahora = new Date().toISOString();
     if (l.g) { l.g.resultado = resultado; l.g.motivo_perdida = resultado === 'perdido' ? motivo : ''; l.g.fecha_ultima_actualizacion = ahora; }
     l.raw.resultado_venta = resultado; l.raw.fecha_cierre = ahora;
-    etapaLocal(l, resultado === 'ganado' ? 'Facturado' : resultado === 'perdido' ? 'Perdido' : 'Retenido');
+    etapaLocal(l, resultado === 'por facturar' ? 'Pasa a facturar' : resultado === 'perdido' ? 'Perdido' : 'Retenido');
     return true;
   } catch (e) { toast(e.message, 'bad'); return false; }
 }
@@ -1006,8 +1006,8 @@ async function moverA(l, destino) {
     if (!l.contactado && !(await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí'))) return refrescar();
     await setCampo(l, 'Gestion_Asesor', 'cotizado', 'Sí');
   } else if (destino === 'Facturado') {
-    if (!l.fac.length && !(await confirmar('Pasa a facturado', `${leadTxt} queda como <b>Facturado</b>. Cuando la venta aparezca en Síntesis (mismo celular) pasa sola a <b>Cerrado ganado</b> y se habilita la revisión técnica.`, 'Pasar a facturado'))) return;
-    if (!(await cerrarLead(l, 'ganado'))) return refrescar();
+    if (!l.fac.length && !(await confirmar('Pasa a facturar', `${leadTxt} queda en <b>Pasa a facturar</b>. Cuando la venta aparezca en el informe de ventas de Síntesis (mismo celular) pasa sola a <b>Cerrado ganado</b> y se habilita la revisión técnica.`, 'Pasa a facturar'))) return;
+    if (!(await cerrarLead(l, 'por facturar'))) return refrescar();
   } else if (destino === 'Perdido') {
     const m = await pedirMotivo(l);
     if (!m) return;
@@ -1016,7 +1016,7 @@ async function moverA(l, destino) {
     if (!(await confirmar('Marcar como detenido', `${leadTxt} queda <b>Detenido</b>: no avanza porque no hay la moto disponible o el cliente está reuniendo el dinero. No recibirá seguimientos ni reasignaciones automáticas.`, 'Marcar detenido'))) return;
     if (!(await cerrarLead(l, 'retenido'))) return refrescar();
   }
-  toast(`${l.nombre} → ${destino}`, 'ok');
+  toast(`${l.nombre} → ${lblEstado(destino)}`, 'ok');
   refrescar();
 }
 
@@ -1045,11 +1045,11 @@ function filtrosHTML(conOrigen = true) {
 }
 function vEmbudo() {
   const ls = filtrar(S.M.leads, S.f);
-  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). Cotizado y Facturado exigen evidencia.</p></div></div>
+  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div></div>
     ${filtrosHTML()}
     <div class="kanban">${ESTADOS.map(e => {
       const items = ls.filter(l => l.estado === e);
-      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Facturado / Cerrado' : lblEstado(e)} <small>${items.length}</small></div>
+      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(e)} <small>${items.length}</small></div>
         ${items.slice(0, 150).map(l => `<div class="kcard ${l.incons.length ? 'incons' : ''}" draggable="${puedeEditar(l)}" data-drag="${esc(l.id)}">
           <b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b>
           <div class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')}</div>
