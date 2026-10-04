@@ -412,8 +412,11 @@ function renderNav() {
 function render() {
   const base = { hoy: vHoy, chats: vChats, embudo: vEmbudo, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
+  const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
   if (S.view === 'embudo') bindKanban();
+  if (!sinCambio) animarNumeros(); // el conteo animado solo al cambiar de vista, no en cada actualización automática
+  S._vistaPrev = S.view;
 }
 
 // ── Componentes ───────────────────────────────────────────────────────────
@@ -430,7 +433,22 @@ function pillEstado(e) {
   return `<span class="pill ${c}">${esc(e)}</span>`;
 }
 function pillTemp(t, pref) { return t ? `<span class="pill t-${norm(t)}">${pref || ''}${esc(t)}</span>` : ''; }
-function kpi(l, v, s, cls) { return `<div class="kpi ${cls || ''}"><div class="k-l">${l}</div><div class="k-v">${v}</div>${s ? `<div class="k-s">${s}</div>` : ''}</div>`; }
+// Ícono del KPI según lo que mide (el texto de la etiqueta decide)
+const KPI_ICONOS = [[/nps|satisf|promotor/, 'ti-heart-handshake'], [/meta/, 'ti-target-arrow'], [/vend|factur|moto|entreg|ganad/, 'ti-motorbike'], [/cotiz|simul/, 'ti-file-dollar'],
+  [/contact|respuesta|1ª|primera/, 'ti-phone-check'], [/cita|asist|visit/, 'ti-calendar-check'], [/valor|ticket|\$|comis|ingres/, 'ti-coin'], [/perd|rechaz/, 'ti-trending-down'],
+  [/conver|%|tasa/, 'ti-arrows-exchange'], [/sla|venc|alerta|atras|incons/, 'ti-alarm'], [/chat|mensaj|espera/, 'ti-messages'], [/lead|asignad|nuevos|total|cliente/, 'ti-users'], [/invent|stock|exist|dispon/, 'ti-building-warehouse']];
+function kpiIcono(l) { const t = norm(String(l).replace(/<[^>]*>/g, '')); const m = KPI_ICONOS.find(([re]) => re.test(t)); return m ? m[1] : 'ti-chart-bar'; }
+function kpi(l, v, s, cls) { return `<div class="kpi ${cls || ''}"><i class="k-ico ti ${kpiIcono(l)}"></i><div class="k-l">${l}</div><div class="k-v">${v}</div>${s ? `<div class="k-s">${s}</div>` : ''}</div>`; }
+// Los números enteros de los KPI suben desde 0 al entrar a una vista
+function animarNumeros() {
+  $$('.kpi .k-v').forEach(el => {
+    const fin = /^\d{1,6}$/.test(el.textContent.trim()) ? Number(el.textContent.trim()) : null;
+    if (fin === null || fin < 3) return;
+    const t0 = performance.now(); el.textContent = '0';
+    const paso = t => { const k = Math.min((t - t0) / 650, 1); el.textContent = Math.round(fin * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(paso); };
+    requestAnimationFrame(paso);
+  });
+}
 function bars(items, opts = {}) {
   if (!items.length) return empty('ti-chart-bar-off', opts.vacio || 'Sin datos en el período.');
   const max = Math.max(...items.map(i => i.v), 1);
@@ -455,6 +473,7 @@ function puedeEditar(l) {
   return norm(l.asesor) === norm(u.nombre);
 }
 
+function iniciales(n) { const p = String(n || '?').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + ((p[1] || '')[0] || '')).toUpperCase(); }
 function leadCard(l) {
   const timerCls = l.sla || (l.sinCotizar ? 'warn' : '');
   let timer = '';
@@ -471,8 +490,8 @@ function leadCard(l) {
   // El chat se atiende dentro de la app con el número del negocio (no desde el WhatsApp personal del asesor)
   acciones.push(`<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>`);
   return `<article class="lead ${s}">
-    <div class="lead-top"><div><div class="lead-name" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</div>
-      <div class="lead-sub">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div>
+    <div class="lead-top"><div class="lead-id"><div class="av av-${norm(l.tempIA || l.temp)}">${esc(iniciales(l.nombre))}</div><div><div class="lead-name" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</div>
+      <div class="lead-sub">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div></div>
       <div class="row" style="flex-direction:column;align-items:flex-end;gap:4px">${pillEstado(l.estado)}${timer}</div></div>
     <div class="lead-facts">${contactoTxt(l)}
       ${r.modelo_interes ? `<span><i class="ti ti-motorbike"></i>${esc(r.modelo_interes)}</span>` : ''}
@@ -630,7 +649,7 @@ function cardAvance(l, ed) {
     <div class="row wrap" style="gap:4px">${alcanzadas.length ? alcanzadas.map(x => { const e = et.filter(y => y.etapa === x).pop(); return `<span class="pill ${x === 'Perdido' || x === 'Crédito negado' || x === 'No asistió a la cita' ? 'pill-bad' : x === 'Facturado' || x === 'Entregado' ? 'pill-ok' : 'pill-info'}" title="${esc(fmtFecha(parseFecha(e.fecha)))}${e.por ? ' · ' + esc(e.por) : ''}">${esc(x)}</span>`; }).join('') : '<span class="small muted">Aún sin etapas registradas.</span>'}</div>
     ${ed && pendientes.length ? `<div class="row wrap" style="gap:6px;margin-top:8px">${pendientes.map(x => `<button class="btn btn-sm" data-act="etapa" data-id="${esc(l.id)}" data-v="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>` : ''}
     <h4 class="muted" style="margin:12px 0 6px">Citas (${citas.length})</h4>
-    ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${esc(c.punto || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
+    ${citas.length ? citas.map(c => `<div class="row wrap" style="gap:6px;margin-bottom:4px"><span class="small"><i class="ti ti-calendar-event"></i> <b>${esc(String(c.fecha).slice(0, 10))} ${esc(String(c.hora).slice(0, 5))}</b> · ${esc(l.sede || '')}</span><span class="pill ${clsCita[c.estado] || ''}">${esc(c.estado)}</span>
       ${ed && c.estado === 'agendada' ? ['asistió', 'no asistió', 'cancelada'].map(s => `<button class="btn btn-sm" data-act="cita-estado" data-id="${esc(l.id)}" data-cita="${esc(c.id_cita)}" data-v="${s}">${s === 'asistió' ? 'Asistió' : s === 'no asistió' ? 'No asistió' : 'Cancelar'}</button>`).join('') : ''}</div>`).join('') : '<p class="small muted" style="margin:0">Sin citas registradas.</p>'}
     ${ed ? `<div class="row wrap" style="gap:6px;margin-top:8px"><input class="inp" type="date" id="cita-f" min="${hoy}" style="max-width:160px"><input class="inp" type="time" id="cita-h" style="max-width:120px"><button class="btn btn-sm btn-dark" data-act="cita-nueva" data-id="${esc(l.id)}"><i class="ti ti-calendar-plus"></i> Agendar cita</button></div>
       <p class="tiny muted" style="margin:6px 0 0">Al agendar, el cliente recibe recordatorio 24 h y 2 h antes, y tú 2 h antes.</p>` : ''}
