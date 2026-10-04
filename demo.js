@@ -214,6 +214,24 @@
           perfiles: vis.slice(0, 6).map((l, i) => ({ id_lead: l.id_lead, uso_moto: ['trabajo', 'ciudad', 'domicilios', 'paseo'][i % 4], objecion_principal: ['precio', 'cuota', 'reporte en centrales', ''][i % 4], siguiente_paso: 'Agendar visita' })), encuestas: [] }
       };
     }
+    if (action === 'detener') {
+      const l = DB.Leads.find(x => x.id_lead === p.id_lead);
+      if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
+      if (p.motivo === 'falta de inventario' && !String(p.moto || '').trim()) fail('Si falta inventario, indica la moto requerida.', 'INVALID');
+      const g = DB.Gestion_Asesor.find(x => x.id_lead === l.id_lead);
+      if (g) g.resultado = 'retenido';
+      l.resultado_venta = 'retenido';
+      DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: 'Detenido', fecha: fmtB(new Date()), por: u.nombre, nota: 'motivo: ' + p.motivo + (p.moto ? ' · moto: ' + p.moto : '') });
+      return { ok: true };
+    }
+    if (action === 'contacto') {
+      const l = DB.Leads.find(x => x.id_lead === p.id_lead);
+      if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');
+      const g = DB.Gestion_Asesor.find(x => x.id_lead === l.id_lead);
+      if (g) { g.contactado = 'Sí'; g.fecha_contactado = fmtB(new Date()); g.fecha_ultima_actualizacion = fmtB(new Date()); }
+      DEMO_F2.etapas.push({ id_lead: l.id_lead, etapa: 'Contactado', fecha: fmtB(new Date()), por: u.nombre, nota: 'canal: ' + p.canal + ' · contestó: ' + p.contesto + ' · dijo: ' + p.nota });
+      return { ok: true };
+    }
     if (action === 'etapa' || action === 'cita' || action === 'cierre') {
       const l = DB.Leads.find(x => x.id_lead === p.id_lead);
       if (!l || !puedeVer(u, l)) fail('No tienes acceso a este lead.', 'FORBIDDEN');

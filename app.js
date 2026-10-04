@@ -299,6 +299,7 @@ function construirModelo() {
     [a.id_lead, a.id_contacto].filter(Boolean).forEach(k => { (alertasLead[String(k)] = alertasLead[String(k)] || []).push(a); });
   });
 
+  const pendContSet = new Set((d.contacto_pendiente || []).map(String));
   const leads = (d.leads || []).map(l => {
     const id = String(l.id_lead || l.id_contacto || '');
     const g = l.id_lead ? gBy[String(l.id_lead)] || null : null;
@@ -343,7 +344,7 @@ function construirModelo() {
 
     return {
       id, raw: l, g, estado, cerrado, incons, cot, fac, alertas, tel, asign, contactadoEn, hAsign, hPrimera, ultimaAct,
-      contactado, cotizado, resultado: res, motivo: (g && g.motivo_perdida) || '',
+      contactado, cotizado, resultado: res, pendCont: pendContSet.has(String(l.id_lead || '')), motivo: (g && g.motivo_perdida) || '',
       nombre: String(l.nombre_completo || l.username_whatsapp || '').trim() || 'Sin nombre',
       usuario: l.username_whatsapp || '', sede: sedeCanon(l.punto_asignado), asesor: String(l.nombre_asesor || '').trim(),
       origen: String(l.origen || '').trim() || 'Sin origen', anuncio: String(l.anuncio_origen || '').trim(),
@@ -509,6 +510,7 @@ function leadCard(l) {
       ${r.forma_pago ? `<span><i class="ti ti-credit-card"></i>${esc(r.forma_pago)}</span>` : ''}
       ${l.cita ? `<span class="${l.citaHoy ? '' : 'muted'}"><i class="ti ti-calendar-event"></i>${l.citaHoy ? '<b>Cita hoy</b> ' + esc(horaTxt(r.cita_hora) || '') : fmtFecha(l.cita, !!r.cita_hora)}</span>` : ''}
     </div>
+    ${l.pendCont ? `<div class="notice bad small" style="padding:6px 10px"><i class="ti ti-alert-triangle"></i><div>Figura como <b>contactado</b> pero no hay mensaje tuyo por WhatsApp. ${ed ? `<button class="btn btn-sm btn-primary" data-act="justificar-contacto" data-id="${esc(l.id)}">Justificar contacto</button>` : 'El asesor debe justificar por dónde y a qué hora lo contactó.'}</div></div>` : ''}
     ${l.incons.length ? `<div class="notice bad small" style="padding:6px 10px"><i class="ti ti-alert-triangle"></i><div>${l.incons.map(esc).join('<br>')}</div></div>` : ''}
     <div class="row between wrap"><div class="tags">${l.tempIA ? pillTemp(l.tempIA, 'IA: ') : '<span class="pill">IA: sin etiqueta</span>'}
       ${ed ? TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${l.temp === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('') : pillTemp(l.temp, 'Asesor: ')}</div></div>
@@ -727,6 +729,8 @@ function pintarIndicadores(r) {
         ${motEnc.length ? `<h4 class="muted" style="margin:12px 0 6px">Según la encuesta al cliente</h4>${bars(motEnc)}` : ''}</div>
     </div>
     <div class="card"><h3 style="margin-bottom:8px">Desempeño por asesor</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">1ª resp.</th><th class="r">Citas</th><th class="r">Asistencia</th><th class="r">Ganados</th><th class="r">Perdidos</th><th class="r">Reasign.</th><th class="r">NPS</th></tr></thead><tbody>${asesores || '<tr><td colspan="10" class="muted">Sin datos.</td></tr>'}</tbody></table></div></div>
+    ${Object.keys((r.detenidos || {}).motivos || {}).length ? `<div class="grid g2"><div class="card"><h3 style="margin-bottom:8px">Leads detenidos: por qué</h3>${bars(cuenta(r.detenidos.motivos))}</div>
+      <div class="card"><h3 style="margin-bottom:8px"><i class="ti ti-package"></i> Motos requeridas sin inventario</h3>${bars(cuenta(r.detenidos.motos), { vacio: 'Ningún cliente espera una moto por falta de inventario.' })}<p class="tiny muted" style="margin:8px 0 0">Clientes detenidos esperando que llegue esa moto.</p></div></div>` : ''}
     <div class="grid g2">
       <div class="card"><h3 style="margin-bottom:8px">Lo que dicen los clientes (IA)</h3>
         <h4 class="muted" style="margin:0 0 6px">Uso de la moto</h4>${bars(cuenta((r.perfil || {}).uso_moto), { vacio: 'Sin datos todavía.' })}
@@ -958,6 +962,58 @@ function confirmar(titulo, cuerpo, ok = 'Continuar', peligro) {
     S._modalCancel = () => res(false);
   });
 }
+// Registrar el contacto: por dónde, a qué hora, si contestó y qué dijo (obligatorio al marcar «Contactado» a mano o al justificar una alerta).
+function pedirContacto(l, justificar) {
+  const ahora = new Date(), loc = d => new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>${justificar ? 'Justificar el contacto' : 'Registrar el contacto'}</h3>
+      <p class="small muted" style="margin:0">${esc(l.nombre)} · ${justificar ? 'figura como contactado sin mensaje tuyo por WhatsApp: cuenta por dónde y a qué hora lo contactaste.' : 'cuéntanos cómo lo contactaste.'}</p>
+      <div class="notice small" style="padding:8px 10px"><i class="ti ti-brand-whatsapp"></i><div><b>Recuerda responderle por WhatsApp</b> desde el chat de la app: así queda el historial y el cliente recibe tu respuesta.</div></div>
+      <label class="f" for="ct-canal">¿Por dónde lo contactaste?</label>
+      <select class="sel w100" id="ct-canal"><option value="">Elige…</option><option>WhatsApp</option><option>Llamada</option><option>Presencial</option><option>Otro</option></select>
+      <label class="f" for="ct-hora">¿Cuándo?</label><input class="inp w100" type="datetime-local" id="ct-hora" value="${loc(ahora)}" max="${loc(ahora)}">
+      <label class="f">¿El cliente contestó?</label>
+      <div class="row"><label class="small"><input type="radio" name="ct-resp" value="Sí"> Sí contestó</label><label class="small"><input type="radio" name="ct-resp" value="No"> No contestó</label></div>
+      <label class="f" for="ct-nota">¿Qué dijo el cliente / qué pasó?</label><textarea class="inp w100" id="ct-nota" rows="3" maxlength="300" placeholder="Ej.: Quiere la TT200 a crédito, me pidió cotización por WhatsApp…"></textarea>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-primary" id="c-si" disabled>Guardar contacto</button></div></div>`, true);
+    const val = () => { const ok = $('#ct-canal').value && $('#ct-hora').value && $('input[name=ct-resp]:checked') && $('#ct-nota').value.trim().length >= 5; $('#c-si').disabled = !ok; };
+    ['#ct-canal', '#ct-hora', '#ct-nota'].forEach(s => { $(s).oninput = val; $(s).onchange = val; });
+    $$('input[name=ct-resp]').forEach(i => { i.onchange = val; });
+    $('#c-no').onclick = () => { cerrarModal(); res(null); };
+    $('#c-si').onclick = () => { const r = { canal: $('#ct-canal').value, cuando: $('#ct-hora').value, contesto: $('input[name=ct-resp]:checked').value, nota: $('#ct-nota').value.trim() }; cerrarModal(); res(r); };
+    S._modalCancel = () => res(null);
+  });
+}
+async function registrarContacto(l, justificar) {
+  const r = await pedirContacto(l, justificar); if (!r) return false;
+  try { await api('contacto', Object.assign({ id_lead: l.id }, r)); toast('Contacto registrado. Recuerda responderle por WhatsApp desde el chat.', 'ok'); return true; }
+  catch (e) { toast(e.message, 'bad'); return false; }
+}
+// Detenido: hay que justificar el porqué (decisión del cliente o falta de inventario → moto requerida).
+const MOTIVOS_DETENIDO = [['reúne el dinero', 'El cliente está reuniendo el dinero'], ['busca deudor o codeudor', 'El cliente busca deudor o codeudor'], ['falta de inventario', 'La moto no está disponible (falta de inventario)'], ['otro motivo del cliente', 'Otro motivo del cliente']];
+function pedirDetenido(l) {
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>Marcar como detenido</h3>
+      <p class="small muted" style="margin:0">${esc(l.nombre)} · no recibirá seguimientos ni reasignaciones automáticas. Justifica por qué se detiene.</p>
+      <div class="stack-sm">${MOTIVOS_DETENIDO.map(([v, t]) => `<label class="row small" style="padding:8px;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer"><input type="radio" name="det-m" value="${esc(v)}"> ${esc(t)}</label>`).join('')}</div>
+      <div id="det-moto" hidden><label class="f" for="det-moto-i">Moto requerida (modelo y color)</label><input class="inp w100" id="det-moto-i" maxlength="60" value="${esc(l.raw.modelo_interes || '')}" placeholder="Ej.: TT200 negro"><p class="tiny muted" style="margin:4px 0 0">Se le avisa al Jefe Comercial para gestionar el inventario.</p></div>
+      <label class="f" for="det-nota">Detalle (opcional; obligatorio si es otro motivo)</label><textarea class="inp w100" id="det-nota" rows="2" maxlength="200"></textarea>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-primary" id="c-si" disabled>Marcar detenido</button></div></div>`, true);
+    const val = () => {
+      const m = ($('input[name=det-m]:checked') || {}).value; $('#det-moto').hidden = m !== 'falta de inventario';
+      $('#c-si').disabled = !m || (m === 'falta de inventario' && $('#det-moto-i').value.trim().length < 3) || (m === 'otro motivo del cliente' && $('#det-nota').value.trim().length < 5);
+    };
+    $$('input[name=det-m]').forEach(i => { i.onchange = val; }); $('#det-moto-i').oninput = val; $('#det-nota').oninput = val;
+    $('#c-no').onclick = () => { cerrarModal(); res(null); };
+    $('#c-si').onclick = () => { const r = { motivo: $('input[name=det-m]:checked').value, moto: $('#det-moto-i').value.trim(), nota: $('#det-nota').value.trim() }; cerrarModal(); res(r); };
+    S._modalCancel = () => res(null);
+  });
+}
+async function registrarDetenido(l) {
+  const r = await pedirDetenido(l); if (!r) return false;
+  try { await api('detener', Object.assign({ id_lead: l.id }, r.motivo === 'falta de inventario' ? r : { motivo: r.motivo, nota: r.nota })); return true; }
+  catch (e) { toast(e.message, 'bad'); return false; }
+}
 function pedirMotivo(l) {
   return new Promise(res => {
     abrirSheet(`<div class="sheet-b"><h3>Marcar como perdido</h3><p class="small muted" style="margin:0">${esc(l.nombre)} · el motivo es obligatorio.</p>
@@ -1009,10 +1065,10 @@ async function moverA(l, destino) {
   if (!l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return; }
   const leadTxt = `<b>${esc(l.nombre)}</b>`;
   if (destino === 'Contactado') {
-    await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí');
+    if (!(await registrarContacto(l, false))) return;
   } else if (destino === 'Cotizado') {
     if (!l.cot.length && !(await confirmar('Sin cotización en el CRM', `No hay una cotización cargada para ${leadTxt}. Si continúas, el lead queda marcado como <b>Inconsistencia</b> y el Jefe Comercial lo verá en Conciliación.`, 'Marcar igual'))) return;
-    if (!l.contactado && !(await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí'))) return refrescar();
+    if (!l.contactado && !(await registrarContacto(l, false))) return refrescar();
     await setCampo(l, 'Gestion_Asesor', 'cotizado', 'Sí');
   } else if (destino === 'Facturado') {
     if (!l.fac.length && !(await confirmar('Pasa a facturar', `${leadTxt} queda en <b>Pasa a facturar</b>. Cuando la venta aparezca en el informe de ventas de Síntesis (mismo celular) pasa sola a <b>Cerrado ganado</b> y se habilita la revisión técnica.`, 'Pasa a facturar'))) return;
@@ -1022,8 +1078,7 @@ async function moverA(l, destino) {
     if (!m) return;
     if (!(await cerrarLead(l, 'perdido', m))) return refrescar();
   } else if (destino === 'Retenido') {
-    if (!(await confirmar('Marcar como detenido', `${leadTxt} queda <b>Detenido</b>: no avanza porque no hay la moto disponible o el cliente está reuniendo el dinero. No recibirá seguimientos ni reasignaciones automáticas.`, 'Marcar detenido'))) return;
-    if (!(await cerrarLead(l, 'retenido'))) return refrescar();
+    if (!(await registrarDetenido(l))) return;
   }
   toast(`${l.nombre} → ${lblEstado(destino)}`, 'ok');
   refrescar();
@@ -1731,7 +1786,8 @@ document.addEventListener('click', async e => {
   if (act === 'chat-tomar') return cambiarAtencionChat(a.dataset.id, 'asesor');
   if (act === 'copiar-acceso') { try { await navigator.clipboard.writeText(a.dataset.url); toast('Enlace copiado', 'ok'); } catch (err) { toast(a.dataset.url); } return; }
   if (act === 'abrir' && l) return abrirLead(l.id);
-  if (act === 'contactado' && l) { a.disabled = true; if (await setCampo(l, 'Gestion_Asesor', 'contactado', 'Sí')) toast('Marcado como contactado', 'ok'); return refrescar(); }
+  if (act === 'contactado' && l) { if (!puedeEditar(l)) return; if (!l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return; } await registrarContacto(l, false); return refrescar(); }
+  if (act === 'justificar-contacto' && l) { await registrarContacto(l, true); return refrescar(); }
   if (act === 'cotizado' && l) return moverA(l, 'Cotizado');
   if (act === 'perdido' && l) return moverA(l, 'Perdido');
   if (act === 'detenido' && l) return moverA(l, 'Retenido');
