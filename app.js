@@ -100,7 +100,13 @@ function mesKey(v) {
   const d = parseFecha(s); if (d) return ym(d);
   const i = MESES_L.findIndex(x => norm(s).startsWith(x.slice(0, 3)));
   const y = (s.match(/\d{4}/) || [])[0];
-  return i >= 0 && y ? `${y}-${pad(i + 1)}` : '';
+  if (i >= 0 && y) return `${y}-${pad(i + 1)}`;
+  if (i >= 0) { // «OCTUBRE» sin año: se toma el año en que ese mes queda más cerca de hoy (en octubre, «ENERO» es el de enero que viene)
+    const b = bparts(new Date()), pos = b.y * 12 + b.m - 1;
+    const yr = [b.y - 1, b.y, b.y + 1].sort((a, c) => Math.abs(a * 12 + i - pos) - Math.abs(c * 12 + i - pos))[0];
+    return `${yr}-${pad(i + 1)}`;
+  }
+  return '';
 }
 
 // Festivos de Colombia (Ley Emiliani + Semana Santa)
@@ -1098,10 +1104,26 @@ function armarAvance(nombre, ls, fac, metaRow, mes, extra) {
     ritmo: meta && esperado !== null ? (motos >= esperado ? 'ok' : motos >= esperado * 0.6 ? 'warn' : 'bad') : 'na', dias: d
   }, extra || {});
 }
+// «VALERIA HINCAPIE» (Metas) y «Valeria Incapie Cuartas» (Equipo) son la misma persona: se comparan los nombres con tolerancia de una letra.
+function lev1(a, b) {
+  if (a === b) return true; if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 5) return false;
+  let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return a.slice(i + 1) === b.slice(i + 1) || a.slice(i + 1) === b.slice(i) || a.slice(i) === b.slice(i + 1);
+}
+function mismaPersona(a, b) {
+  const ta = norm(a).split(/\s+/).filter(t => t.length > 1), tb = norm(b).split(/\s+/).filter(t => t.length > 1);
+  if (!ta.length || !tb.length) return false;
+  const comunes = ta.filter(x => tb.some(y => lev1(x, y))).length;
+  return comunes >= Math.min(2, ta.length, tb.length);
+}
 function avancePunto(sede, mes) {
   const ls = S.M.leads.filter(l => l.sede === sede && l.asign && ym(l.asign) === mes);
   const fac = (S.data.facturas || []).filter(f => sedeCanon(f.sede) === sede && mesKey(f.fecha) === mes).length;
-  const m = metaDe(mes, x => sedeCanon(x.persona) === sede) || metaDe(mes, x => sedeCanon(x.sede) === sede && norm(x.rol) === 'punto');
+  let m = metaDe(mes, x => sedeCanon(x.persona) === sede) || metaDe(mes, x => sedeCanon(x.sede) === sede && norm(x.rol) === 'punto');
+  if (!m) { // sin fila del punto: la meta del punto es la suma de las metas de su equipo (incluida la vacante)
+    const eq = (S.data.metas || []).filter(x => mesKey(x.mes) === mes && sedeCanon(x.sede) === sede && norm(x.rol) !== 'punto');
+    if (eq.length) m = { meta_motos: eq.reduce((s, x) => s + (num(x.meta_motos) || 0), 0) };
+  }
   return armarAvance(sede, ls, fac, m, mes, { tipo: 'punto', hist: histVendidas(mes, x => x.punto === sede) });
 }
 // Motos vendidas según el Histórico de ventas; null si ese mes no se ha cargado todavía.
@@ -1112,7 +1134,7 @@ function histVendidas(mes, filtro) {
 function avancePersona(p, mes) {
   const ls = S.M.leads.filter(l => norm(l.asesor) === norm(p.nombre) && l.asign && ym(l.asign) === mes);
   const fac = (S.data.facturas || []).filter(f => norm(f.asesor) === norm(p.nombre) && mesKey(f.fecha) === mes).length;
-  const m = metaDe(mes, x => norm(x.persona) === norm(p.nombre));
+  const m = metaDe(mes, x => mismaPersona(x.persona, p.nombre));
   return armarAvance(p.nombre, ls, fac, m, mes, { tipo: 'asesor', sede: p.sedeCanon, hist: histVendidas(mes, x => norm(x.asesor) === norm(p.nombre)) });
 }
 function avanceGlobal(mes) {
@@ -1215,7 +1237,7 @@ function metricasPersona(nombre, mes) {
   const M = S.M;
   const mis = M.leads.filter(l => norm(l.asesor) === norm(nombre) && l.asign && ym(l.asign) === mes);
   const facts = (S.data.facturas || []).filter(f => norm(f.asesor) === norm(nombre) && mesKey(f.fecha) === mes);
-  const meta = (S.data.metas || []).find(m => norm(m.persona) === norm(nombre) && mesKey(m.mes) === mes);
+  const meta = (S.data.metas || []).find(m => mismaPersona(m.persona, nombre) && mesKey(m.mes) === mes);
   return {
     asignados: mis.length,
     aTiempo: mis.filter(l => l.aTiempo).length,
@@ -1278,7 +1300,7 @@ function indicadoresDe(tipo, evaluado, sede, mes) {
   const cfg = S.M.cfg;
   const ls = S.M.leads.filter(l => l.asign && ym(l.asign) === mes && (tipo === 'Asesor' ? norm(l.asesor) === norm(evaluado) : l.sede === sede));
   const facts = (S.data.facturas || []).filter(f => mesKey(f.fecha) === mes && (tipo === 'Asesor' ? norm(f.asesor) === norm(evaluado) : sedeCanon(f.sede) === sede));
-  const meta = (S.data.metas || []).find(m => mesKey(m.mes) === mes && (tipo === 'Asesor' ? norm(m.persona) === norm(evaluado) : sedeCanon(m.persona) === sede));
+  const meta = (S.data.metas || []).find(m => mesKey(m.mes) === mes && (tipo === 'Asesor' ? mismaPersona(m.persona, evaluado) : sedeCanon(m.persona) === sede));
   const con = ls.filter(l => l.hPrimera !== null);
   const t = con.map(l => l.hPrimera).sort((a, b) => a - b);
   const perd = ls.filter(l => l.estado === 'Perdido');
@@ -1456,7 +1478,7 @@ function vConciliacion() {
   ];
   let body = '';
   if (S.concTab === 'incons') body = incons.length ? `<div class="list">${incons.map(leadCard).join('')}</div>` : empty('ti-circle-check', 'Sin inconsistencias.');
-  if (S.concTab === 'pendfact') body = pendFact.length ? `<p class="small muted">Leads que el asesor marcó como vendidos y que todavía no aparecen en las ventas de Síntesis. Se cruzan solos por celular cuando subes las ventas en Cifras → Cargar ventas.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lead</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th>Marcado</th></tr></thead><tbody>${pendFact.map(l => `<tr><td><a href="#" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</a></td><td>${esc(l.asesor)}</td><td>${esc(l.sede)}</td><td>${esc(l.raw.modelo_interes || '')}</td><td>${fmtFecha(l.ultimaAct, false)}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo marcado como vendido aparece en las ventas.');
+  if (S.concTab === 'pendfact') body = pendFact.length ? `<p class="small muted">Leads que el asesor marcó como vendidos y que todavía no aparecen en las ventas de Síntesis. Se cruzan solos por celular cuando las ventas de Síntesis están en el repositorio de Metas y Cifras.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lead</th><th>Asesor</th><th>Punto</th><th>Modelo</th><th>Marcado</th></tr></thead><tbody>${pendFact.map(l => `<tr><td><a href="#" data-act="abrir" data-id="${esc(l.id)}">${esc(l.nombre)}</a></td><td>${esc(l.asesor)}</td><td>${esc(l.sede)}</td><td>${esc(l.raw.modelo_interes || '')}</td><td>${fmtFecha(l.ultimaAct, false)}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todo lo marcado como vendido aparece en las ventas.');
   if (S.concTab === 'sinorigen') body = M.facSinOrigen.length ? `<p class="small muted">Ventas facturadas (Síntesis) cuyo celular no coincide con ningún lead del bot: clientes que llegaron por otros canales o que no pasaron por el bot.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Factura</th><th>Fecha</th><th>Asesor</th><th>Punto</th><th>Moto</th><th class="r">Valor</th></tr></thead><tbody>${M.facSinOrigen.slice(0, 300).map(f => `<tr><td>${esc(f.id_factura)}</td><td>${fmtFecha(parseFecha(f.fecha), false)}</td><td>${esc(f.asesor)}</td><td>${esc(f.sede)}</td><td>${esc(f.modelo)}</td><td class="r num">${money(num(f.valor))}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-circle-check', 'Todas las ventas cargadas vinieron del bot (o aún no hay ventas cargadas).');
   return `<div class="page-h"><div><h2>Conciliación</h2><p class="muted small">Cruce entre lo que marca el asesor y la evidencia del CRM de la empresa.</p></div></div>
     <div class="seg" style="margin-bottom:12px">${tabs.map(t => `<button class="${S.concTab === t[0] ? 'on' : ''}" data-tab="concTab" data-v="${t[0]}">${t[1]} (${t[2]})</button>`).join('')}</div>${body}`;

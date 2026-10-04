@@ -419,7 +419,7 @@ function cruceTaller(d) {
   });
 }
 function vPosventa() {
-  const lista = [['lista', 'Interesados']].concat(esAsesor() && norm(u().recibe) !== 'posventa' ? [] : [['efect', 'Efectividad']]).concat(esAsesor() ? [] : [['cargar', 'Cargar ingresos de taller']]);
+  const lista = [['lista', 'Interesados']].concat(esAsesor() && norm(u().recibe) !== 'posventa' ? [] : [['efect', 'Efectividad']]);
   if (!lista.some(t => t[0] === T.pos)) T.pos = 'lista';
   const d = datos('posventa');
   const head = cabecera('Posventa', 'Interesados en accesorios, repuestos y revisiones. No entran como lead; se cruzan con los ingresos al taller.', 'posventa',
@@ -427,7 +427,6 @@ function vPosventa() {
   if (!d) return head + tabs('pos', lista) + loading();
   if (d.error) return head + tabs('pos', lista) + errorMod(d);
   if (!d.repoOk) return head + tabs('pos', lista) + sinRepo('Posventa');
-  if (T.pos === 'cargar') return head + tabs('pos', lista) + importador('posventa', [['Ingresos_Taller', 'Ingresos / órdenes de taller (Síntesis)']]);
   const cruce = cruceTaller(d);
   if (T.pos === 'efect') return head + tabs('pos', lista) + tEfectividad(d, cruce);
   const vis = cruce.filter(x => (!F.estado || x.r.estado === F.estado) && (!F.tipo || x.r.tipo === F.tipo) && (!F.punto || sedeCanon(x.r.punto) === F.punto))
@@ -546,7 +545,7 @@ function vInventario() {
   const I = prepInv(d);
   if (T.inv === 'repuestos') return head + tabs('inv', lista) + tRepuestos(I);
   if (T.inv === 'pendiente') return head + tabs('inv', lista) + tPendiente(I);
-  if (!d.sistema.length) return head + tabs('inv', lista) + empty('ti-building-warehouse', 'Aún no hay un corte de inventario de motos cargado. Usa “Cargar exportes”.');
+  if (!d.sistema.length) return head + tabs('inv', lista) + empty('ti-building-warehouse', 'Aún no hay un corte de inventario de motos. Pega el exporte de Síntesis en la hoja Motos_Itagui o Motos_Los_Colores del repositorio de Inventario.');
   const puntos = uniq(I.stock.map(s => s.punto));
   const pSel = esJefe() ? F.punto : u().sede;
   const filtroP = x => !pSel || x.punto === pSel;
@@ -602,7 +601,7 @@ function tRepuestos(I) {
   const rows = I.repuestos.filter(r => (!pSel || r.punto === pSel) && (!q || norm(r.articulo + ' ' + r.codigo).includes(q)));
   const sum = p => I.repuestos.filter(r => r.punto === p).reduce((a, r) => a + r.cant, 0);
   const refs = p => I.repuestos.filter(r => r.punto === p).length;
-  if (!I.repuestos.length) return empty('ti-tool', 'Aún no hay inventario de repuestos cargado. Usa “Cargar exportes” → Repuestos · Itagüí o Los Colores.');
+  if (!I.repuestos.length) return empty('ti-tool', 'Aún no hay inventario de repuestos. Pega el exporte en la hoja Repuestos_Itagui o Repuestos_Los_Colores del repositorio de Inventario.');
   return `<div class="filters">${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}
       <input class="inp" data-mch="f" data-k="buscar" value="${esc(F.buscar || '')}" placeholder="Buscar repuesto o código…" style="flex:2 1 220px"></div>
     <div class="grid g-kpi">${['Itagüí', 'Los Colores'].map(p => kpi('Repuestos ' + p, sum(p) + ' und', `${refs(p)} referencias · corte ${esc(I.ultRep[p] || '—')}`)).join('')}${kpi('Sin existencias', rows.filter(r => !r.cant).length, 'referencias en 0', 'warn')}</div>
@@ -711,21 +710,19 @@ function vSimulador(d) {
 }
 
 function vCotizaciones() {
-  const lista = [['sim', 'Simulador web'], ['cruce', 'Ventas ↔ cotizaciones CRM'], ['cargar', 'Cargar cotizaciones del CRM']];
+  const lista = [['sim', 'Simulador web'], ['cruce', 'Ventas ↔ cotizaciones CRM']];
   const d = datos('cotizaciones');
   const head = cabecera('Cotizaciones', 'Simulaciones del cotizador web y cruce de las ventas facturadas (Síntesis) con las cotizaciones del CRM, por cédula o celular.', 'cotizaciones');
   if (!d) return head + tabs('cot', lista) + loading();
   if (d.error) return head + tabs('cot', lista) + errorMod(d);
   if (T.cot === 'sim') return head + tabs('cot', lista) + vSimulador(d);
   if (!d.repoOk) return head + tabs('cot', lista) + sinRepo('Cotizaciones');
-  if (T.cot === 'cargar') return head + tabs('cot', lista) + importador('cotizaciones', [['CRM', 'Cotizaciones del CRM: agenda y seguimientos (se separa sola en Mes en curso e Histórico)']])
-    + `<p class="tiny muted">Se guardan cédula, celular, referencia, estado del negocio, asesor y seguimientos; no se guarda el correo. Si vuelves a subir el mismo archivo, solo se agregan las filas nuevas.</p>`;
   return head + tabs('cot', lista) + tCruceVentas(d);
 }
 /** Cruce: cada venta facturada (Síntesis) contra las cotizaciones del CRM, por cédula o celular. */
 function tCruceVentas(d) {
   const meses = uniq((d.ventas || []).map(v => v.mes)).sort().reverse();
-  if (!meses.length) return empty('ti-report-off', 'Aún no hay ventas cargadas. Súbelas en Cifras → Cargar ventas para poder cruzarlas con el CRM.');
+  if (!meses.length) return empty('ti-report-off', 'Aún no hay ventas. Pega el exporte de Síntesis en la hoja Mes_en_Curso del repositorio de Metas y Cifras para poder cruzarlas con el CRM.');
   if (!F.mesCif || !meses.includes(F.mesCif)) F.mesCif = meses[0];
   const mes = F.mesCif, pSel = esJefe() ? F.punto : u().sede;
   const enPunto = x => !pSel || x.punto === pSel;
@@ -762,7 +759,7 @@ function tCruceVentas(d) {
       ${kpi('Cotizaciones del mes', delMes.length, 'creadas en el CRM')}
       ${kpi('Convertidas en venta', vendidas.length, fmtPct(pct(vendidas.length, delMes.length)) + ' de las cotizaciones', 'ok')}
       ${kpi('Vinieron del bot', delBot, 'el celular coincide con un lead')}</div>
-    ${!qs.length ? '<div class="notice" style="margin-top:10px"><i class="ti ti-info-circle"></i><div>Todavía no hay cotizaciones del CRM cargadas. Súbelas en la pestaña “Cargar cotizaciones del CRM”.</div></div>' : ''}
+    ${!qs.length ? '<div class="notice" style="margin-top:10px"><i class="ti ti-info-circle"></i><div>Todavía no hay cotizaciones del CRM. Pega el exporte «agenda y seguimientos» en la hoja Mes_en_Curso del repositorio de Cotizaciones (los meses cerrados van en Historico).</div></div>' : ''}
     <div class="section-title"><i class="ti ti-users"></i>Por asesor</div>
     ${porAs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Ventas</th><th class="r">Con cotización CRM</th><th class="r">%</th><th class="r">Cotizaciones del mes</th><th class="r">Convertidas</th><th class="r">Conversión</th></tr></thead><tbody>${porAs.map(x => `<tr><td><b>${esc(x.a)}</b></td><td class="r num">${x.ventas}</td><td class="r num">${x.conCot}</td><td class="r num">${fmtPct(pct(x.conCot, x.ventas))}</td><td class="r num">${x.cots}</td><td class="r num">${x.vendidas}</td><td class="r num">${fmtPct(pct(x.vendidas, x.cots))}</td></tr>`).join('')}</tbody></table></div>` : empty('ti-file-off', 'Sin datos en el período.')}
     <div class="section-title"><i class="ti ti-file-alert"></i>Ventas sin cotización en el CRM<span class="count">${sinCot.length}</span></div>
@@ -904,15 +901,13 @@ function tTop(d, mes) {
   }).join('');
 }
 function vCifras() {
-  const lista = [['cierre', 'Cierre de mes'], ['top', 'Más vendidas']].concat(u().rol === 'asesor' ? [] : [['cargar', 'Cargar ventas']]);
+  const lista = [['cierre', 'Cierre de mes'], ['top', 'Más vendidas']];
   const d = datos('ventas');
   const head = cabecera('Cifras comerciales', 'Ventas facturadas de Síntesis: cierre de mes y referencias más vendidas por asesor, punto y zona.', 'ventas');
   if (!d) return head + tabs('cif', lista) + loading();
   if (d.error) return head + tabs('cif', lista) + errorMod(d);
   if (!d.repoOk) return head + sinRepo('Metas y Cifras Comerciales');
-  if (T.cif === 'cargar') return head + tabs('cif', lista) + importador('metas', [['Ventas', 'Ventas facturadas de Síntesis (se separa sola en Mes en curso e Histórico)']])
-    + `<p class="tiny muted">Se cargan solo las motocicletas (con sus notas crédito). No se guardan serie, costo, dirección ni correo. Si subes de nuevo el mismo mes, solo se agregan las facturas nuevas.</p>`;
-  if (!d.meses.length) return head + tabs('cif', lista) + empty('ti-report-off', 'Aún no hay ventas cargadas. Ve a “Cargar ventas” y sube el exporte de ventas de Síntesis.');
+  if (!d.meses.length) return head + tabs('cif', lista) + empty('ti-report-off', 'Aún no hay ventas. Pega el exporte de ventas de Síntesis en la hoja Mes_en_Curso del repositorio «Metas y Cifras Comerciales» (los meses cerrados van en Historico).');
   if (!F.mesCif || !d.meses.includes(F.mesCif)) F.mesCif = d.meses[0];
   const hist = d.historico.filter(h => h.punto === 'Itagüí' || h.punto === 'Los Colores');
   return head + tabs('cif', lista) + `<div class="filters"><select class="sel" data-mch="f" data-k="mesCif">${opts(d.meses.map(m => ({ v: m, t: H.fmtMes(m) + (m === d.mesActual ? ' · mes en curso' : '') })), F.mesCif)}</select>
