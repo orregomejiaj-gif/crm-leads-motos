@@ -946,6 +946,7 @@ function abrirLead(id) {
       ${cardAvance(l, ed)}
       <div class="card" id="oport-cli"><h3 style="margin-bottom:8px">Oportunidades del cliente</h3><p class="small muted" style="margin:0"><i class="ti ti-loader-2 spin"></i> Cargando…</p></div>
 
+      <div class="card" id="perfil-cot" style="display:none"></div>
       <div class="card"><h3 style="margin-bottom:8px">Perfil</h3>${perfil ? `<dl class="kv">${perfil}</dl>` : '<p class="muted small">El bot aún no ha capturado datos de perfil.</p>'}</div>
       <div class="card"><h3 style="margin-bottom:8px">Memoria de la IA</h3><p class="small" style="margin:0;white-space:pre-wrap">${esc(r.memoria_resumen || 'Sin resumen todavía.')}</p></div>
       <div class="card"><h3 style="margin-bottom:8px">Evidencia</h3>
@@ -962,6 +963,22 @@ function abrirLead(id) {
     </div>`);
   if (S.view !== 'chats') cargarChat(id, true);
   cargarOportunidadesCliente(l);
+  cargarPerfilCotizacion(l);
+}
+
+// Perfil de crédito que el cliente llenó en el cotizador web (cédula, actividad, forma de pago, centrales de riesgo): solo lo ve quien atiende el lead
+function cargarPerfilCotizacion(l) {
+  api('perfilCotizacion', { id_lead: l.id }).then(r => {
+    const c = $('#perfil-cot'); if (!c || S.leadAbierto !== l.id || !r || !r.perfil) return;
+    const p = r.perfil, pago = { credito_directo: 'Crédito directo', credito_financiera: 'Crédito con financiera', contado: 'Contado' }[p.forma_pago] || '—';
+    const rg = { no_reportado: 'No reportado', reportado: 'REPORTADO', paz_y_salvo: 'Paz y salvo / certificación al día' }[p.central_riesgo] || '—';
+    c.style.display = '';
+    c.innerHTML = `<h3 style="margin-bottom:8px">🗂️ Perfil para estudio de crédito <span class="tiny muted">cotizador web · ${esc(String(p.fecha).slice(0, 16))}</span></h3>
+      <dl class="kv"><dt>Cédula</dt><dd>${esc(p.cedula || '—')}</dd><dt>Actividad económica</dt><dd>${esc(p.actividad || '—')}</dd><dt>Ciudad</dt><dd>${esc(p.ciudad || '—')}</dd>
+      <dt>Forma de pago</dt><dd>${esc(pago)}</dd><dt>Centrales de riesgo</dt><dd><span class="pill ${p.central_riesgo === 'reportado' ? 'pill-bad' : p.central_riesgo ? 'pill-ok' : ''}">${esc(rg)}</span></dd>
+      <dt>Moto cotizada</dt><dd>${esc(p.modelo || '—')}</dd>${p.cuota_inicial ? `<dt>Cuota inicial</dt><dd>${money(p.cuota_inicial)}</dd>` : ''}${p.cuota_mensual_estim ? `<dt>Cuota estimada</dt><dd>${money(p.cuota_mensual_estim)} a ${p.plazo_meses} meses${p.financiador ? ' · ' + esc(p.financiador) : ''}</dd>` : ''}</dl>
+      <p class="tiny muted" style="margin:8px 0 0">Datos personales autorizados por el cliente para el estudio de crédito. Úsalos solo para ese fin.</p>`;
+  }).catch(() => {});
 }
 
 // ── Avance de la venta: etapas del embudo, citas y encuestas del lead ──
@@ -2236,7 +2253,9 @@ const CARGAS = {
 // ═══════════════════════════════ ACCESOS (solo Jefe Comercial) ═══════════
 // Enlaces a las plataformas del proyecto. Para agregar uno nuevo, añade una línea aquí.
 const ACCESOS = [
-  { grupo: 'Para clientes', icon: 'ti-calculator', nombre: 'Cotizador de motos (público)', desc: 'Enlace para publicaciones en redes y para enviar por WhatsApp. Quien cotiza entra como lead caliente "cotizado".', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador.html' }
+  { grupo: 'Para clientes', icon: 'ti-calculator', nombre: 'Cotizador de motos (público)', desc: 'Enlace para publicaciones en redes y para enviar por WhatsApp. Quien cotiza entra como lead caliente "cotizado" con su perfil (forma de pago, actividad, centrales de riesgo).', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador.html' },
+  { grupo: 'Para clientes', icon: 'ti-motorbike', nombre: 'Catálogo de motos (público)', desc: 'Todas las motos con precio, bono vigente y ficha técnica. Cada moto lleva al cotizador.', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/catalogo.html' },
+  { grupo: 'Para eventos', icon: 'ti-calendar-event', nombre: 'Cotizador de eventos', desc: 'Formulario rápido para tomar datos en ferias y activaciones. Añade ?e=NombreDelEvento al enlace para etiquetar la campaña.', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador-eventos.html' }
 ];
 function vAccesos() {
   if (S.data.user.rol !== 'jefe') return empty('ti-lock', 'Solo el Jefe Comercial ve los accesos.');

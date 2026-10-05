@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Catálogo de motos AKT · Moto Racing</title>
+<meta name="description" content="Catálogo completo de motos AKT en Moto Racing Itagüí y Los Colores: precios, bonos vigentes y fichas técnicas.">
+<link rel="icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#eef1f7;--surface:#fff;--surface-2:#e7ebf3;--ink:#10131c;--ink-soft:#4c5568;--ink-faint:#848da0;--accent:#e2231a;--accent-2:#b8160f;--navy:#07416a;--line:#dde2ec;--good:#1f8a4c;--good-bg:#e5f4ec;--shadow:0 1px 2px rgba(10,20,50,.06),0 8px 24px -12px rgba(10,20,50,.20)}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0a1122;--surface:#111a2e;--surface-2:#182338;--ink:#eef2fa;--ink-soft:#aab4c8;--ink-faint:#76839c;--accent:#ff473c;--accent-2:#d1281e;--navy:#9fb6e6;--line:#26314a;--good:#3ecb7e;--good-bg:#122a1e;--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 28px -12px rgba(0,0,0,.65);color-scheme:dark}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Barlow,system-ui,sans-serif;line-height:1.45}
+  h1,h2,h3,.rj{font-family:Rajdhani,system-ui,sans-serif}
+  header.top{background:var(--navy);color:#fff;padding:14px 16px}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) header.top{background:#0d1a33;color:#eef2fa}}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+  header.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .brand{font-family:Rajdhani;font-weight:700;font-size:1.35rem;letter-spacing:.02em}
+  .brand b{color:#ff6a60}
+  .cta-top{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{display:inline-block;border:0;border-radius:10px;padding:10px 16px;font:600 .95rem Barlow,sans-serif;cursor:pointer;text-decoration:none;text-align:center}
+  .btn-red{background:var(--accent);color:#fff}.btn-red:hover{background:var(--accent-2)}
+  .btn-ghost{background:transparent;color:inherit;border:1px solid currentColor}
+  .hero{padding:28px 0 8px}
+  .hero h1{font-size:clamp(1.8rem,5vw,2.8rem);margin:0 0 4px;line-height:1.05}
+  .hero p{margin:0;color:var(--ink-soft);max-width:60ch}
+  .bar{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 0;border-bottom:1px solid var(--line)}
+  .bar .wrap{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 14px;font:600 .9rem Barlow;cursor:pointer}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .bar input,.bar select{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:9px 12px;font:500 .95rem Barlow;min-width:0}
+  .bar input{flex:1 1 180px}
+  .count{color:var(--ink-faint);font-size:.9rem;margin:14px 0 8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;padding-bottom:40px}
+  .card{background:var(--surface);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;cursor:pointer;border:1px solid var(--line);transition:transform .15s}
+  .card:hover{transform:translateY(-3px)}
+  .card .ph{aspect-ratio:4/3;background:var(--surface-2);display:flex;align-items:center;justify-content:center;position:relative}
+  .card .ph img{width:100%;height:100%;object-fit:contain;background:#fff}
+  .tag{position:absolute;top:10px;left:10px;background:var(--navy);color:#fff;font:600 .72rem Barlow;padding:4px 9px;border-radius:999px;letter-spacing:.04em;text-transform:uppercase}
+  .bono{position:absolute;top:10px;right:10px;background:var(--good);color:#fff;font:700 .78rem Barlow;padding:4px 9px;border-radius:999px}
+  .card .bd{padding:14px 16px 16px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .card h3{margin:0;font-size:1.3rem;line-height:1.1}
+  .kp{display:flex;gap:6px;flex-wrap:wrap}
+  .kp span{background:var(--surface-2);color:var(--ink-soft);border-radius:8px;padding:3px 8px;font-size:.8rem;font-weight:600}
+  .price{margin-top:auto;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .price .now{font:700 1.5rem Rajdhani;color:var(--accent)}
+  .price .old{color:var(--ink-faint);text-decoration:line-through;font-size:.9rem}
+  .card .acts{display:flex;gap:8px}
+  .card .acts .btn{flex:1;padding:9px 8px;font-size:.88rem}
+  .btn-line{background:var(--surface-2);color:var(--ink)}
+  dialog{border:0;border-radius:18px;padding:0;width:min(860px,96vw);max-height:92vh;background:var(--surface);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  dialog::backdrop{background:rgba(5,10,25,.6)}
+  .m-head{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .m-head .ph{background:#fff;display:flex;align-items:center;justify-content:center;min-height:240px}
+  .m-head .ph img{max-width:100%;max-height:340px;object-fit:contain}
+  .m-info{padding:22px;display:flex;flex-direction:column;gap:10px}
+  .m-info h2{margin:0;font-size:1.9rem;line-height:1}
+  .m-info .price .now{font-size:2rem}
+  .m-body{padding:0 22px 22px;overflow:auto;max-height:46vh}
+  .m-body h3{font-size:1.2rem;margin:16px 0 8px}
+  table.sp{width:100%;border-collapse:collapse;font-size:.93rem}
+  table.sp td{padding:8px 10px;border-bottom:1px solid var(--line)}
+  table.sp td:first-child{color:var(--ink-soft);width:44%}
+  table.sp td:last-child{font-weight:600}
+  .nota{font-size:.82rem;color:var(--ink-faint);margin:10px 0 0}
+  .x{position:absolute;top:10px;right:12px;background:rgba(0,0,0,.55);color:#fff;border:0;border-radius:50%;width:34px;height:34px;font-size:1.1rem;cursor:pointer}
+  .sinficha{background:var(--surface-2);border-radius:10px;padding:12px 14px;color:var(--ink-soft)}
+  footer{background:var(--navy);color:#dbe6f7;padding:24px 16px;font-size:.9rem}
+  footer a{color:#fff}
+  @media (max-width:640px){.m-head{grid-template-columns:1fr}.m-body{max-height:none}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="brand">MOTO<b>RACING</b> · AKT</div>
+  <div class="cta-top">
+    <a class="btn btn-ghost" href="cotizador.html">Simula tu crédito</a>
+    <a class="btn btn-red" id="wa-top" target="_blank" rel="noopener" href="#">Escríbenos por WhatsApp</a>
+  </div>
+</div></header>
+
+<section class="hero"><div class="wrap">
+  <h1>Catálogo de motos AKT</h1>
+  <p>Todas las motos disponibles en Itagüí y Los Colores, con precio, bono vigente y ficha técnica. Elige una y simula tu cuota.</p>
+</div></section>
+
+<div class="bar"><div class="wrap">
+  <div class="chips" id="chips"></div>
+  <input id="q" type="search" placeholder="Buscar modelo (ej. NKD, TTR, Dynamic…)" aria-label="Buscar modelo">
+  <select id="orden" aria-label="Ordenar">
+    <option value="cat">Ordenar: categoría</option>
+    <option value="asc">Precio: menor a mayor</option>
+    <option value="desc">Precio: mayor a menor</option>
+    <option value="az">Nombre A–Z</option>
+  </select>
+</div></div>
+
+<main class="wrap">
+  <div class="count" id="count"></div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<dialog id="dlg"><button class="x" id="cerrar" aria-label="Cerrar">✕</button><div id="dbody"></div></dialog>
+
+<footer><div class="wrap">
+  <strong>MOTORACING DE COLOMBIA S.A.S</strong> · Puntos de venta: Itagüí y Los Colores (Medellín).<br>
+  Los precios no incluyen matrícula, gastos administrativos ni SOAT. Bonos y precios sujetos a cambio sin previo aviso y a disponibilidad. Las imágenes son de referencia.
+</div></footer>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var API = (window.AKT_CONFIG || {}).API_URL;
+  var WA = '573502683788';
+  var IMG = 'https://motoracing.7-24.co/userfiles/productos/thumbnails/600_';
+  var cop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* Respaldo de precios (se reemplaza por los de la hoja "precios de venta con bonos" cuando la API responde). */
+  var PRECIOS = [["NKD 125 FP","Calle",6490000,5890000],["NKD 125","Calle",5490000,4890000],["NKD 125 Classic","Calle",6090000,5490000],["CHR 125","Calle",5990000,5490000],["CR4 150","Calle",7590000,6990000],["250 R","Calle",11990000,11590000],["CR4 125","Calle",6990000,6590000],["CR4 200 Pro","Calle",8990000,8590000],["Dynamic RX Fi","Semiautomatica",9890000,9490000],["Dynamic Pro CBS","Semiautomatica",8490000,8090000],["Jet Evo","Semiautomatica",12990000,12590000],["Special 110 X","Semiautomatica",5590000,5190000],["Flex 125","Semiautomatica",6290000,5690000],["TT200 con ABS","Enduro",10590000,9790000],["DS 300","Enduro",15990000,15590000],["Rally 300","Enduro",17990000,17590000],["TT200 Rally","Enduro",11390000,10590000],["DS525X","Enduro",31990000,31990000],["DS900X","Enduro",51990000,51990000],["Rally 300 Arena","Enduro",19490000,19090000],["DS800X Rally","Enduro",42990000,42990000],["XRS 180","Enduro",13990000,13990000],["TTR 125","Enduro",7790000,7390000],["TTR 200","Enduro",9590000,9190000],["TTR125 Verde Militar","Enduro",8200000,7800000],["TTR 200 ABS Verde Militar","Enduro",9790000,9390000],["Tuk Tuk 200","Motocarro",16490000,16490000],["Karguero 3W 200","Motocarro",15490000,14490000],["Karguero Carpado","Motocarro",18490000,17490000],["Karguero 200 Edicion Especial","Motocarro",16690000,15690000]];
+
+  var CAT_NOM = { Calle: 'Calle', Semiautomatica: 'Semiautomática', Enduro: 'Enduro / Doble propósito', Motocarro: 'Motocarros' };
+
+  /* Fichas técnicas: tomadas de la ficha oficial publicada en motoracing.com.co (2026-10-04).
+     c cilindraje · p potencia · t torque · cj caja · w peso · tk tanque · fd/ft freno del./tras. · ld/lt llanta del./tras.
+     sd/st suspensión del./tras. · mo motor · ar arranque · al alimentación · hl notas destacadas */
+  var F = {
+    nkd:   { c:'124 cc', p:'10.34 hp @ 7.000–8.000 rpm', cj:'5 cambios manual', w:'94,5 kg', fd:'Disco', ft:'Tambor', ld:'2.75-18', lt:'3.00-18', sd:'Telescópica hidráulica', st:'Doble amortiguador regulable (double spring)', mo:'CGR 4T OHV', ar:'Eléctrico y a patada', al:'Carburador', co:'9.5:1', ent:'1.270 mm', dim:'1.900 x 770 x 800 mm' },
+    nkdc:  { c:'124 cc', p:'10.34 hp (7.5 kW) @ 8.000 rpm', cj:'5 cambios manual', w:'94,5 kg', tk:'2,6 gal', fd:'Disco', ft:'Tambor', ld:'Michelin 90/90-18', lt:'Michelin 100/90-18', sd:'Telescópica hidráulica', st:'Doble amortiguador regulable (double spring)', mo:'CGR 4T OHV', ar:'Eléctrico y a patada', al:'Carburador', co:'9.5:1' },
+    nkdfp: { c:'124 cc', p:'10.34 hp @ 8.000 rpm', cj:'5 cambios manual', w:'94,5 kg', tk:'2,6 gal', fd:'Disco', ft:'Tambor', ld:'2.75-18', lt:'3.00-18', sd:'Telescópica hidráulica', st:'Doble amortiguador regulable', mo:'CGR 4T OHV', ar:'Eléctrico y a patada', co:'9.5:1', ent:'1.270 mm', dim:'1.900 x 770 x 800 mm' },
+    chr:   { c:'124,9 cc', p:'10.3 hp @ 8.000 rpm', cj:'5 cambios manual', w:'122 kg', tk:'2,5 gal', fd:'Disco', ft:'Campana', ld:'2.75-18', lt:'110/90-16', sd:'Telescópica hidráulica', st:'Doble spring regulable', mo:'CGR 4T OHV', ar:'Eléctrico y a patada', co:'9.5:1', ent:'1.275 mm', dim:'1.970 x 830 x 1.130 mm' },
+    cr4_150:{ c:'149 cc', p:'11 hp', cj:'6 cambios', w:'120 kg', tk:'3,6 gal', fd:'Disco lobulado', ft:'Disco lobulado', ld:'80/90-17', lt:'120/70-17', sd:'Telescópica hidráulica', st:'Unishock', mo:'CGR', ar:'Eléctrico y a patada', co:'9.2:1' },
+    r250:  { c:'249,4 cc', p:'24.1 hp @ 7.500 rpm', cj:'6 velocidades', w:'148 kg', tk:'3,17 gal', fd:'Disco hidráulico con ABS', ft:'Disco', mo:'4 tiempos', ar:'Eléctrico', al:'Inyección electrónica' },
+    cr4_125:{ c:'124 cc', p:'10 hp (7.5 kW) @ 8.000 rpm', w:'118 kg', tk:'3,96 gal', fd:'Disco', ft:'Tambor', ld:'80/90-17', lt:'110/80-17', sd:'Telescópica hidráulica', st:'Unishock', mo:'CGR 4T OHV', ar:'Eléctrico y a patada', al:'Carburador', co:'9.5:1' },
+    cr4_200:{ c:'197 cc', p:'16.5 hp @ 8.000 rpm', cj:'6 velocidades', w:'140 kg', tk:'3,96 gal', fd:'Disco 272 mm, pinza de 2 pistones', ft:'Disco 230 mm', ld:'80/90-17', lt:'110/80-17', sd:'Telescópica hidráulica', st:'Unishock con precarga graduable', mo:'RE 4 tiempos SOHC', ar:'Eléctrico', ent:'1.350 mm', dim:'2.020 x 780 x 1.030 mm', hl:['Distancia al piso 170 mm'] },
+    dynrx: { c:'149,6 cc', p:'8.3 kW @ 8.000 rpm', w:'121 kg', tk:'1,7 gal', fd:'Disco', ft:'Disco', ld:'110/70-12', lt:'120/70-12', st:'Doble amortiguador', mo:'4 tiempos, 1 cilindro', ar:'Eléctrico y pedal' },
+    dynpro:{ c:'124,6 cc', p:'9.78 hp @ 8.500 rpm', cj:'Automática CVT', w:'105 kg', tk:'1,62 gal', fd:'Disco lobulado accionado por CBS', ft:'Tambor accionado por CBS', ld:'Dunlop 120/70-12', lt:'Dunlop 130/70-12', sd:'Telescópica hidráulica', st:'Doble amortiguador graduable', mo:'4T OHC', ar:'Eléctrico y a patada', co:'10.68:1' },
+    jet:   { c:'149,6 cc', p:'14 hp @ 8.500 rpm', cj:'Automática CVT', w:'145 kg', tk:'3,2 gal', fd:'Disco con ABS doble canal', ft:'Disco con ABS doble canal', ld:'100/90-14', lt:'120/80-14', sd:'Telescópica hidráulica', st:'Doble amortiguador', mo:'4 tiempos, 1 cilindro', ar:'Eléctrico', al:'Inyección electrónica', co:'11.0:1', ent:'1.375 mm', dim:'2.015 x 760 x 1.208 mm' },
+    sp110: { c:'107 cc', p:'7.21 hp @ 8.000 rpm', tk:'1 gal', fd:'Disco lobulado', ft:'Tambor', ld:'2.50-17', lt:'2.75-17', sd:'Telescópica hidráulica', st:'Doble amortiguador regulable', mo:'4T SOHC', ar:'Eléctrico y a patada', al:'Carburador', co:'9.3:1', ref:'AK 110 NV CBS' },
+    flex:  { c:'123,7 cc', p:'8.6 hp', cj:'4 cambios semiautomática', w:'103 kg', tk:'1 gal', fd:'Disco lobulado', ft:'Tambor', ld:'2.50-17', lt:'2.75-17', mo:'4T OHC', co:'9.7:1', dim:'1.960 x 710 x 1.100 mm', ref:'AK125 FLEX CBS' },
+    tt200: { c:'197 cc', p:'16.5 hp', t:'15.5 Nm', cj:'6 velocidades', w:'120 kg', tk:'3,17 gal', fd:'Disco', ft:'Disco', sd:'Telescópica', st:'Monoshock', mo:'Monocilíndrico', hl:['Diseño robusto con estilo rally y cúpula contra el viento','Iluminación full LED','Posición de manejo erguida, cómoda en viajes largos'] },
+    ds300: { c:'292 cc', p:'25.5 hp @ 8.500 rpm', cj:'6 velocidades', w:'170 kg', tk:'16 L', fd:'Disco 300 mm, 2 pistones, ABS', ft:'Disco 220 mm, 1 pistón, ABS', ld:'110/80-17', lt:'150/60-17', sd:'Invertida 35 mm (134 mm de recorrido)', st:'Amortiguador con bieleta', mo:'4 tiempos DOHC', ar:'Eléctrico', al:'Inyección electrónica Bosch', co:'11.0:1', ref:'VOGE 300DS6' },
+    rally300:{ c:'292 cc', p:'28.1 hp @ 9.000 rpm', cj:'6 velocidades', w:'158 kg', tk:'11 L', fd:'Disco 265 mm, ABS', ft:'Disco 220 mm, ABS desconectable', ld:'3.00-21', lt:'5.10-18', sd:'Invertida 41 mm (206 mm de recorrido)', st:'Amortiguador con bieleta', mo:'4 tiempos DOHC', ar:'Eléctrico', al:'Inyección electrónica', co:'11.0:1', ref:'VOGE 300 DS Rally Adventure' },
+    xrs:   { c:'174,1 cc', p:'17.4 hp @ 8.500 rpm', cj:'Automática CVT', w:'144 kg', tk:'2,4 gal', fd:'Disco con ABS', ft:'Disco con ABS', ld:'110/80-14', lt:'130/70-13', sd:'Telescópica hidráulica', st:'Doble amortiguador', mo:'4 tiempos, 1 cilindro, refrigerado por líquido', ar:'Eléctrico', al:'Inyección electrónica (EFI)', ent:'1.330 mm', dim:'1.930 x 770 x 1.300 mm' },
+    ttr125:{ c:'124,9 cc', p:'10.3 hp @ 8.000 rpm', cj:'5 cambios manual', w:'120 kg', tk:'2,9 gal', fd:'Disco', ft:'Campana', ld:'90/90-19', lt:'110/90-17', sd:'Telescópica hidráulica', st:'Doble spring regulable', mo:'CGR 4T OHV', ar:'Eléctrico y a patada', co:'9.5:1', ent:'1.330 mm', dim:'1.998 x 780 x 1.120 mm', hl:['Distancia al piso 255 mm'] },
+    ttr200:{ c:'197 cc', p:'16.5 hp @ 8.500 rpm', cj:'6 cambios manual', w:'120 kg', tk:'2,9 gal', fd:'Disco lobulado con ABS', ft:'Disco lobulado', ld:'90/90-19 doble propósito', lt:'110/90-17 doble propósito', sd:'Telescópica hidráulica', st:'Unishock', mo:'RE 4T OHC', ar:'Eléctrico', co:'9.2:1', ref:'AK200TTR ABS' },
+    tuk:   { c:'198,6 cc', p:'10 hp @ 6.000 rpm', tk:'2,64 gal', fd:'Tambor', ft:'Tambor', ld:'4 in R8', lt:'4 in R8', sd:'Muelle helicoidal + amortiguador telescópico', st:'Muelle helicoidal + amortiguador telescópico', mo:'4T OHC', ar:'Eléctrico', co:'9.0:1' },
+    karg:  { c:'197 cc', p:'12,07 hp @ 7.000 rpm', w:'377 kg', tk:'3,55 gal', fd:'Disco hidráulico', ft:'Tambor hidráulico', ld:'4.50-12', lt:'4.50-12', sd:'Telescópica reforzada (barra 49,95 mm)', st:'Ballestas (5 hojas)', mo:'4T OHV monocilíndrico', ar:'Eléctrico y a patada', co:'8.0:1 – 8.5:1' },
+    kargc: { c:'197 cc', p:'12,07 hp @ 7.000 rpm', tk:'3,55 gal', fd:'Disco hidráulico', ft:'Tambor hidráulico', ld:'4.50-12', lt:'4.50-12', sd:'Telescópica reforzada (barra 49,95 mm)', st:'Ballestas (5 hojas)', mo:'4T OHV monocilíndrico', ar:'Eléctrico y a patada', co:'8.0:1 – 8.5:1' }
+  };
+
+  /* modelo de la hoja → ficha + foto (archivo en motoracing.7-24.co) */
+  var MAPA = {
+    'NKD 125 FP': ['nkdfp', 'ak125nkd_fp_cbs.jpg'], 'NKD 125': ['nkd', 'AKT_NKD_125_LED.JPG'], 'NKD 125 Classic': ['nkdc', 'AKT_NKD_CLASSIC.JPG'],
+    'CHR 125': ['chr', 'chr_125.jpg'], 'CR4 150': ['cr4_150', 'cr_4_150.jpg'], '250 R': ['r250', '250_r.jpg'], 'CR4 125': ['cr4_125', 'ak125cr4_eiii.jpg'],
+    'CR4 200 Pro': ['cr4_200', 'cr4_200.jpg'], 'Dynamic RX Fi': ['dynrx', 'dynamic_rx.jpg'], 'Dynamic Pro CBS': ['dynpro', 'dyamic_pro.jpg'],
+    'Jet Evo': ['jet', 'jet_14.jpg'], 'Special 110 X': ['sp110', 'crm_producto_motoracing.jpg'], 'Flex 125': ['flex', 'ak125flex_cbs.jpg'],
+    'TT200 con ABS': ['tt200', null, 'https://motoracing.com.co/images/TT200CONABS.jpeg'], 'TT200 Rally': ['tt200', null, 'https://motoracing.com.co/images/TT200%202.png'],
+    'DS 300': ['ds300', '300_ds6.jpg'], 'Rally 300': ['rally300', 'rally_300.jpg'], 'Rally 300 Arena': ['rally300', 'rally_300.jpg'],
+    'XRS 180': ['xrs', 'ak_xrs_180.jpg'], 'TTR 125': ['ttr125', 'ttr1252.jpg'], 'TTR125 Verde Militar': ['ttr125', 'ttr125.jpg'],
+    'TTR 200': ['ttr200', 'TTR_200.JPG'], 'TTR 200 ABS Verde Militar': ['ttr200', 'ttr_2002.jpg'],
+    'Tuk Tuk 200': ['tuk', 'tuk_tuk.jpg'], 'Karguero 3W 200': ['karg', 'karguero_200.jpg'], 'Karguero Carpado': ['kargc', 'karguero_carpado.jpg'],
+    'Karguero 200 Edicion Especial': ['karg', 'karguero_200.jpg']
+  };
+  var COMPARTE = { 'TT200 Rally': 'Ficha base de la línea TT200.', 'Rally 300 Arena': 'Ficha de la línea Rally 300.', 'TTR125 Verde Militar': 'Ficha de la TTR 125 (cambia el color).', 'TTR 200 ABS Verde Militar': 'Ficha de la TTR 200 ABS (cambia el color).', 'Karguero 200 Edicion Especial': 'Ficha de la Karguero 3W 200.', 'Special 110 X': 'Ficha de la línea AK 110 NV CBS.', 'Flex 125': 'Ficha del AK125 FLEX CBS.' };
+
+  var MODELOS = [], cat = 'Todas';
+
+  function armar(lista) {
+    MODELOS = lista.map(function (r) {
+      var mp = MAPA[r.modelo] || [], f = F[mp[0]] || null;
+      return { modelo: r.modelo, categoria: r.categoria, pub: r.pub, fin: r.fin, bono: r.pub - r.fin, f: f,
+        img: mp[2] || (mp[1] ? IMG + mp[1] : null), nota: COMPARTE[r.modelo] || '' };
+    });
+  }
+  function respaldo() { return PRECIOS.map(function (p) { return { modelo: p[0], categoria: p[1], pub: p[2], fin: p[3] }; }); }
+
+  function wa(texto) { return 'https://wa.me/' + WA + '?text=' + encodeURIComponent(texto); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function foto(m, cls) {
+    if (!m.img) return '<div style="padding:30px;color:var(--ink-faint);text-align:center">Foto próximamente</div>';
+    return '<img loading="lazy" alt="' + esc('AKT ' + m.modelo) + '" src="' + m.img + '" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{textContent:\'Foto próximamente\',style:\'padding:30px;color:#848da0\'}))">';
+  }
+  function precioHtml(m) {
+    return '<div class="price">' + (m.bono > 0 ? '<span class="old">$' + cop.format(m.pub) + '</span>' : '') +
+      '<span class="now">$' + cop.format(m.fin) + '</span></div>';
+  }
+
+  function filtrar() {
+    var q = $('q').value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    var l = MODELOS.filter(function (m) {
+      var ok = cat === 'Todas' || m.categoria === cat;
+      var n = (m.modelo + ' ' + (CAT_NOM[m.categoria] || '')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      return ok && (!q || n.indexOf(q) >= 0);
+    });
+    var o = $('orden').value;
+    if (o === 'asc') l.sort(function (a, b) { return a.fin - b.fin; });
+    else if (o === 'desc') l.sort(function (a, b) { return b.fin - a.fin; });
+    else if (o === 'az') l.sort(function (a, b) { return a.modelo.localeCompare(b.modelo); });
+    return l;
+  }
+
+  function pintar() {
+    var l = filtrar();
+    $('count').textContent = l.length + (l.length === 1 ? ' moto' : ' motos');
+    $('grid').innerHTML = l.map(function (m) {
+      var f = m.f, kp = '';
+      if (f) { if (f.c) kp += '<span>' + esc(f.c) + '</span>'; if (f.p) kp += '<span>' + esc(f.p.split(' @')[0]) + '</span>'; if (f.cj) kp += '<span>' + esc(f.cj) + '</span>'; }
+      return '<article class="card" data-m="' + esc(m.modelo) + '" tabindex="0">' +
+        '<div class="ph"><span class="tag">' + esc(CAT_NOM[m.categoria] || m.categoria) + '</span>' +
+        (m.bono > 0 ? '<span class="bono">Bono −$' + cop.format(m.bono) + '</span>' : '') + foto(m) + '</div>' +
+        '<div class="bd"><h3>' + esc(m.modelo) + '</h3><div class="kp">' + kp + '</div>' + precioHtml(m) +
+        '<div class="acts"><button class="btn btn-line" data-ver>Ver ficha</button>' +
+        '<a class="btn btn-red" href="cotizador.html?m=' + encodeURIComponent(m.modelo) + '" data-stop>Cotizar</a></div></div></article>';
+    }).join('') || '<p>No encontramos motos con ese filtro.</p>';
+  }
+
+  var FILAS = [['c', 'Cilindraje'], ['p', 'Potencia'], ['t', 'Torque'], ['mo', 'Motor'], ['al', 'Alimentación'], ['co', 'Relación de compresión'], ['cj', 'Transmisión'], ['ar', 'Arranque'],
+    ['fd', 'Freno delantero'], ['ft', 'Freno trasero'], ['sd', 'Suspensión delantera'], ['st', 'Suspensión trasera'], ['ld', 'Llanta delantera'], ['lt', 'Llanta trasera'],
+    ['tk', 'Tanque de combustible'], ['w', 'Peso en seco'], ['ent', 'Distancia entre ejes'], ['dim', 'Largo x ancho x alto']];
+
+  function abrir(nombre) {
+    var m = MODELOS.filter(function (x) { return x.modelo === nombre; })[0]; if (!m) return;
+    var f = m.f, filas = '';
+    if (f) FILAS.forEach(function (r) { if (f[r[0]]) filas += '<tr><td>' + r[1] + '</td><td>' + esc(f[r[0]]) + '</td></tr>'; });
+    var hl = f && f.hl ? '<h3>Destacados</h3><ul>' + f.hl.map(function (h) { return '<li>' + esc(h) + '</li>'; }).join('') + '</ul>' : '';
+    $('dbody').innerHTML = '<div class="m-head"><div class="ph">' + foto(m) + '</div><div class="m-info">' +
+      '<span class="rj" style="color:var(--ink-faint);font-weight:600">AKT · ' + esc(CAT_NOM[m.categoria] || m.categoria) + '</span><h2>' + esc(m.modelo) + '</h2>' + precioHtml(m) +
+      (m.bono > 0 ? '<span style="color:var(--good);font-weight:600">Incluye bono vigente de $' + cop.format(m.bono) + '</span>' : '') +
+      '<p class="nota">No incluye matrícula, gastos administrativos ni SOAT.</p>' +
+      '<a class="btn btn-red" href="cotizador.html?m=' + encodeURIComponent(m.modelo) + '">Simular mi cuota</a>' +
+      '<a class="btn btn-line" target="_blank" rel="noopener" href="' + wa('Hola, me interesa la AKT ' + m.modelo + '. ¿Me das más información?') + '">Hablar con un asesor</a></div></div>' +
+      '<div class="m-body"><h3>Ficha técnica</h3>' +
+      (filas ? '<table class="sp">' + filas + '</table>' + (m.nota ? '<p class="nota">' + esc(m.nota) + ' Confirma el detalle con tu asesor.</p>' : '') : '<div class="sinficha">La ficha técnica de esta referencia está en actualización. Pídesela a un asesor y te la enviamos por WhatsApp.</div>') + hl + '</div>';
+    var d = $('dlg'); if (d.showModal) d.showModal(); else d.setAttribute('open', '');
+  }
+
+  function chips() {
+    var cs = ['Todas'].concat(Object.keys(CAT_NOM).filter(function (c) { return MODELOS.some(function (m) { return m.categoria === c; }); }));
+    $('chips').innerHTML = cs.map(function (c) { return '<button class="chip" aria-pressed="' + (c === cat) + '" data-c="' + c + '">' + (CAT_NOM[c] || c) + '</button>'; }).join('');
+  }
+
+  $('chips').onclick = function (e) { var b = e.target.closest('[data-c]'); if (!b) return; cat = b.dataset.c; chips(); pintar(); };
+  $('q').oninput = pintar; $('orden').onchange = pintar;
+  $('grid').onclick = function (e) {
+    if (e.target.closest('[data-stop]')) return;
+    var c = e.target.closest('.card'); if (c) abrir(c.dataset.m);
+  };
+  $('grid').onkeydown = function (e) { if (e.key === 'Enter') { var c = e.target.closest('.card'); if (c) abrir(c.dataset.m); } };
+  $('cerrar').onclick = function () { $('dlg').close(); };
+  $('dlg').onclick = function (e) { if (e.target === $('dlg')) $('dlg').close(); };
+  $('wa-top').href = wa('Hola, quiero información sobre las motos AKT.');
+
+  var q0 = new URLSearchParams(location.search).get('q'); if (q0) $('q').value = q0.slice(0, 40);
+  armar(respaldo()); chips(); pintar();
+
+  /* Precios vivos desde la hoja del negocio */
+  if (API) {
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'catalogoPublico' }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok || !d.modelos || !d.modelos.length) return;
+        armar(d.modelos.map(function (m) { return { modelo: m.modelo, categoria: m.categoria, pub: m.precio_publico, fin: m.precio_final }; }));
+        chips(); pintar();
+      }).catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>
