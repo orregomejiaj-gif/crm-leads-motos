@@ -426,12 +426,56 @@ function accionBtn(l) {
 }
 function tablaOport(rows, conAsesor) {
   if (!rows.length) return '<p class="small muted">Sin oportunidades abiertas.</p>';
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Moto</th>${conAsesor ? '<th>Asesor</th>' : ''}<th class="r">Score IA</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(l => `<tr><td><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b></td><td>${esc(l.producto || '—')}</td>${conAsesor ? `<td>${esc(l.asesor || '')}${l.sede ? ` <span class="tiny muted">· ${esc(l.sede)}</span>` : ''}</td>` : ''}<td class="r">${scoreChip(l.score)}</td><td><span class="pill">${esc(l.fase || l.estado)}</span></td><td>${accionBtn(l)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Moto</th>${conAsesor ? '<th>Asesor</th>' : ''}<th class="r">Score IA</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(l => `<tr><td><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b></td><td>${esc(l.producto || '—')}</td>${conAsesor ? `<td>${esc(l.asesor || '')}${l.sede ? ` <span class="tiny muted">· ${esc(l.sede)}</span>` : ''}</td>` : ''}<td class="r">${scoreChip(l.score)}</td><td><span class="pill">${esc(l.fase || l.estado)}</span>${l.sinSoporte ? ' <span class="pill pill-warn" title="Marcado cotizado, pero la cotización no aparece en el CRM">sin cotización en el CRM</span>' : ''}</td><td>${accionBtn(l)}</td></tr>`).join('')}</tbody></table></div>`;
 }
-function tablaEquipo(rows, opts) {
+const pctDe = (a, b) => b ? Math.round(a * 100 / b) : null;
+const txtPct = v => v === null || v === undefined ? '—' : v + ' %';
+const txtT = h => h === null || h === undefined ? '—' : (h < 1 ? Math.round(h * 60) + ' min' : (Math.round(h * 10) / 10) + ' h');
+/** Grupo de origen de un lead (igual que el servidor): Pauta redes sociales, Referido, Orgánico, Cotizador web u Otro. */
+function canalLead(l) {
+  const r = l.raw || l, o = norm(r.origen);
+  if (String(r.ctwa_clid || '').trim() || /pauta|anuncio|facebook|instagram|meta ads/.test(o)) return 'Pauta redes sociales';
+  if (String(r.referido_por || '').trim() || /^referid/.test(o)) return 'Referido';
+  if (!o || /^organ/.test(o)) return 'Orgánico';
+  if (/cotizador|web|formulario/.test(o)) return 'Cotizador web';
+  return 'Otro';
+}
+/** Tabla de asesores centrada en gestión de leads: contacto, tiempos, cotización con soporte en el CRM, ventas cruzadas con Síntesis y reasignaciones. */
+function tablaAsesores(ctl, opts) {
   opts = opts || {};
-  if (!rows.length) return '<p class="small muted">No hay asesores para mostrar.</p>';
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th>${opts.sede ? '<th>Punto</th>' : ''}<th class="r">Meta</th><th class="r">Ventas</th><th class="r">%</th><th class="r">Proyección</th><th class="r">Pipeline</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r">Conversión</th><th>Estado</th></tr></thead><tbody>${rows.map(e => `<tr${opts.click ? ` data-act="eq-sel" data-id="${esc(e.nombre)}" style="cursor:pointer"` : ''}><td><b>${esc(e.nombre)}</b>${e.admin ? ' <span class="pill">Admin</span>' : ''}</td>${opts.sede ? `<td>${esc(e.sede)}</td>` : ''}<td class="r">${e.meta || '—'}</td><td class="r"><b>${e.ventas}</b></td><td class="r">${e.pct === null ? '—' : e.pct + ' %'}</td><td class="r">${e.proyeccion}</td><td class="r">${mM(e.pipeline)}</td><td class="r">${e.leadsActivos}</td><td class="r">${e.sinContacto}</td><td class="r">${e.conversion === null ? '—' : e.conversion + ' %'}</td><td>${SEM[e.estado] || ''}</td></tr>`).join('')}</tbody></table></div>`;
+  const R = ((ctl.reasignaciones || {}).porAsesor) || [], reas = n => R.find(x => mismaPersona(x.asesor, n)) || { cedidos: 0, recibidos: 0 };
+  let rows = (ctl.asesores || []).filter(a => a.k && a.k !== 'Sin asesor' && a.leads > 0);
+  const sinAs = (ctl.asesores || []).find(a => a.k === 'Sin asesor');
+  if (!rows.length && !sinAs) return '<p class="small muted">Aún no hay leads asignados en este período.</p>';
+  const fila = a => { const rr = reas(a.k), p2 = pctDe(a.en2h || 0, a.conTResp || 0); return `<tr${opts.click ? ` data-act="eq-sel" data-id="${esc(a.k)}" style="cursor:pointer"` : ''}><td><b>${esc(a.k)}</b></td><td class="r">${a.leads}</td><td class="r">${a.sinContacto ? `<span class="pill pill-bad">${a.sinContacto}</span>` : 0}</td><td class="r">${txtT(a.tResp)}</td><td class="r">${txtPct(p2)}</td><td class="r">${a.cotizaciones}</td><td class="r">${a.sinSoporte ? `<span class="pill pill-warn">${a.sinSoporte}</span>` : 0}</td><td class="r"><b>${a.ventas}</b></td><td class="r">${rr.cedidos}</td><td class="r">${rr.recibidos}</td></tr>`; };
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r" title="Mediana entre que entró el lead y el primer contacto">1er contacto</th><th class="r" title="Leads contactados dentro de las 2 primeras horas">≤ 2 h</th><th class="r">Cotizados</th><th class="r" title="Marcados cotizados sin cotización en el CRM">Sin cotización CRM</th><th class="r" title="Cruzadas con ventas de Síntesis">Vendidos</th><th class="r" title="Leads que perdió por reasignación">Cedidos</th><th class="r" title="Leads que recibió por reasignación">Recibidos</th></tr></thead><tbody>${rows.map(fila).join('')}${sinAs ? `<tr><td><b>Sin asesor</b></td><td class="r">${sinAs.leads}</td><td class="r"><span class="pill pill-bad">${sinAs.sinContacto}</span></td><td class="r" colspan="7"><span class="small muted">Asígnalos cuanto antes</span></td></tr>` : ''}</tbody></table></div>`;
+}
+/** Tabla por origen: pauta en redes, referidos, orgánico y cotizador web. */
+function tablaOrigen(ctl) {
+  const G = (ctl.grupos || {}).canal || []; if (!G.length) return '<p class="small muted">Sin leads en el período.</p>';
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Origen</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">1er contacto</th><th class="r">Cotizados</th><th class="r">Vendidos</th><th class="r">Conversión</th><th class="r">Reasignados</th></tr></thead><tbody>${G.map(g => `<tr><td><b>${esc(g.k)}</b></td><td class="r">${g.leads}</td><td class="r">${g.contactados}</td><td class="r">${txtT(g.tResp)}</td><td class="r">${g.cotizaciones}${g.sinSoporte ? ` <span class="pill pill-warn" title="sin cotización en el CRM">${g.sinSoporte}</span>` : ''}</td><td class="r"><b>${g.ventas}</b></td><td class="r">${txtPct(g.conv)}</td><td class="r">${g.reasignados || 0}</td></tr>`).join('')}</tbody></table></div>`;
+}
+/** Tarjetas de lo que se mide: contacto, tiempos, cotización con soporte y reasignación. Cada una abre la lista de leads. */
+function kpisGestion(ctl) {
+  const k = ctl.kpis || {}, R = ctl.reasignaciones || { total: 0 }, conT = k.conTiempoContacto || 0, o = k.porOrigen || {};
+  const orig = ['Pauta redes sociales', 'Referido', 'Orgánico', 'Cotizador web', 'Otro'].filter(x => o[x]).map(x => `${o[x]} ${x === 'Pauta redes sociales' ? 'pauta' : x.toLowerCase()}`).join(' · ') || 'sin leads en el período';
+  return `<div class="grid g-kpi">
+    ${kpiP('leads', '📥 Leads recibidos', k.recibidos || 0, orig)}
+    ${kpiP('sincontacto', '⏳ Sin contactar', k.sinContacto || 0, `${k.nuevos || 0} nuevos · ${k.contactados || 0} ya contactados`, k.sinContacto ? 'bad' : 'ok')}
+    ${kpi('⚡ Contacto en 15 min', txtPct(pctDe(k.contactoEn15min || 0, conT)), `${k.contactoEn15min || 0} de ${conT} contactados`)}
+    ${kpi('⏱️ Contacto en 2 h', txtPct(pctDe(k.contactoEn2h || 0, conT)), `1er contacto (mediana): ${txtT(k.mediana1raRespuestaH)}`, conT && pctDe(k.contactoEn2h || 0, conT) < 70 ? 'warn' : '')}
+    ${kpiP('cotizaciones', '📝 Cotizados', k.cotizaciones || 0, `${(k.cotizaciones || 0) - (k.cotizadosSinSoporte || 0)} con cotización en el CRM`)}
+    ${kpiP('sinsoporte', '⚠️ Cotizado sin soporte', k.cotizadosSinSoporte || 0, `${k.cotizadosSinSoporteVencidos || 0} fuera de plazo`, k.cotizadosSinSoporte ? 'warn' : 'ok')}
+    ${kpiP('reasignados', '🔁 Reasignados', k.reasignados || 0, `${R.total || 0} reasignaciones en el período`)}
+    ${kpiP('ventas', '💰 Vendidos (Síntesis)', k.ventas || 0, `${txtPct(k.conversion)} de los leads`, k.ventas ? 'ok' : '')}</div>`;
+}
+function listaReasignaciones(ctl) {
+  const R = (ctl.reasignaciones || {}).recientes || []; if (!R.length) return '<p class="small muted">Sin reasignaciones en el período.</p>';
+  return R.slice(0, 8).map(x => `<div class="small" style="margin:6px 0">🔁 <b data-act="abrir" data-id="${esc(x.id_lead)}" style="cursor:pointer">${esc(x.nombre || 'Lead')}</b> · ${esc(x.de || '—')} → <b>${esc(x.a || '—')}</b> <span class="tiny muted">· ${esc(String(x.fecha).slice(0, 16))} · ${esc(x.motivo)}</span></div>`).join('');
+}
+function listaAlertas(ctl) {
+  const A = (ctl.alertas || []).slice(0, 6); if (!A.length) return '<p class="small muted">Sin alertas recientes ✅</p>';
+  return A.map(a => `<div class="small" style="margin:6px 0"><span class="pill ${a.nivel === 'alta' ? 'pill-bad' : 'pill-warn'}">${esc(String(a.tipo || '').replace(/_/g, ' '))}</span> ${esc(String(a.mensaje || '').split('\n')[0].slice(0, 120))}</div>`).join('');
 }
 function kpiRow(items) { return `<div class="grid g-kpi">${items.map(i => kpi(i[0], i[1], i[2], i[3])).join('')}</div>`; }
 
@@ -479,102 +523,75 @@ function clasificarEquipo(p) {
 }
 function vInteligencia() {
   const c = panelListo(); if (c) return c;
-  const p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, pf = ctl.pronostico || {}, L = ctl.lista || [], F = k.fases || {};
-  const abiertos = L.filter(l => l.abierto), calientes = abiertos.filter(l => l.caliente).length, enRiesgo = abiertos.filter(l => l.riesgo || l.vencido).length;
-  const sinSeg = abiertos.filter(l => l.sinContacto || l.vencido).length, neg = F['Negociación'] || 0, falta = Math.max(0, (pr.meta || 0) - (pr.ventas || 0));
-  const ritmo = p.dia ? Math.round((pr.ventas || 0) / p.dia * 100) / 100 : 0, nec = pr.diasRestantes ? Math.round(falta / pr.diasRestantes * 100) / 100 : 0, difR = Math.round((ritmo - nec) * 100) / 100;
-  const acciones = (ctl.tareas || []).length, prioridades = sinSeg + (k.cotizacionesVencidas || 0) + neg + (k.pendientesEntrega || 0);
-  const lectura = !pr.meta ? 'Aún no hay meta cargada para este mes.' : (pr.ventas >= pr.meta ? `🏆 ¡Meta del mes cumplida! (${pr.ventas} de ${pr.meta}). Ahora a superar el presupuesto.`
-    : (!L.length && !pr.ventas ? 'El mes arranca en cero: en cuanto se carguen las cotizaciones y las ventas de octubre, aquí aparecerán las prioridades.'
-    : `El equipo necesita ${pr.cierresDiarios} cierre${pr.cierresDiarios === 1 ? '' : 's'} por día durante ${pr.diasRestantes} días para alcanzar la meta. Hay ${calientes} oportunidad${calientes === 1 ? '' : 'es'} caliente${calientes === 1 ? '' : 's'} y ${enRiesgo} que requieren intervención inmediata.`));
-  const funnel = [['Leads', L.length], ['Contactados', L.filter(l => l.contactado || l.cotizado).length], ['Cotizados', L.filter(l => l.cotizado).length], ['Negociación', neg], ['Pasa a facturar', k.porFacturar || 0], ['Facturados', pr.ventas || 0], ['Entregados', k.entregadas || 0]];
-  const mx = Math.max(1, ...funnel.map(x => x[1]));
-  let fuga = null; for (let i = 1; i < funnel.length; i++) { const a = funnel[i - 1][1], b = funnel[i][1]; if (a >= 3) { const r = Math.round(b * 100 / a); if (!fuga || r < fuga.r) fuga = { r, de: funnel[i - 1][0], a: funnel[i][0], n1: a, n2: b }; } }
-  const prio = [['🔴', sinSeg, 'Sin seguimiento o sin contacto', 'seguimientos', 'Gestionar'], ['🔴', k.cotizacionesVencidas || 0, 'Cotización con seguimiento vencido', 'cotvencidas', 'Recuperar'], ['🟠', neg, 'En negociación', 'negociacion', 'Cerrar'], ['🟡', k.pendientesEntrega || 0, 'Ventas pendientes de entrega', 'pendEntrega', 'Entregar']].filter(x => x[1] > 0);
-  const eq = clasificarEquipo(p), notas = eq.filter(x => x.nota).map(x => x.nota), lect = lecturaIA(ctl);
-  return `${hero('jefe', 'ti-brain', 'Centro de Inteligencia Comercial', `Antioquia · ${esc(fmtMes(p.mes))} · ${esc((p.filtro || {}).sede || 'Todos los puntos')}`)}
+  const p = S.pan, ctl = p.control, k = ctl.kpis || {}, L = ctl.lista || [], conT = k.conTiempoContacto || 0;
+  const lect = [];
+  if (k.sinContacto) lect.push(`Hay ${k.sinContacto} lead${k.sinContacto === 1 ? '' : 's'} sin contactar. Cada hora sin respuesta baja la probabilidad de venta.`);
+  if (k.cotizadosSinSoporte) lect.push(`${k.cotizadosSinSoporte} lead${k.cotizadosSinSoporte === 1 ? ' marcado' : 's marcados'} como cotizado${k.cotizadosSinSoporte === 1 ? '' : 's'} no cruza${k.cotizadosSinSoporte === 1 ? '' : 'n'} con ninguna cotización del CRM.`);
+  if (conT && pctDe(k.contactoEn2h || 0, conT) < 70) lect.push(`Solo el ${pctDe(k.contactoEn2h || 0, conT)} % de los leads se contacta en las primeras 2 horas (la meta es 70 % o más).`);
+  if (k.reasignados) lect.push(`${k.reasignados} lead${k.reasignados === 1 ? ' cambió' : 's cambiaron'} de asesor: revisa el motivo en «Reasignaciones recientes».`);
+  if (!lect.length) lect.push(L.length ? '🟢 La gestión de leads está al día: sin pendientes críticos ahora mismo.' : 'Aún no hay leads en este período: cuando entren por la pauta o por referidos aparecerán aquí.');
+  const funnel = [['Leads recibidos', k.recibidos || 0], ['Contactados', k.contactados || 0], ['Cotizados', k.cotizaciones || 0], ['Con cotización en el CRM', Math.max(0, (k.cotizaciones || 0) - (k.cotizadosSinSoporte || 0))], ['Vendidos (Síntesis)', k.ventas || 0]];
+  const mx = Math.max(1, ...funnel.map(x => x[1])), T = (ctl.tareas || []).slice(0, 6);
+  return `${hero('jefe', 'ti-brain', 'Gestión de Leads', `Pauta en redes y referidos · ${esc((p.filtro || {}).sede || 'Todos los puntos')}`)}
     ${filtrosPanel(p)}
-    ${kpiRow([]).replace('<div class="grid g-kpi"></div>', '')}<div class="grid g-kpi">
-      ${kpiP('ventas', '🎯 Cumplimiento', `${pr.ventas || 0} / ${pr.meta || 0}`, pr.meta ? `${pr.cumplimiento || 0} % · faltan ${falta} motos` : 'sin meta cargada', pr.meta && pr.ventas >= pr.meta ? 'ok' : '')}
-      ${kpiP('atender', '🔮 Pronóstico de cierre', pf.cierreProyectado ?? '—', `ritmo ${ritmo}/día · necesario ${nec}/día`, difR < 0 && pr.meta ? 'warn' : 'ok')}
-      ${kpiP('negocio', '💰 Negocio en curso', mM(p.pipeline), 'valor potencial')}
-      ${kpiP('calientes', '🔥 Oportunidades calientes', calientes, 'alta probabilidad de compra')}
-      ${kpiP('riesgo', '🚨 En riesgo', enRiesgo, 'requieren acción', enRiesgo ? 'warn' : 'ok')}
-      ${kpiP('atender', '⚡ Acciones hoy', acciones, `${k.seguimientosVencidos || 0} vencidas`, acciones ? 'warn' : 'ok')}
-    </div>
+    ${kpisGestion(ctl)}
     ${S.panF ? `<div class="pn-card" style="margin-top:12px">${pulsoLista(ctl, S.panF, 'panel-f')}</div>` : ''}
-    <div class="lectura"><b>🧠 Lectura ejecutiva de hoy</b><div>${esc(lectura)}</div></div>
-    <div class="pn-card"><h3>🤖 IA comercial — prioridades de hoy ${prioridades ? `<span class="pill pill-warn">${prioridades}</span>` : ''}</h3>${prio.length
-      ? `<div class="tbl-wrap"><table class="tbl"><tbody>${prio.map(x => `<tr><td>${x[0]} <b>${x[1]}</b></td><td>${x[2]}</td><td class="r"><button class="btn btn-sm btn-dark" data-act="panel-f" data-k="${x[3]}">${x[4]}</button></td></tr>`).join('')}</tbody></table></div>`
-      : '<p class="small" style="margin:0">🟢 <b>Sin alertas críticas.</b> El equipo no tiene oportunidades vencidas pendientes de intervención.</p>'}</div>
+    <div class="lectura"><b>🧠 Lectura de hoy</b>${lect.map(x => `<div style="margin-top:4px">${esc(x)}</div>`).join('')}</div>
     <div class="pn-grid">
-      <div class="pn-card"><h3>🏢 Desempeño por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Meta</th><th class="r">Venta</th><th>Cumplimiento</th><th class="r">Pronóstico</th><th></th></tr></thead><tbody>${p.sedes.map(s => `<tr><td><b>${esc(s.sede)}</b></td><td class="r">${s.meta || '—'}</td><td class="r"><b>${s.ventas}</b></td><td style="min-width:110px"><div class="pn-bar"><i style="width:${Math.min(100, s.pct || 0)}%;background:${colEstado(s.estado)}"></i></div><span class="tiny">${s.pct === null ? '—' : s.pct + ' %'}</span></td><td class="r">${s.proyeccion}</td><td>${SEM[s.estado]}</td></tr>`).join('')}</tbody></table></div></div>
-      <div class="pn-card"><h3>📊 Embudo comercial</h3>${L.length || pr.ventas ? funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') + (fuga ? `<p class="small" style="margin:8px 0 0">⚠️ <b>Principal fuga:</b> ${esc(fuga.de)} → ${esc(fuga.a)} (${fuga.n1} → ${fuga.n2}, ${fuga.r} %)</p>` : '') : '<p class="small muted">Sin movimiento todavía este período.</p>'}</div>
+      <div class="pn-card"><h3>📣 Por origen</h3>${tablaOrigen(ctl)}</div>
+      <div class="pn-card"><h3>📊 Embudo</h3>${L.length ? funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') : '<p class="small muted">Sin movimiento todavía en este período.</p>'}</div>
     </div>
-    <div class="pn-card"><h3>🎯 Ritmo comercial</h3><div class="row wrap" style="gap:22px"><div><div class="tiny muted">Meta</div><b>${pr.meta || 0}</b></div><div><div class="tiny muted">Vendidas</div><b>${pr.ventas || 0}</b></div><div><div class="tiny muted">Faltan</div><b>${falta}</b></div><div><div class="tiny muted">Días restantes</div><b>${pr.diasRestantes || 0}</b></div><div><div class="tiny muted">Necesitamos</div><b>${nec} motos/día</b></div><div><div class="tiny muted">Ritmo actual</div><b>${ritmo} motos/día</b></div></div>
-      <p class="small" style="margin:8px 0 0">${!pr.meta ? '' : difR < 0 ? `🔴 Estamos <b>${Math.abs(difR)}</b> motos/día por debajo del ritmo necesario.` : '🟢 El ritmo actual alcanza para la meta.'}${pf.escenarios ? ` Pronóstico: ${pf.escenarios.bajo}–${pf.escenarios.alto} motos (esperado ${pf.escenarios.medio}).` : ''}</p></div>
-    <div class="pn-card"><div class="row between wrap"><h3 style="margin:0">🔥 Oportunidades para cerrar hoy</h3><button class="btn btn-sm" data-act="panel-f" data-k="todas">Ver todas</button></div>${tablaOport(p.top, true)}</div>
-    <div class="pn-grid"><div class="pn-card"><h3>👥 Rendimiento del equipo</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th class="r">Meta</th><th class="r">Venta</th><th class="r">%</th><th class="r">Conv.</th><th class="r">Seg.</th><th>IA</th></tr></thead><tbody>${eq.map(x => `<tr><td><b>${esc(x.e.nombre)}</b></td><td>${esc(x.e.sede)}</td><td class="r">${x.e.meta || '—'}</td><td class="r"><b>${x.e.ventas}</b></td><td class="r">${x.e.pct === null ? '—' : x.e.pct + ' %'}</td><td class="r">${x.e.conversion === null ? '—' : x.e.conversion + ' %'}</td><td class="r">${x.seg}</td><td class="small">${SEM[x.e.estado] || ''} ${x.tag}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin asesores.</td></tr>'}</tbody></table></div>${notas.map(n => `<p class="small" style="margin:6px 0">⚠️ ${esc(n)}</p>`).join('')}</div>
-      <div class="pn-card"><h3>🚨 Alertas y análisis IA</h3>${lect.length ? lect.map(x => `<div class="small" style="margin:6px 0">${esc(x)}</div>`).join('') : '<p class="small muted">Aún no hay suficientes datos para conclusiones.</p>'}</div></div>`;
-}
-function vInteligenciaV1() {
-  const c = panelListo(); if (c) return c;
-  const p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, pf = ctl.pronostico || {}, L = ctl.lista || [], F = k.fases || {};
-  const calientes = L.filter(l => l.abierto && l.caliente).length, prio = p.top.filter(l => l.score >= 70).length;
-  const baja = p.equipo.filter(e => e.conversion !== null && e.cotizaciones >= 3 && e.conversion < 10).length;
-  const funnel = [['Leads', L.length], ['Contactados', L.filter(l => l.contactado || l.cotizado).length], ['Cotizados', L.filter(l => l.cotizado).length], ['Negociación', F['Negociación'] || 0], ['Pasa a facturar', k.porFacturar || 0], ['Facturados', pr.ventas || 0], ['Entregados', k.entregadas || 0]];
-  const mx = Math.max(1, ...funnel.map(x => x[1]));
-  const lect = lecturaIA(ctl);
-  return `${hero('jefe', 'ti-brain', 'Centro de Inteligencia Comercial', `Antioquia · ${esc(fmtMes(p.mes))} · Todos los puntos`)}
-    ${kpiRow([['Meta total', pr.meta || 0, 'motos del mes'], ['Ventas', pr.ventas || 0, pr.meta ? (pr.cumplimiento || 0) + ' % de cumplimiento' : 'sin meta'], ['Proyección', pf.cierreProyectado ?? '—', pf.cumplimientoProyectado ? pf.cumplimientoProyectado + ' % de la meta' : 'motos al cierre'],
-      ['Pipeline', mM(p.pipeline), 'valor potencial'], ['Hot leads', calientes, 'alta probabilidad'], ['Riesgo de pérdida', k.enRiesgo || 0, 'requieren acción', k.enRiesgo ? 'warn' : 'ok']])}
-    ${iaCard('jefe', 'IA Comercial', [`${prio} oportunidad${prio === 1 ? '' : 'es'} prioritaria${prio === 1 ? '' : 's'} para intervenir hoy`, `${baja} asesor${baja === 1 ? '' : 'es'} con baja conversión`, `${k.cotizacionesVencidas || 0} cotizaci${k.cotizacionesVencidas === 1 ? 'ón' : 'ones'} sin seguimiento`, `${k.pendientesEntrega || 0} venta${k.pendientesEntrega === 1 ? '' : 's'} facturada${k.pendientesEntrega === 1 ? '' : 's'} pendiente${k.pendientesEntrega === 1 ? '' : 's'} de entrega`], `<button class="btn btn-sm" data-nav="control">Ver recomendaciones →</button>`)}
+    <div class="pn-card"><h3>👥 Asesores: contacto, cotización y reasignación</h3>${tablaAsesores(ctl)}<p class="tiny muted" style="margin:8px 0 0">«1er contacto» es la mediana entre que entra el lead y el asesor lo contacta. «Sin cotización CRM»: el asesor lo marcó cotizado y no aparece en el CRM. «Vendidos» solo cuenta ventas que cruzan con Síntesis.</p></div>
     <div class="pn-grid">
-      <div class="pn-card"><h3>Desempeño por punto</h3><div class="rings">${p.sedes.map(s => `<div class="ring-b"><div class="ring" style="--p:${Math.min(100, s.pct || 0)};--c:${colEstado(s.estado)}"><span>${s.pct === null ? '—' : Math.round(s.pct) + '%'}</span></div><b>${esc(s.sede)}</b><div class="tiny muted">${s.ventas}/${s.meta || 0} ventas ${SEM[s.estado]}</div></div>`).join('')}</div></div>
-      <div class="pn-card"><h3>Embudo comercial (Antioquia)</h3>${funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('')}</div>
+      <div class="pn-card"><h3>🔁 Reasignaciones recientes</h3>${listaReasignaciones(ctl)}</div>
+      <div class="pn-card"><h3>🚨 Alertas recientes</h3>${listaAlertas(ctl)}<button class="btn btn-sm" style="margin-top:8px" data-nav="control">Ver todo en Control →</button></div>
     </div>
-    <div class="pn-card"><h3>🔥 Top oportunidades para cerrar</h3>${tablaOport(p.top, true)}</div>
-    <div class="pn-grid"><div class="pn-card"><h3>👥 Equipo</h3>${tablaEquipo(p.equipo, { sede: true })}</div>
-      <div class="pn-card"><h3>🤖 Alertas y análisis IA</h3>${lect.length ? lect.map(x => `<div class="small" style="margin:6px 0">${esc(x)}</div>`).join('') : '<p class="small muted">Aún no hay suficientes datos para conclusiones.</p>'}</div></div>`;
+    <div class="pn-card"><div class="row between wrap"><h3 style="margin:0">⚡ Por atender ahora</h3><button class="btn btn-sm" data-act="panel-f" data-k="atender">Ver todas</button></div>${T.length ? T.map(t => `<div class="small" style="margin:8px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}${t.asesor ? ` <span class="tiny muted">· ${esc(t.asesor)}</span>` : ''}</div>`).join('') : '<p class="small muted">Sin pendientes ✅</p>'}</div>`;
 }
 function vPunto() {
   const c = panelListo(); if (c) return c;
-  const p = S.pan, ctl = p.control, k = ctl.kpis, s = p.sedes[0] || { meta: 0, ventas: 0, pct: null, proyeccion: 0, estado: 'gris', sede: p.sede }, L = ctl.lista || [];
-  const tab = S.ptTab || 'activos', lista = tab === 'riesgo' ? L.filter(l => l.abierto && (l.riesgo || l.vencido)) : tab === 'perdidos' ? L.filter(l => l.estado === 'Perdido') : L.filter(l => l.abierto);
-  const cal = L.filter(l => l.abierto && l.caliente && l.sinContacto).length;
-  return `${hero('admin', 'ti-building-store', `Mi Punto – ${esc(s.sede || p.sede)}`, `Administrador: ${esc(S.data.user.nombre)} · ${esc(fmtMes(p.mes))}`)}
-    ${kpiRow([['Meta', s.meta || 0, 'motos'], ['Ventas', s.ventas, s.pct === null ? 'sin meta' : s.pct + ' % de la meta'], ['Pronóstico de cierre', s.proyeccion, 'motos al cierre'], ['Negocio en curso', mM(p.pipeline), 'valor potencial'],
-      ['Leads sin contacto', k.sinContacto || 0, '', k.sinContacto ? 'bad' : 'ok'], ['Cotizaciones vencidas', k.cotizacionesVencidas || 0, '', k.cotizacionesVencidas ? 'warn' : 'ok'], ['Negociaciones en riesgo', k.enRiesgo || 0, '', k.enRiesgo ? 'warn' : 'ok'], ['Entregas pendientes', k.pendientesEntrega || 0, '', k.pendientesEntrega ? 'warn' : 'ok']])}
+  const p = S.pan, ctl = p.control, L = ctl.lista || [], sede = (p.sedes[0] || {}).sede || p.sede;
+  const tab = S.ptTab || 'activos', T = (ctl.tareas || []).slice(0, 6);
+  const lista = tab === 'sincontacto' ? L.filter(l => l.abierto && l.sinContacto) : tab === 'sinsoporte' ? L.filter(l => l.sinSoporte) : tab === 'perdidos' ? L.filter(l => l.estado === 'Perdido') : L.filter(l => l.abierto);
+  return `${hero('admin', 'ti-building-store', `Mi Punto – ${esc(sede)}`, `Administrador: ${esc(S.data.user.nombre)} · pauta en redes y referidos`)}
+    ${kpisGestion(ctl)}
+    ${S.panF ? `<div class="pn-card" style="margin-top:12px">${pulsoLista(ctl, S.panF, 'panel-f')}</div>` : ''}
     <div class="pn-grid">
-      <div class="pn-card"><h3>👥 Mi equipo</h3>${tablaEquipo(p.equipo.filter(e => !e.admin || p.equipo.length === 1), { click: true })}<p class="tiny muted">Toca un asesor para ver sus leads. La reasignación la decide el Jefe: usa «Solicitar reasignación» en el lead.</p></div>
-      <div class="pn-card"><h3>Rendimiento del punto</h3><div class="rings"><div class="ring-b"><div class="ring" style="--p:${Math.min(100, s.pct || 0)};--c:${colEstado(s.estado)}"><span>${s.pct === null ? '—' : Math.round(s.pct) + '%'}</span></div><div class="tiny muted">${s.ventas} de ${s.meta || 0} ventas</div></div></div></div>
+      <div class="pn-card"><h3>👥 Mi equipo</h3>${tablaAsesores(ctl, { click: true })}<p class="tiny muted">Toca un asesor para ver sus leads. La reasignación la decide el Jefe: usa «Solicitar reasignación» en el lead.</p></div>
+      <div class="pn-card"><h3>📣 Por origen</h3>${tablaOrigen(ctl)}<h3 style="margin-top:14px">🔁 Reasignaciones recientes</h3>${listaReasignaciones(ctl)}</div>
     </div>
-    ${iaCard('admin', 'IA del punto', [`En ${s.sede || p.sede} tienes ${L.filter(l => l.abierto && l.score >= 70).length} oportunidades con alta probabilidad de cierre`, `${k.cotizacionesVencidas || 0} cotizaciones vencidas`, `${k.enRiesgo || 0} negociaciones en riesgo`, `${cal} leads calientes sin contacto`], `<button class="btn btn-sm" data-nav="alertas">Ver alertas →</button>`)}
-    <div class="pn-card"><div class="row between wrap" style="margin-bottom:8px"><h3 style="margin:0">Leads del punto</h3><div class="seg">${[['activos', `Activos (${L.filter(l => l.abierto).length})`], ['riesgo', 'En riesgo'], ['perdidos', 'Perdidos']].map(t => `<button class="${tab === t[0] ? 'on' : ''}" data-tab="ptTab" data-v="${t[0]}">${t[1]}</button>`).join('')}</div></div>${tablaOport(lista.slice(0, 40), true)}</div>`;
+    <div class="pn-card"><h3>⚡ Por atender ahora</h3>${T.length ? T.map(t => `<div class="small" style="margin:8px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}${t.asesor ? ` <span class="tiny muted">· ${esc(t.asesor)}</span>` : ''}</div>`).join('') : '<p class="small muted">Sin pendientes ✅</p>'}</div>
+    <div class="pn-card"><div class="row between wrap" style="margin-bottom:8px"><h3 style="margin:0">Leads del punto</h3><div class="seg">${[['activos', `Activos (${L.filter(l => l.abierto).length})`], ['sincontacto', 'Sin contacto'], ['sinsoporte', 'Sin cotización CRM'], ['perdidos', 'Perdidos']].map(t => `<button class="${tab === t[0] ? 'on' : ''}" data-tab="ptTab" data-v="${t[0]}">${t[1]}</button>`).join('')}</div></div>${tablaOport(lista.slice(0, 40), true)}</div>`;
 }
 function vEquipo() {
   const c = panelListo(); if (c) return c;
   const p = S.pan, L = p.control.lista || [], sel = S.eqSel;
   const mis = sel ? L.filter(l => norm(l.asesor) === norm(sel) && l.abierto) : [];
-  return `${hero('admin', 'ti-users', 'Mi equipo', `${esc(p.sede)} · ${esc(fmtMes(p.mes))}`)}
-    <div class="pn-card"><h3>Asesores del punto</h3>${tablaEquipo(p.equipo, { click: true })}</div>
+  return `${hero('admin', 'ti-users', 'Mi equipo', `${esc(p.sede)}`)}
+    <div class="pn-card"><h3>Asesores del punto</h3>${tablaAsesores(p.control, { click: true })}</div>
     ${sel ? `<div class="pn-card" style="margin-top:14px"><div class="row between wrap"><h3 style="margin:0">Leads de ${esc(sel)} <span class="pill">${mis.length}</span></h3><button class="btn btn-sm" data-act="eq-sel" data-id="">Cerrar</button></div>${tablaOport(mis.slice(0, 60), false)}</div>` : ''}`;
 }
 function vDia() {
   const c = panelListo(); if (c) return c;
-  const u = S.data.user, p = S.pan, ctl = p.control, k = ctl.kpis, pr = ctl.presupuesto, L = ctl.lista || [], me = p.equipo[0] || { meta: pr.meta, ventas: pr.ventas, proyeccion: pr.proyeccion };
-  const meta = me.meta || 0, ven = me.ventas || 0, falta = Math.max(0, meta - ven), pct = meta ? Math.min(100, Math.round(ven * 100 / meta)) : 0;
-  const top = p.top.slice(0, 5), abiertos = L.filter(l => l.abierto), score = abiertos.length ? Math.round(abiertos.reduce((a, l) => a + l.score, 0) / abiertos.length) : 0;
-  const tareas = (ctl.tareas || []).slice(0, 6), conv = k.cotizaciones ? Math.round(ven * 100 / k.cotizaciones) : 0;
-  const barra = (l, v, mx) => `<div style="margin:8px 0"><div class="row between small"><span>${l}</span><b>${v}${mx ? ' / ' + mx : ''}</b></div><div class="pn-bar"><i style="width:${mx ? Math.min(100, Math.round(v * 100 / Math.max(1, mx))) : Math.min(100, v)}%"></i></div></div>`;
-  return `${hero('asesor', 'ti-user', `Mi Día — ${esc(u.nombre.split(' ').slice(0, 2).join(' '))}`, `${esc(fmtMes(p.mes))} · ${top.length} prioridades para hoy`)}
-    ${kpiRow([['Meta', meta || '—', 'motos del mes'], ['Vendidas', ven, 'facturadas'], ['Faltan', falta, meta ? 'para la meta' : 'sin meta', falta ? 'warn' : 'ok'], ['Pronóstico de cierre', me.proyeccion ?? '—', 'al ritmo actual'], ['Avance', pct + ' %', meta ? `${ven} de ${meta}` : '']])}
-    ${iaCard('asesor', 'Mi Coach IA', top.length ? [`Tienes ${top.length} oportunidades prioritarias para hoy.`, `Empieza por ${top[0].nombre}: score ${top[0].score}${top[0].ia ? ' · ' + top[0].ia.replace(/^[^\w¿¡]+/, '') : ''}`, meta ? `Si cierras 2 más, tu proyección pasa a ${(me.proyeccion || 0) + 2} ventas.` : 'Sigue sumando cotizaciones y cierres.'] : ['No tienes oportunidades abiertas: pide leads nuevos o retoma clientes por recuperar.'], `<button class="btn btn-sm" data-nav="hoy">Ver mis leads →</button>`)}
-    <div class="pn-card"><h3>🎯 Mis ${top.length || ''} clientes para cerrar hoy</h3>${tablaOport(top, false)}</div>
+  const u = S.data.user, p = S.pan, ctl = p.control, k = ctl.kpis || {}, L = ctl.lista || [], conT = k.conTiempoContacto || 0;
+  const abiertos = L.filter(l => l.abierto), sinCont = abiertos.filter(l => l.sinContacto), sinSop = L.filter(l => l.sinSoporte);
+  const top = p.top.slice(0, 5), tareas = (ctl.tareas || []).slice(0, 6), hoyCitas = p.citas.filter(x => x.fecha === ymd(new Date())).length;
+  const coach = [];
+  if (sinCont.length) coach.push(`Tienes ${sinCont.length} lead${sinCont.length === 1 ? '' : 's'} sin contactar: empieza por ${sinCont[0].nombre}. El que responde primero, vende.`);
+  if (sinSop.length) coach.push(`${sinSop.length} lead${sinSop.length === 1 ? ' marcado' : 's marcados'} como cotizado sin cotización en el CRM: regístrala allá con el mismo celular o corrige el estado.`);
+  if (!coach.length) coach.push(top.length ? `Empieza por ${top[0].nombre}: score ${top[0].score}${top[0].ia ? ' · ' + top[0].ia.replace(/^[^\w¿¡]+/, '') : ''}` : 'No tienes leads abiertos: espera nuevos leads o retoma clientes por recuperar.');
+  return `${hero('asesor', 'ti-user', `Mi Día — ${esc(u.nombre.split(' ').slice(0, 2).join(' '))}`, `${abiertos.length} lead${abiertos.length === 1 ? '' : 's'} abierto${abiertos.length === 1 ? '' : 's'} · ${sinCont.length} sin contactar`)}
+    ${kpiRow([['Leads abiertos', abiertos.length, 'asignados a ti'], ['Sin contactar', sinCont.length, 'contáctalos ya', sinCont.length ? 'bad' : 'ok'], ['Cotizados', k.cotizaciones || 0, `${k.cotizadosSinSoporte || 0} sin cotización en el CRM`, k.cotizadosSinSoporte ? 'warn' : 'ok'], ['Citas de hoy', hoyCitas, ''], ['Vendidos', k.ventas || 0, 'cruzados con Síntesis']])}
+    ${iaCard('asesor', 'Mi Coach IA', coach, `<button class="btn btn-sm" data-nav="hoy">Ver mis leads →</button>`)}
+    <div class="pn-card"><h3>🎯 Mis ${top.length || ''} clientes para atender hoy</h3>${tablaOport(top, false)}</div>
     <div class="pn-grid">
-      <div class="pn-card"><h3>📋 Mis seguimientos de hoy</h3>${[...p.citas.slice(0, 4).map(x => `<div class="small" style="margin:6px 0">📅 <b>${esc(x.fecha.slice(5))} ${esc(x.hora)}</b> · ${esc(x.nombre)} · ${esc(x.tipo)}</div>`), ...tareas.map(t => `<div class="small" style="margin:6px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}</div>`)].join('') || '<p class="small muted">Sin pendientes por ahora ✅</p>'}</div>
-      <div class="pn-card"><h3>📈 Mi rendimiento</h3>${barra('Seguimientos', k.contactosRealizados || 0, 0)}${barra('Cotizaciones', k.cotizaciones || 0, 0)}${barra('Ventas', ven, meta)}${barra('Conversión (ventas/cotizaciones)', conv + ' %', 0)}
-        <div style="margin-top:10px;font-weight:700">⭐ Score comercial: ${score} / 100</div></div>
+      <div class="pn-card"><h3>📋 Mis pendientes de hoy</h3>${[...p.citas.slice(0, 4).map(x => `<div class="small" style="margin:6px 0">📅 <b>${esc(x.fecha.slice(5))} ${esc(x.hora)}</b> · ${esc(x.nombre)} · ${esc(x.tipo)}</div>`), ...tareas.map(t => `<div class="small" style="margin:6px 0">${t.prioridad <= 1 ? '🔴' : t.prioridad === 2 ? '🟠' : '🟡'} <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> · ${esc(t.tarea)}</div>`)].join('') || '<p class="small muted">Sin pendientes por ahora ✅</p>'}</div>
+      <div class="pn-card"><h3>⏱️ Mi atención</h3>
+        <div class="row between small" style="margin:8px 0"><span>Primer contacto (mediana)</span><b>${txtT(k.mediana1raRespuestaH)}</b></div>
+        <div class="row between small" style="margin:8px 0"><span>Contactados en 15 min</span><b>${txtPct(pctDe(k.contactoEn15min || 0, conT))}</b></div>
+        <div class="row between small" style="margin:8px 0"><span>Contactados en 2 h</span><b>${txtPct(pctDe(k.contactoEn2h || 0, conT))}</b></div>
+        <div class="row between small" style="margin:8px 0"><span>Leads que cambiaron de asesor</span><b>${k.reasignados || 0}</b></div>
+        <p class="tiny muted" style="margin:10px 0 0">Meta: contactar en 15 min los calientes y en 2 h el resto, en horario hábil.</p></div>
     </div>`;
 }
 function vCitas() {
@@ -606,14 +623,15 @@ function vListaPanel(kind) {
 // Cada cargo ve su propio menú (y el API valida el cargo en cada ruta: ocultar un botón no basta).
 function vistasDeRol() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
+  // v2.33 — la app solo gestiona leads de pauta en redes y referidos. Inventario, bonos, metas, cifras, comisiones, entregas y posventa ya no se muestran
+  // (el inventario y los bonos los lee solo el agente IA; la información comercial vive en el CRM de la empresa). Los datos siguen guardados.
   if (r === 'asesor') return [it('dia', 'ti-sun', 'Mi Día'), it('hoy', 'ti-checklist', 'Mis Leads'), it('chats', 'ti-messages', 'Mis Chats'), it('miscot', 'ti-file-dollar', 'Mis Cotizaciones'),
-    it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas'), it('misventas', 'ti-report-money', 'Mis Ventas'), it('entregas', 'ti-motorbike', 'Mis Entregas'), it('comisiones', 'ti-coin', 'Mi Comisión')];
+    it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
-    it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('misventas', 'ti-report-money', 'Ventas'), it('entregas', 'ti-motorbike', 'Entregas'),
-    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas'), it('comisiones', 'ti-coin', 'Comisiones')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Inteligencia IA'), it('embudo', 'ti-layout-kanban', 'Embudo Comercial'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
-    it('metas', 'ti-target', 'Metas'), it('ventas', 'ti-report-money', 'Cifras'), it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
-    it('posventa', 'ti-tool', 'Posventa'), it('inventario', 'ti-building-warehouse', 'Inventario'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('comisiones', 'ti-coin', 'Comisiones'),
+    it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas')];
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
+    it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
+    it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
 }
 function homeDeRol() { return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
@@ -781,69 +799,59 @@ function pulsoLista(r, kSel, accionFiltro) {
   const L = r.lista || [], pill = t => `<span class="pill">${esc(t)}</span>`;
   const fl = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', cotizaciones: l => l.cotizado, entregadas: l => l.entregada, pendEntrega: l => l.pendEntrega, seguimientos: l => l.abierto && l.vencido, recuperar: l => l.recuperar,
     calientes: l => l.abierto && l.caliente, riesgo: l => l.abierto && (l.riesgo || l.vencido), negocio: l => l.abierto && l.valor > 0,
-    cotvencidas: l => l.abierto && l.cotizado && l.vencido, negociacion: l => l.abierto && l.fase === 'Negociación', todas: l => l.abierto && l.asesor };
+    cotvencidas: l => l.abierto && l.cotizado && l.vencido, negociacion: l => l.abierto && l.fase === 'Negociación', todas: l => l.abierto && l.asesor,
+    sincontacto: l => l.abierto && l.sinContacto, sinsoporte: l => l.sinSoporte, reasignados: l => (l.reasignaciones || 0) > 0, ventas: l => l.estado === 'Cerrado ganado' };
   const titulo = { leads: '📥 Leads recibidos (digitales)', nuevos: '🆕 Leads nuevos', cotizaciones: '📝 Cotizaciones', ventas: '💰 Ventas facturadas del mes', entregadas: '🏍️ Motos entregadas', pendEntrega: '⏳ Pendientes de entrega', seguimientos: '⏰ Seguimientos vencidos', atender: '⚡ Acciones pendientes', recuperar: '♻️ Por recuperar',
-    calientes: '🔥 Oportunidades calientes', riesgo: '🚨 En riesgo', negocio: '💰 Negocio en curso', cotvencidas: '📝 Cotizaciones con seguimiento vencido', negociacion: '🤝 En negociación', todas: '🎯 Todas las oportunidades abiertas' }[k] || '';
+    calientes: '🔥 Oportunidades calientes', riesgo: '🚨 En riesgo', negocio: '💰 Negocio en curso', cotvencidas: '📝 Cotizaciones con seguimiento vencido', negociacion: '🤝 En negociación', todas: '🎯 Todas las oportunidades abiertas',
+    sincontacto: '⏳ Leads sin contactar', sinsoporte: '⚠️ Cotizados sin cotización en el CRM', reasignados: '🔁 Leads reasignados' }[k] || '';
   let filas = '', n = 0;
-  if (k === 'ventas') {
-    const V = r.facturasMes || []; n = V.length;
-    filas = V.slice(0, 80).map(f => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b>${esc(f.cliente || 'Cliente')}</b> <span class="muted small">· ${esc(f.modelo)} · factura ${esc(f.id_factura)} · ${esc(f.sede)} · ${money(num(f.valor))}</span> <span class="pill">${esc(f.asesor || 'sin asesor')}</span>${f.validada ? '' : ' <span class="pill pill-warn" title="El asesor de la factura aún no se ha validado">⚠️ asesor por validar</span>'}</div>`).join('');
-  } else if (k === 'atender') {
+  if (k === 'atender') {
     const T = r.tareas || []; n = T.length;
     filas = T.slice(0, 80).map(t => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><span class="pill ${t.prioridad <= 1 ? 'pill-bad' : t.prioridad === 2 ? 'pill-warn' : ''}">${esc(t.tarea)}</span> <b data-act="abrir" data-id="${esc(t.id_lead)}" style="cursor:pointer">${esc(t.nombre)}</b> <span class="muted small">· ${esc(t.producto || '')}${t.asesor ? ' · ' + esc(t.asesor) : ''}</span><div class="small">${esc(t.detalle || '')}</div></div>`).join('');
   } else if (fl[k]) {
     const R = L.filter(fl[k]); n = R.length;
-    filas = R.slice(0, 80).map(l => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b> <span class="muted small">· ${esc(l.producto || '')} · ${esc(l.sede || '')}${l.asesor ? ' · ' + esc(l.asesor) : ''}</span> ${pill(l.estado)}${l.fase && l.fase !== l.estado ? ' ' + pill(l.fase) : ''}${l.sala ? ' <span class="pill pill-info">🏬 en sala</span>' : ''}</div>`).join('');
+    filas = R.slice(0, 80).map(l => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b> <span class="muted small">· ${esc(l.producto || '')} · ${esc(l.sede || '')}${l.asesor ? ' · ' + esc(l.asesor) : ''}</span> ${pill(l.estado)}${l.fase && l.fase !== l.estado ? ' ' + pill(l.fase) : ''}${l.canal ? ' <span class="pill pill-info">' + esc(l.canal) + '</span>' : ''}${l.sinSoporte ? ' <span class="pill pill-warn">sin cotización en el CRM</span>' : ''}</div>`).join('');
   }
   return `<div style="margin:10px 0 0"><div class="row between wrap" style="margin-bottom:6px"><b>${titulo} <span class="pill">${n}</span></b><button class="btn btn-sm" data-act="${accionFiltro || 'pulso-f'}" data-k="${esc(k)}"><i class="ti ti-x"></i> Quitar filtro</button></div>${filas || '<p class="small muted">No hay registros para este filtro.</p>'}${n > 80 ? `<p class="tiny muted">Mostrando 80 de ${n}.</p>` : ''}</div>`;
 }
 function pulsoHtml() {
   const r = S.pul;
   if (!r || !r.kpis || S.pulAs !== (S.hoyAsesor || '')) { if (!S.pulBusy) cargarPulso(); return `<div class="notice" style="margin-bottom:10px"><i class="ti ti-loader"></i><div>⏳ ${S.pulErr ? esc(S.pulErr) : 'Cargando tus números en tiempo real…'}</div></div>`; }
-  const k = r.kpis, p = r.presupuesto || {}, f = r.pronostico || {}, u = S.data.user;
-  const porPunto = (r.facturasMes || []).reduce((m, x) => { m[x.sede || 'Sin punto'] = (m[x.sede || 'Sin punto'] || 0) + 1; return m; }, {});
-  const txtPunto = Object.keys(porPunto).length ? Object.keys(porPunto).map(s => `${esc(s)} ${porPunto[s]}`).join(' · ') : 'sin ventas este mes';
-  const quien = u.rol === 'asesor' ? 'tus' : 'los';
-  const meta = p.meta || 0, vend = p.ventas || 0, pct = meta ? Math.min(100, Math.round(vend * 100 / meta)) : 0, falta = Math.max(0, meta - vend);
+  const k = r.kpis, conT = k.conTiempoContacto || 0, R = r.reasignaciones || { total: 0 };
   const tareas = (r.tareas || []).length, urgentes = (r.tareas || []).filter(t => t.prioridad <= 1).length;
   let msg;
-  if (meta && vend >= meta) msg = `🏆 ¡META CUMPLIDA! Llevas ${vend} de ${meta} motos. Ahora a superar el presupuesto 🚀`;
+  if (k.sinContacto) msg = `📥 ${k.sinContacto} lead${k.sinContacto > 1 ? 's' : ''} sin contactar: el primero que responde, vende 💪`;
   else if (urgentes) msg = `🔥 Tienes ${urgentes} ${urgentes > 1 ? 'gestiones URGENTES' : 'gestión URGENTE'}: cada minuto cuenta, ¡ataca ya!`;
-  else if (k.pendientesEntrega) msg = `🏍️ ${k.pendientesEntrega} moto${k.pendientesEntrega > 1 ? 's' : ''} facturada${k.pendientesEntrega > 1 ? 's' : ''} esperando entrega: ¡entrégalas y suma tu venta completa!`;
-  else if (k.nuevos) msg = `📥 ${k.nuevos} lead${k.nuevos > 1 ? 's' : ''} nuevo${k.nuevos > 1 ? 's' : ''} sin tocar: el primero que responde, vende 💪`;
-  else if (meta) msg = `🎯 Te faltan ${falta} moto${falta === 1 ? '' : 's'} para la meta. ¡Vamos por ${falta === 1 ? 'esa' : 'ellas'}!`;
-  else msg = '💪 Todo al día. Sigue sumando cotizaciones y cierres.';
+  else if (k.cotizadosSinSoporte) msg = `⚠️ ${k.cotizadosSinSoporte} lead${k.cotizadosSinSoporte > 1 ? 's' : ''} cotizado${k.cotizadosSinSoporte > 1 ? 's' : ''} sin cotización en el CRM: regístrala o corrige el estado.`;
+  else msg = '💪 Todo al día. Sigue contactando y cotizando a tiempo.';
   const hora = S.pulT ? new Date(S.pulT).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
   return `<div class="card" style="margin-bottom:12px;padding:14px">
-    <div class="row wrap" style="justify-content:space-between;gap:8px"><b>⚡ Mi pulso comercial · ${meta ? '🎯 ' + pct + ' % de la meta' : 'sin meta cargada'}</b><span class="tiny muted">🔄 Actualizado ${esc(hora)} · cada minuto</span></div>
+    <div class="row wrap" style="justify-content:space-between;gap:8px"><b>⚡ Mi pulso de leads</b><span class="tiny muted">🔄 Actualizado ${esc(hora)} · cada minuto</span></div>
     <div style="font-weight:600;margin:8px 0">${esc(msg)}</div>
-    ${meta ? `<div style="background:rgba(120,130,160,.2);border-radius:999px;height:10px;overflow:hidden"><div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a)"></div></div>
-    <div class="tiny muted" style="margin:4px 0 10px">🏁 ${vend} de ${meta} motos · te faltan ${falta} · 📈 al ritmo cierras en ${num(p.proyeccion)} · 🔮 con tu pipeline, ${num(f.cierreProyectado)}</div>` : ''}
     <div class="small" style="margin:0 0 10px;line-height:1.7">${[
       k.calientesSinGestion ? `🔥 <b>${k.calientesSinGestion}</b> lead${k.calientesSinGestion > 1 ? 's calientes' : ' caliente'} sin gestión` : '',
       k.cotizacionesVencidas ? `📝 <b>${k.cotizacionesVencidas}</b> cotizaci${k.cotizacionesVencidas > 1 ? 'ones' : 'ón'} con seguimiento vencido` : '',
-      k.pendientesEntrega ? `🏍️ <b>${k.pendientesEntrega}</b> venta${k.pendientesEntrega > 1 ? 's' : ''} pendiente${k.pendientesEntrega > 1 ? 's' : ''} de entrega` : '',
-      k.porRevisar ? `🧐 <b>${k.porRevisar}</b> cotizaci${k.porRevisar > 1 ? 'ones/ventas' : 'ón/venta'} por revisar a mano (Control → Piloto)` : '',
-      k.posventaPendiente ? `🤝 <b>${k.posventaPendiente}</b> contacto${k.posventaPendiente > 1 ? 's' : ''} de posventa por hacer` : '',
+      k.cotizadosSinSoporteVencidos ? `⚠️ <b>${k.cotizadosSinSoporteVencidos}</b> cotizado${k.cotizadosSinSoporteVencidos > 1 ? 's' : ''} sin cotización en el CRM fuera de plazo` : '',
       k.enRiesgo ? `⚠️ <b>${k.enRiesgo}</b> negociaci${k.enRiesgo > 1 ? 'ones' : 'ón'} en riesgo` : ''].filter(Boolean).map(x => `<span style="display:inline-block;margin-right:14px">${x}</span>`).join('') || '✅ Sin alertas críticas ahora mismo.'}</div>
-    ${meta && falta ? `<div class="small" style="margin:0 0 10px"><b>🎯 Acción de hoy:</b> para llegar a la meta necesitamos ${p.cierresDiarios} cierre${p.cierresDiarios === 1 ? '' : 's'} por día durante ${p.diasRestantes} día${p.diasRestantes === 1 ? '' : 's'}. Pregúntate: ¿cuál es mi próxima venta y qué le falta para cerrar?</div>` : ''}
     <div class="grid g-kpi">
-      ${kpiF('leads', '📥 Leads recibidos', k.recibidos || 0,`🆕 ${k.nuevos || 0} nuevos · ✅ ${k.contactados || 0} contactados`)}
-      ${kpiF('cotizaciones', '📝 Cotizaciones', k.cotizaciones || 0,`🤝 ${k.negociacionesActivas || 0} negociaciones activas · 🏬 ${k.cotizacionesSala || 0} en sala`)}
-      ${kpiF('ventas', '💰 Ventas facturadas', p.ventas || 0, `📍 ${txtPunto} · 🧾 ${k.porFacturar || 0} por facturar`, p.ventas ? 'ok' : '')}
-      ${kpiF('entregadas', '🏍️ Motos entregadas',k.entregadas || 0, `⏳ ${k.pendientesEntrega || 0} pendientes de entrega`, k.pendientesEntrega ? 'warn' : 'ok')}
-      ${kpiF('seguimientos', '⏰ Seguimientos',k.seguimientosVencidos || 0, `vencidos · 🟢 ${k.seguimientosPendientes || 0} al día`, k.seguimientosVencidos ? 'bad' : 'ok')}
-      ${kpiF('atender', '🔥 Por atender',tareas, `${urgentes} urgentes · ⚠️ ${k.enRiesgo || 0} en riesgo`, urgentes ? 'bad' : (tareas ? 'warn' : 'ok'))}
-      ${kpi('📊 Conversión', k.conversion === null || k.conversion === undefined ? '—' : k.conversion + ' %', `lead→venta · 🎯 ${k.leadAOportunidad ?? '—'} % a oportunidad`)}
+      ${kpiF('leads', '📥 Leads recibidos', k.recibidos || 0, `🆕 ${k.nuevos || 0} nuevos · ✅ ${k.contactados || 0} contactados`)}
+      ${kpiF('sincontacto', '⏳ Sin contactar', k.sinContacto || 0, 'esperan su primer contacto', k.sinContacto ? 'bad' : 'ok')}
+      ${kpi('⚡ Contacto en 15 min', txtPct(pctDe(k.contactoEn15min || 0, conT)), `${k.contactoEn15min || 0} de ${conT} contactados`)}
+      ${kpi('⏱️ Contacto en 2 h', txtPct(pctDe(k.contactoEn2h || 0, conT)), `1er contacto (mediana): ${txtT(k.mediana1raRespuestaH)}`)}
+      ${kpiF('cotizaciones', '📝 Cotizados', k.cotizaciones || 0, `🤝 ${k.negociacionesActivas || 0} negociaciones activas`)}
+      ${kpiF('sinsoporte', '⚠️ Cotizado sin soporte', k.cotizadosSinSoporte || 0, 'no aparecen en el CRM', k.cotizadosSinSoporte ? 'warn' : 'ok')}
+      ${kpiF('seguimientos', '⏰ Seguimientos', k.seguimientosVencidos || 0, `vencidos · 🟢 ${k.seguimientosPendientes || 0} al día`, k.seguimientosVencidos ? 'bad' : 'ok')}
+      ${kpiF('atender', '🔥 Por atender', tareas, `${urgentes} urgentes · ⚠️ ${k.enRiesgo || 0} en riesgo`, urgentes ? 'bad' : (tareas ? 'warn' : 'ok'))}
+      ${kpiF('reasignados', '🔁 Reasignados', k.reasignados || 0, `${R.total || 0} reasignaciones`)}
+      ${kpiF('ventas', '💰 Vendidos (Síntesis)', k.ventas || 0, `${txtPct(k.conversion)} de los leads`, k.ventas ? 'ok' : '')}
       ${kpiF('recuperar', '♻️ Por recuperar', k.porRecuperar || 0, `${k.perdidos || 0} perdidos · ⏸️ ${k.detenidos || 0} detenidos`)}
     </div>${pulsoLista(r)}</div>`;
 }
-/** Texto corto del botón del pulso: avance de la meta y lo más urgente, visible aun con el panel cerrado. */
+/** Texto corto del botón del pulso: lo más urgente, visible aun con el panel cerrado. */
 function resumenPulso() {
   const r = S.pul; if (!r || !r.kpis) return '';
-  const k = r.kpis, p = r.presupuesto || {}, pct = p.meta ? Math.min(100, Math.round((p.ventas || 0) * 100 / p.meta)) : null;
-  const urg = (r.tareas || []).filter(t => t.prioridad <= 1).length;
-  return ` <span class="muted small" style="font-weight:400">· ${pct === null ? 'sin meta' : '🎯 ' + pct + ' % de la meta'}${k.nuevos ? ' · 🆕 ' + k.nuevos + ' nuevo' + (k.nuevos > 1 ? 's' : '') : ''}${urg ? ' · 🔥 ' + urg + ' urgente' + (urg > 1 ? 's' : '') : ''}</span>`;
+  const k = r.kpis, urg = (r.tareas || []).filter(t => t.prioridad <= 1).length;
+  return ` <span class="muted small" style="font-weight:400">${k.sinContacto ? '· ⏳ ' + k.sinContacto + ' sin contactar' : '· al día'}${k.cotizadosSinSoporte ? ' · ⚠️ ' + k.cotizadosSinSoporte + ' sin cotización CRM' : ''}${urg ? ' · 🔥 ' + urg + ' urgente' + (urg > 1 ? 's' : '') : ''}</span>`;
 }
 setInterval(() => { try { if (S && S.view === 'hoy' && !document.hidden && $('#hoy-pulso') && $('#sheet').hidden) cargarPulso(); } catch (e) { /* sin pulso */ } }, 60e3);
 function vHoy() {
@@ -933,6 +941,11 @@ function abrirLead(id) {
       <div class="row wrap">${pillEstado(l.estado)}${pillTemp(l.tempIA, 'IA: ')}${pillTemp(l.temp, 'Asesor: ')}
         ${l.hPrimera !== null ? `<span class="pill ${l.aTiempo ? 'pill-ok' : 'pill-bad'}">1ª respuesta: ${fmtHoras(l.hPrimera)}</span>` : l.estado === 'Nuevo' && l.hAsign !== null ? `<span class="pill pill-${l.sla === 'bad' ? 'bad' : l.sla === 'warn' ? 'warn' : 'ok'}">${fmtHoras(l.hAsign)} sin contacto</span>` : ''}</div>
       ${l.incons.length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div><b>Inconsistencia</b><br>${l.incons.map(esc).join('<br>')}</div></div>` : ''}
+      ${(() => {
+        const canal = canalLead(l), refPor = String(r.referido_por || (/^referido:/i.test(String(r.origen || '')) ? String(r.origen).replace(/^referido:\s*/i, '') : '')).trim();
+        return `<div class="card"><div class="row wrap"><b>Origen:</b> <span class="pill ${canal === 'Pauta redes sociales' ? 'pill-info' : canal === 'Referido' ? 'pill-ok' : ''}">${esc(canal)}</span>${r.anuncio_origen ? `<span class="small muted">· ${esc(r.anuncio_origen)}</span>` : ''}${refPor ? `<span class="small">· recomendado por <b>${esc(refPor)}</b></span>` : ''}</div>
+          ${ed && !refPor ? `<div class="row" style="margin-top:8px;gap:6px"><input class="inp grow" id="ref-por" maxlength="60" placeholder="¿Quién lo recomendó? (nombre)"><button class="btn btn-sm" data-act="referido" data-id="${esc(l.id)}"><i class="ti ti-users-plus"></i> Marcar como referido</button></div>` : ''}</div>`;
+      })()}
       <div class="card"><div class="row wrap">${contactoTxt(l)}<span class="grow"></span>${S.view !== 'chats' ? `<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>` : ''}</div>
         ${l.cita ? `<p class="small" style="margin:8px 0 0"><i class="ti ti-calendar-event"></i> Cita: <b>${fmtFecha(l.cita, !!r.cita_hora)}</b></p>` : ''}</div>
 
@@ -1085,17 +1098,14 @@ function cuerpoControl() {
     <div class="grid g-kpi" style="margin-top:12px">${kpi('Lead → oportunidad', k.leadAOportunidad === null || k.leadAOportunidad === undefined ? '—' : k.leadAOportunidad + ' %', `${k.oportunidades || 0} oportunidades`)}
     ${kpi('Oportunidad → venta', k.oportunidadAVenta === null || k.oportunidadAVenta === undefined ? '—' : k.oportunidadAVenta + ' %', `${k.ventas || 0} ventas`)}
     ${kpi('Conversión total', k.conversion === null || k.conversion === undefined ? '—' : k.conversion + ' %', `${k.perdidos || 0} perdidos · ${k.detenidos || 0} detenidos`)}
-    ${kpi('Presupuesto del mes', p.meta ? (p.cumplimiento || 0) + ' %' : '—', `${p.ventas || 0} de ${p.meta || 0} motos · brecha ${num(p.brecha)}`)}
-    ${kpi('Pronóstico de cierre', f.cierreProyectado !== undefined ? f.cierreProyectado : '—', `${f.ventasMes || 0} vendidas + ${f.pipelineEsperado || 0} esperadas · al ritmo ${num(f.cierreAlRitmo)}`)}
-    ${kpi('Brecha proyectada', f.brechaProyectada !== undefined ? f.brechaProyectada : '—', f.meta ? `Meta ${f.meta} motos` : 'Sin meta cargada', f.brechaProyectada > 0 ? 'warn' : '')}</div>
-    <div class="grid g-kpi" style="margin-top:12px">${kpi('Leads digitales', k.leadsDigitales || 0, 'WhatsApp, web, redes y formularios')}
-    ${kpi('Cotizaciones en sala', k.cotizacionesSala || 0, 'Clientes del piso comercial (VENTA EN SALA)')}
-    ${kpi('Ventas en sala', k.ventasSala || 0, 'Cotizadas en sala y ya facturadas')}
-    ${kpi('Facturaciones', k.facturaciones || 0, 'Cerrado ganado (cruzado con Síntesis)')}
-    ${kpi('Motos entregadas', k.entregadas || 0, 'Manual o salida de inventario')}
-    ${kpi('Ventas pendientes de entrega', k.pendientesEntrega || 0, 'Facturadas sin entrega registrada', (k.pendientesEntrega || 0) > 0 ? 'warn' : '')}
+    ${kpi('Cotizado sin soporte', k.cotizadosSinSoporte || 0, `${k.cotizadosSinSoporteVencidos || 0} fuera de plazo (no aparecen en el CRM)`, k.cotizadosSinSoporte ? 'warn' : 'ok')}
+    ${kpi('Contacto en 15 min', txtPct(pctDe(k.contactoEn15min || 0, k.conTiempoContacto || 0)), `${k.contactoEn15min || 0} de ${k.conTiempoContacto || 0} contactados`)}
+    ${kpi('Contacto en 2 h', txtPct(pctDe(k.contactoEn2h || 0, k.conTiempoContacto || 0)), `${k.contactoEn2h || 0} de ${k.conTiempoContacto || 0} contactados`)}</div>
+    <div class="grid g-kpi" style="margin-top:12px">${['Pauta redes sociales', 'Referido', 'Orgánico', 'Cotizador web'].map(o => kpi(o === 'Pauta redes sociales' ? 'Pauta en redes' : o, (k.porOrigen || {})[o] || 0, 'leads de este origen')).join('')}
+    ${kpi('Reasignados', k.reasignados || 0, 'leads que cambiaron de asesor')}
+    ${kpi('Vendidos', k.facturaciones || 0, 'Cerrado ganado (cruzado con Síntesis)')}
     ${kpi('Pasan a facturar', k.porFacturar || 0, 'Esperando que cargue en Síntesis')}
-    ${kpi('Oportunidades activas', k.activas || 0, 'Leads digitales en gestión')}
+    ${kpi('Oportunidades activas', k.activas || 0, 'Leads en gestión')}
     ${kpi('Recuperadas', k.recuperadas || 0, `${k.perdidos || 0} perdidas · ${k.detenidos || 0} detenidas`)}</div>`;
   const tab = S.ctlTab || 'tareas';
   const cuerpo = { tareas: ctlTareas, supervision: ctlSupervision, conversion: ctlConversion, recuperacion: ctlRecuperacion, alertas: ctlAlertas, auditoria: ctlAuditoria, piloto: ctlPiloto }[tab](r);
@@ -1181,13 +1191,6 @@ function ctlPiloto() {
     ${kpi('⏰ Seg. vencidos', k.seguimientosVencidos || 0, 'fuera de plazo', k.seguimientosVencidos ? 'bad' : 'ok')}</div>
     <h3 style="margin:16px 0 8px">Conversión por etapa</h3>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Paso</th><th class="r">Entran</th><th class="r">Pasan</th><th class="r">%</th></tr></thead><tbody>${(r.conversion || []).map(c => `<tr><td>${esc(c.etapa)}</td><td class="r">${c.de || 0}</td><td class="r">${c.a || 0}</td><td class="r"><b>${c.pct === null ? '—' : c.pct + ' %'}</b></td></tr>`).join('')}</tbody></table></div>
-    ${ventasValidarHtml(r)}
-    ${porRevisarHtml(r)}
-    ${pronosticoHtml(r)}
-    ${Object.keys(r.pagos || {}).length ? `<h3 style="margin:16px 0 8px">💳 Cómo pagan los clientes (ventas de los últimos 45 días)</h3>${bars(Object.entries(r.pagos).map(([l, v]) => ({ l, v })).sort((a, b) => b.v - a.v))}` : ''}
-    <h3 style="margin:16px 0 8px">🔴 Ventas facturadas sin entrega <span class="pill ${r.pendientes && r.pendientes.length ? 'pill-bad' : 'pill-ok'}">${(r.pendientes || []).length}</span></h3>
-    ${(r.pendientes || []).length ? (r.pendientes || []).map(p => `<div class="card" style="margin-bottom:6px;padding:8px 12px"><b ${p.id_lead ? `data-act="abrir" data-id="${esc(p.id_lead)}" style="cursor:pointer"` : ''}>${esc(p.cliente || 'Cliente')}</b> <span class="muted small">· factura ${esc(p.factura)} · ${esc(p.modelo || '')} · ${esc(p.asesor || '')} · ${esc(p.sede || '')}</span> <span class="pill ${p.dias >= 3 ? 'pill-bad' : 'pill-warn'}">${p.dias} día${p.dias === 1 ? '' : 's'} pendiente</span></div>`).join('') : '<p class="small muted">Todo lo facturado ya está entregado ✅</p>'}
-    ${(r.ritmo || []).length ? `<h3 style="margin:16px 0 8px">Ritmo por sede (mes en curso)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Sede</th><th class="r">Meta</th><th class="r">Esperado a hoy</th><th class="r">Facturado</th><th class="r">Entregado</th><th class="r">Diferencia</th></tr></thead><tbody>${r.ritmo.map(x => `<tr><td>${esc(x.sede)}</td><td class="r">${x.meta}</td><td class="r">${x.esperado}</td><td class="r">${x.facturado}</td><td class="r">${x.entregado}</td><td class="r"><span class="pill ${x.diferencia < 0 ? 'pill-bad' : 'pill-ok'}">${x.diferencia > 0 ? '+' : ''}${x.diferencia}</span></td></tr>`).join('')}</tbody></table></div>` : ''}
     <h3 style="margin:16px 0 8px">Integridad de los datos <span class="pill ${malos ? 'pill-warn' : 'pill-ok'}">${malos ? malos + ' por revisar' : 'limpio'}</span></h3>
     <div class="tbl-wrap"><table class="tbl"><tbody>${Object.keys(nom).map(x => `<tr><td>${nom[x]}</td><td class="r"><span class="pill ${i[x] ? 'pill-warn' : 'pill-ok'}">${i[x] || 0}</span></td></tr>`).join('')}</tbody></table></div>
     ${r.esJefe && (r.trazabilidad || []).length ? `<h3 style="margin:16px 0 8px">🔗 Trazabilidad (solo Jefe): cliente → factura → modelo → chasis → entrega</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Factura</th><th>Modelo</th><th>Chasis</th><th>Sede</th><th>Entrega</th></tr></thead><tbody>${r.trazabilidad.map(t => `<tr><td>${esc(t.cliente)}</td><td>${esc(t.factura)}</td><td>${esc(t.modelo)}</td><td>${esc(t.chasis || '—')}</td><td>${esc(t.sede)}</td><td>${esc(t.entrega)}</td></tr>`).join('')}</tbody></table></div>` : ''}
@@ -1925,20 +1928,18 @@ function vMetas() {
 
 // Ventana grande al entrar: cómo vamos con los leads y con la meta del mes
 function mostrarBienvenida() {
-  const u = S.data.user, mes = mesesRecientes(1)[0], G = avanceGlobal(mes), d = diasDelMes(mes);
+  const u = S.data.user, L = leadsAlcance();
   const hora = bparts(new Date()).h, saludo = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
-  const principal = G.propio || G.total || G.puntos[0];
-  principal.mes = mes;
+  const abiertos = L.filter(l => !['Facturado', 'Perdido', 'Retenido'].includes(l.estado));
+  const nuevos = abiertos.filter(l => l.estado === 'Nuevo').length, cotizados = L.filter(l => l.cotizado).length, vendidos = L.filter(l => l.estado === 'Facturado').length;
+  const msg = nuevos ? `Tienes ${nuevos} lead${nuevos === 1 ? '' : 's'} sin contactar: el primero que responde, vende. Empieza por ahí.` : (abiertos.length ? 'No hay leads sin contactar. Sigue las cotizaciones y las próximas acciones del día.' : 'Aún no hay leads abiertos. Cuando entren por la pauta o por referidos aparecerán aquí.');
   const kp = (n, t, c) => `<div class="wl-kpi ${c || ''}"><b data-n="${n}">0</b><span>${t}</span></div>`;
-  const secundarios = G.propio ? [] : G.puntos.length > 1 ? G.puntos : [];
-  const html = `<div class="wl-backdrop" data-wl-cerrar></div><div class="wl-card" role="dialog" aria-modal="true" aria-label="Resumen del mes">
+  const html = `<div class="wl-backdrop" data-wl-cerrar></div><div class="wl-card" role="dialog" aria-modal="true" aria-label="Resumen de leads">
     <button class="icon-btn wl-x" data-wl-cerrar title="Cerrar"><i class="ti ti-x"></i></button>
-    <div class="wl-top"><div class="wl-saludo">${saludo}, ${esc(String(u.nombre).split(' ')[0])} 👋</div><div class="wl-mes">${esc(fmtMes(mes))} · día ${d.transc} de ${d.total}</div></div>
-    <div class="wl-kpis">${kp(principal.leads, 'Leads del mes')}${kp(principal.contactados, 'Contactados')}${kp(principal.cotizados, 'Cotizados')}${kp(principal.motos, 'Motos vendidas', 'wl-venta')}</div>
-    <div class="wl-meta"><div class="wl-meta-t"><i class="ti ti-target"></i> ${G.propio ? 'Tu meta del mes' : G.total && G.puntos.length > 1 ? 'Meta del mes · los dos puntos' : 'Meta del mes · ' + esc(principal.nombre)}</div>
-      ${barraMeta(principal, true)}<p class="wl-ritmo">${esc(textoRitmo(principal))}</p></div>
-    ${secundarios.length ? `<div class="wl-puntos">${secundarios.map(p => { p.mes = mes; return `<div class="wl-punto"><b>${esc(p.nombre)}</b>${barraMeta(p)}<span class="tiny muted">${p.leads} leads · ${p.contactados} contactados</span></div>`; }).join('')}</div>` : ''}
-    <div class="wl-acciones"><button class="btn" data-wl-cerrar data-wl-ir="metas"><i class="ti ti-chart-bar"></i> Ver detalle de metas</button><button class="btn btn-primary wl-entrar" data-wl-cerrar><i class="ti ti-arrow-right"></i> Entrar a la app</button></div></div>`;
+    <div class="wl-top"><div class="wl-saludo">${saludo}, ${esc(String(u.nombre).split(' ')[0])} 👋</div><div class="wl-mes">Gestión de leads · pauta en redes y referidos</div></div>
+    <div class="wl-kpis">${kp(abiertos.length, 'Leads abiertos')}${kp(nuevos, 'Sin contactar', nuevos ? 'wl-venta' : '')}${kp(cotizados, 'Cotizados')}${kp(vendidos, 'Vendidos', 'wl-venta')}</div>
+    <div class="wl-meta"><div class="wl-meta-t"><i class="ti ti-bolt"></i> Lo primero hoy</div><p class="wl-ritmo">${esc(msg)}</p></div>
+    <div class="wl-acciones"><button class="btn btn-primary wl-entrar" data-wl-cerrar><i class="ti ti-arrow-right"></i> Entrar a la app</button></div></div>`;
   let w = $('#welcome');
   if (!w) { w = document.createElement('div'); w.id = 'welcome'; w.className = 'welcome'; document.body.appendChild(w); }
   w.innerHTML = html; w.hidden = false; document.body.style.overflow = 'hidden';
@@ -2417,6 +2418,14 @@ document.addEventListener('click', async e => {
   const act = a.dataset.act, l = a.dataset.id ? S.M.byId[a.dataset.id] : null;
   if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
   if (act === 'ver-bienvenida') return mostrarBienvenida();
+  if (act === 'referido') {
+    const quien = (($('#ref-por') || {}).value || '').trim();
+    if (quien.length < 3) { toast('Escribe quién recomendó al cliente.', 'bad'); return; }
+    a.disabled = true;
+    try { await api('referido', { id_lead: a.dataset.id, referido_por: quien }); toast('Lead marcado como referido', 'ok'); S.pan = null; S.panT = 0; S.pul = null; S.ctl = null; S.ctlT = 0; await cargar(true); abrirLead(a.dataset.id); }
+    catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+    return;
+  }
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
   if (act === 'reasignar') {
     const jefe = S.data.user.rol === 'jefe', as = ($('#reas-as') || {}).value || '', mot = (($('#reas-mot') || {}).value || '').trim();
