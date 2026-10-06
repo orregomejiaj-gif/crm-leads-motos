@@ -772,7 +772,7 @@ function cargarPulso() {
   const as = S.hoyAsesor || '';
   api('control', { dias: 30, asesor: as }).then(r => { S.pul = r; S.pulAs = as; S.pulErr = ''; S.pulT = Date.now(); })
     .catch(e => { S.pulErr = e.message; })
-    .finally(() => { S.pulBusy = false; const c = $('#hoy-pulso'); if (S.view === 'hoy' && c) c.innerHTML = pulsoHtml(); });
+    .finally(() => { S.pulBusy = false; const c = $('#hoy-pulso'); if (S.view === 'hoy' && c) { c.innerHTML = pulsoHtml(); const b = $('#pulso-btn'); if (b && b.firstElementChild) b.firstElementChild.innerHTML = '⚡ Mi pulso comercial' + resumenPulso(); } });
 }
 /** Tarjeta del pulso que, al tocarla, filtra la lista que aparece debajo. */
 function kpiF(clave, l, v, s, cls) { return `<div data-act="pulso-f" data-k="${clave}" title="Toca para ver la lista" style="cursor:pointer;border-radius:14px;${S.pulF === clave ? 'outline:3px solid #2563eb;' : ''}">${kpi(l, v, s, cls)}</div>`; }
@@ -838,6 +838,13 @@ function pulsoHtml() {
       ${kpiF('recuperar', '♻️ Por recuperar', k.porRecuperar || 0, `${k.perdidos || 0} perdidos · ⏸️ ${k.detenidos || 0} detenidos`)}
     </div>${pulsoLista(r)}</div>`;
 }
+/** Texto corto del botón del pulso: avance de la meta y lo más urgente, visible aun con el panel cerrado. */
+function resumenPulso() {
+  const r = S.pul; if (!r || !r.kpis) return '';
+  const k = r.kpis, p = r.presupuesto || {}, pct = p.meta ? Math.min(100, Math.round((p.ventas || 0) * 100 / p.meta)) : null;
+  const urg = (r.tareas || []).filter(t => t.prioridad <= 1).length;
+  return ` <span class="muted small" style="font-weight:400">· ${pct === null ? 'sin meta' : '🎯 ' + pct + ' % de la meta'}${k.nuevos ? ' · 🆕 ' + k.nuevos + ' nuevo' + (k.nuevos > 1 ? 's' : '') : ''}${urg ? ' · 🔥 ' + urg + ' urgente' + (urg > 1 ? 's' : '') : ''}</span>`;
+}
 setInterval(() => { try { if (S && S.view === 'hoy' && !document.hidden && $('#hoy-pulso') && $('#sheet').hidden) cargarPulso(); } catch (e) { /* sin pulso */ } }, 60e3);
 function vHoy() {
   const u = S.data.user, ls = leadsAlcance(), M = S.M;
@@ -868,7 +875,8 @@ function vHoy() {
   return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
     ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
     ${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><div>${esc(a)}</div></div>`).join('')}
-    ${u.rol === 'asesor' ? '' : `<div id="hoy-pulso">${pulsoHtml()}</div>`}
+    ${u.rol === 'asesor' ? '' : `<button class="btn" id="pulso-btn" data-act="pulso-toggle" style="width:100%;justify-content:space-between;margin-bottom:10px;padding:12px 16px;font-weight:600"><span>⚡ Mi pulso comercial${resumenPulso()}</span><i class="ti ${S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'}"></i></button>
+    <div id="hoy-pulso" ${S.pulAbierto ? '' : 'hidden'}>${pulsoHtml()}</div>`}
     <div class="grid g-kpi">
       ${kpi('SLA vencido', vencidos, `≥ ${M.cfg.sla_vencida_h} h hábiles sin contacto`, vencidos ? 'bad' : 'ok')}
       ${kpi('Citas hoy', grupos[1].items.length + abiertos.filter(l => l.citaHoy && l.sla === 'bad').length, '')}
@@ -2421,6 +2429,7 @@ document.addEventListener('click', async e => {
   }
   if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
   if (act === 'pan-filtro') { const v = a.dataset.v; if (a.dataset.k === 'sede') S.panSede = v; else S.panDias = Number(v); S.pan = null; S.panT = 0; render(); return; }
+  if (act === 'pulso-toggle') { S.pulAbierto = !S.pulAbierto; const c = $('#hoy-pulso'), b = $('#pulso-btn'); if (c) c.hidden = !S.pulAbierto; if (b) b.querySelector('i').className = 'ti ' + (S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'); return; }
   if (act === 'pulso-f') { S.pulF = S.pulF === a.dataset.k ? '' : a.dataset.k; const c = $('#hoy-pulso'); if (c) c.innerHTML = pulsoHtml(); return; }
   if (act === 'eq-sel') { S.eqSel = a.dataset.id || ''; render(); return; }
   if (act === 'entrega-rapida') {
