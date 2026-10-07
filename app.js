@@ -343,6 +343,8 @@ function construirModelo() {
     // Cerrado ganado: la venta ya aparece en Síntesis (factura cruzada por celular) → el lead pasa solo a ganado.
     const cerrado = fac.length > 0;
     if (cerrado) estado = 'Facturado';
+    // «Otra ciudad»: escribió desde un municipio fuera de la cobertura (Antioquia/puntos); el bot le avisó y no se le asigna asesor.
+    if (!cerrado && norm(l.etapa) === 'otra_ciudad' && !['Facturado', 'Perdido', 'Retenido'].includes(estado)) estado = 'Otra ciudad';
 
     const incons = [];
     if ((estado === 'Cotizado' || (estado === 'Facturado' && cotizado)) && !cot.length) incons.push('Marcado cotizado sin cotización en el CRM');
@@ -694,7 +696,7 @@ function empty(icon, txt) { return `<div class="empty"><i class="ti ${icon}"></i
 // Nombres que ve el usuario: Retenido = «Detenido»; Facturado con la venta ya en Síntesis = «Cerrado ganado».
 function lblEstado(e, cerrado) { return e === 'Retenido' ? 'Detenido' : e === 'Facturado' ? (cerrado ? 'Cerrado ganado' : 'Pasa a facturar') : e; }
 function pillEstado(e, cerrado) {
-  const c = { Nuevo: 'pill-info', Contactado: '', Cotizado: 'pill-warn', Facturado: 'pill-ok', Perdido: 'pill-bad', Retenido: 'pill-dark' }[e] || '';
+  const c = { Nuevo: 'pill-info', Contactado: '', Cotizado: 'pill-warn', Facturado: 'pill-ok', Perdido: 'pill-bad', Retenido: 'pill-dark', 'Otra ciudad': 'pill-dark' }[e] || '';
   return `<span class="pill ${c}">${cerrado && e === 'Facturado' ? '<i class="ti ti-circle-check"></i> ' : ''}${esc(lblEstado(e, cerrado))}</span>`;
 }
 function pillTemp(t, pref) { return t ? `<span class="pill t-${norm(t)}">${pref || ''}${esc(t)}</span>` : ''; }
@@ -1723,7 +1725,12 @@ function vEmbudo() {
         </div>`).join('')}
         ${items.length > 150 ? `<div class="tiny muted">+${items.length - 150} más (usa filtros)</div>` : ''}
         ${!items.length ? '<div class="tiny muted" style="text-align:center;padding:12px">Vacío</div>' : ''}</div>`;
-    }).join('')}</div>`;
+    }).join('')}${(() => {
+      const otras = ls.filter(l => l.estado === 'Otra ciudad');
+      return `<div class="col" data-col="Otra ciudad"><div class="col-h">Otra ciudad <small>${otras.length}</small></div>
+        ${otras.slice(0, 150).map(l => `<div class="kcard"><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b><div class="muted">${esc(l.raw.zona || 'Sin ciudad')} · fuera de cobertura</div></div>`).join('')}
+        ${!otras.length ? '<div class="tiny muted" style="text-align:center;padding:12px">Vacío</div>' : ''}</div>`;
+    })()}</div>`;
 }
 function bindKanban() {
   $$('.kcard[draggable=true]').forEach(c => {
@@ -1930,7 +1937,7 @@ function vMetas() {
 function mostrarBienvenida() {
   const u = S.data.user, L = leadsAlcance();
   const hora = bparts(new Date()).h, saludo = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
-  const abiertos = L.filter(l => !['Facturado', 'Perdido', 'Retenido'].includes(l.estado));
+  const abiertos = L.filter(l => !['Facturado', 'Perdido', 'Retenido', 'Otra ciudad'].includes(l.estado));
   const nuevos = abiertos.filter(l => l.estado === 'Nuevo').length, cotizados = L.filter(l => l.cotizado).length, vendidos = L.filter(l => l.estado === 'Facturado').length;
   const msg = nuevos ? `Tienes ${nuevos} lead${nuevos === 1 ? '' : 's'} sin contactar: el primero que responde, vende. Empieza por ahí.` : (abiertos.length ? 'No hay leads sin contactar. Sigue las cotizaciones y las próximas acciones del día.' : 'Aún no hay leads abiertos. Cuando entren por la pauta o por referidos aparecerán aquí.');
   const kp = (n, t, c) => `<div class="wl-kpi ${c || ''}"><b data-n="${n}">0</b><span>${t}</span></div>`;
