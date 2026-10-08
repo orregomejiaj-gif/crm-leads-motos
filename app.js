@@ -202,11 +202,12 @@ function mostrarLogin(msg) {
 async function entrar(ev) {
   ev.preventDefault();
   const btn = $('#login-btn'), box = $('#login-msg');
-  const cedula = $('#login-ced').value.replace(/\D/g, ''), password = $('#login-pass').value;
-  if (!cedula || !password) { box.hidden = false; box.textContent = 'Escribe tu número de cédula y la contraseña.'; return; }
+  // Usuario = la parte del correo antes del @ (si escribe el correo completo, se corta solo). Una cédula solo vale mientras el acceso esté en modo mixto.
+  const usuario = $('#login-ced').value.trim().toLowerCase().split('@')[0].replace(/\s+/g, ''), password = $('#login-pass').value;
+  if (!usuario || !password) { box.hidden = false; box.textContent = 'Escribe tu usuario (tu correo antes del @) y la contraseña.'; return; }
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Entrando…'; box.hidden = true;
   try {
-    const r = await api('login', { cedula, password });
+    const r = await api('login', { usuario, password });
     S.token = r.token; store('akt_ses', r.token);
     $('#login-pass').value = '';
     arrancar();
