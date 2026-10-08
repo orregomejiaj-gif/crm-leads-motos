@@ -54,5 +54,13 @@
 .msg-plantilla { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 4px; padding: 2px 8px; border-radius: 10px; background: rgba(11, 20, 26, .07); color: #54656f; font-size: .68rem; font-weight: 700; text-transform: capitalize; }
 .msg-link { color: #1a52b8; font-weight: 700; text-decoration: none; }
 
+/* Clasificación del lead: la actual en color fuerte, las demás en tono suave */
+.tag-btn.t-caliente, .tag-btn.t-tibio, .tag-btn.t-frio { box-shadow: none; font-weight: 600; opacity: .6; background: #f3f5f9; border: 1px solid #dfe4ee; }
+.tag-btn.t-caliente { color: #c58a8a; } .tag-btn.t-tibio { color: #c0a06c; } .tag-btn.t-frio { color: #8aa3cf; }
+.tag-btn.on.t-caliente, .tag-btn.on.t-tibio, .tag-btn.on.t-frio { opacity: 1; font-weight: 800; color: #fff; border-color: transparent; box-shadow: 0 6px 14px -8px rgba(0, 0, 0, .45); }
+.tag-btn.on.t-caliente { background: linear-gradient(135deg, #e11d48, #9f1239); }
+.tag-btn.on.t-tibio { background: linear-gradient(135deg, #d97706, #92400e); }
+.tag-btn.on.t-frio { background: linear-gradient(135deg, #2563eb, #1e3a8a); }
+
 /* Visor de imagen */
 .visor-img { display: block; max-width: 100%; max-height: 78vh; margin: 0 auto; border-radius: 8px; }

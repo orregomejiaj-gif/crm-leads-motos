@@ -774,7 +774,7 @@ function leadCard(l) {
     ${l.pendCont ? `<div class="notice bad small" style="padding:6px 10px"><i class="ti ti-alert-triangle"></i><div>Figura como <b>contactado</b> pero no hay mensaje tuyo por WhatsApp. ${ed ? `<button class="btn btn-sm btn-primary" data-act="justificar-contacto" data-id="${esc(l.id)}">Justificar contacto</button>` : 'El asesor debe justificar por dónde y a qué hora lo contactó.'}</div></div>` : ''}
     ${l.incons.length ? `<div class="notice bad small" style="padding:6px 10px"><i class="ti ti-alert-triangle"></i><div>${l.incons.map(esc).join('<br>')}</div></div>` : ''}
     <div class="row between wrap"><div class="tags">${l.tempIA ? pillTemp(l.tempIA, 'IA: ') : '<span class="pill">IA: sin etiqueta</span>'}
-      ${ed ? TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${l.temp === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('') : pillTemp(l.temp, 'Asesor: ')}</div></div>
+      ${ed ? TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${(l.temp || l.tempIA) === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('') : pillTemp(l.temp, 'Asesor: ')}</div></div>
     ${acciones.length ? `<div class="lead-actions">${acciones.join('')}</div>` : ''}
   </article>`;
 }
@@ -962,7 +962,7 @@ function abrirLead(id) {
         <div style="margin-top:10px"><label class="f">Respuesta del cliente</label><textarea class="inp" id="resp-cli" maxlength="500" placeholder="¿Qué respondió el cliente?">${esc(g.respuesta_cliente || '')}</textarea>
           <div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn btn-sm" data-act="respuesta" data-id="${esc(l.id)}">Guardar respuesta</button></div></div>`}
         <div style="margin-top:10px"><label class="f">Temperatura (decisión del asesor · la IA propone: ${esc(l.tempIA || 'sin etiqueta')})</label>
-          <div class="tags">${TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${l.temp === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('')}</div></div>
+          <div class="tags">${TEMPS.map(t => `<button class="tag-btn t-${norm(t)} ${(l.temp || l.tempIA) === t ? 'on' : ''}" data-act="temp" data-v="${t}" data-id="${esc(l.id)}">${t}</button>`).join('')}</div></div>
         ${u.rol !== 'asesor' ? `<div style="margin-top:12px"><label class="f">Reasignar asesor</label><div class="row"><select class="sel grow" id="reasignar">${opts(asesores.map(p => p.nombre), l.asesor, '— Elegir —')}</select><button class="btn btn-sm" data-act="reasignar" data-id="${esc(l.id)}">Reasignar</button></div></div>` : ''}
       </div>` : ''}
 
