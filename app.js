@@ -656,6 +656,11 @@ function vListaPanel(kind) {
 // ── Navegación ────────────────────────────────────────────────────────────
 // Cada cargo ve su propio menú (y el API valida el cargo en cada ruta: ocultar un botón no basta).
 function vistasDeRol() {
+  // Las pantallas que solo calculan sobre leads (Indicadores, Conciliación, Leads/Embudo del Admin) se ocultan mientras haya muy pocos leads: vuelven solas con volumen.
+  const pocos = ((S.M && S.M.leads) || []).length < 15, ocultas = pocos ? { indicadores: 1, conciliacion: 1 } : {};
+  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo'));
+}
+function vistasDeRolBase() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
   // v2.33 — la app solo gestiona leads de pauta en redes y referidos. Inventario, bonos, metas, cifras, comisiones, entregas y posventa ya no se muestran
   // (el inventario y los bonos los lee solo el agente IA; la información comercial vive en el CRM de la empresa). Los datos siguen guardados.
