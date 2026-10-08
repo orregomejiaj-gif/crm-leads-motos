@@ -1,4 +1,4 @@
-/* CRM Leads Motos — app.js
+/* IC Leads — app.js
  * Toda la interfaz. Los datos vienen de la API (Apps Script) en un solo lote
  * ("bootstrap") y se escriben celda por celda con control de concurrencia.
  */
@@ -1417,6 +1417,13 @@ function htmlAdjunto(m) {
   if (t === 'video') return `<div class="msg-media"><video controls preload="metadata" src="${esc(u)}"></video></div>`;
   return `<a class="msg-doc" href="${esc(u)}" target="_blank" rel="noopener"><i class="ti ${e[0]}"></i> ${e[1]} · abrir</a>`;
 }
+function textoChat(txt) {
+  let s = String(txt || ''), ins = '';
+  const mp = /^\[Plantilla\s+([^\]]+)\]\s*/i.exec(s);
+  if (mp) { ins = `<span class="msg-plantilla"><i class="ti ti-template"></i> Plantilla · ${esc(mp[1].replace(/_/g, ' '))}</span><br>`; s = s.slice(mp[0].length); }
+  const h = esc(s).replace(/(https?:\/\/[^\s<]+)/g, u => /cotizador\.html/.test(u) ? `<a class="msg-link" href="${u}" target="_blank" rel="noopener">🏍️ Abrir cotizador</a>` : `<a class="msg-link" href="${u}" target="_blank" rel="noopener">${u.length > 38 ? u.slice(0, 38) + '…' : u}</a>`);
+  return ins + h;
+}
 function htmlMensajes(ms) {
   let dia = '';
   return ms.map(m => {
@@ -1425,7 +1432,7 @@ function htmlMensajes(ms) {
     const quien = cls === 'ase' ? 'Asesor' : cls === 'bot' ? '🤖 Mateo' : '';
     const d = parseFecha(m.fecha_hora), etq = d ? etiquetaDia(d) : '';
     const sep = etq && etq !== dia ? (dia = etq, `<div class="chat-dia">${esc(etq)}</div>`) : '';
-    return sep + `<div class="msg ${cls}">${quien ? `<span class="quien">${quien}</span>` : ''}${htmlAdjunto(m)}${esc(m.mensaje || '')}<small>${horaChat(d)}</small></div>`;
+    return sep + `<div class="msg ${cls}">${quien ? `<span class="quien">${quien}</span>` : ''}${htmlAdjunto(m)}${textoChat(m.mensaje)}<small>${horaChat(d)}</small></div>`;
   }).join('');
 }
 function htmlAnuncio(a) {
@@ -1551,7 +1558,7 @@ function cargarChat(id, forzarScroll) {
   if (!l || S.leadAbierto !== id || !$('#chat')) return;
   api('chats', { id_lead: l.id }).then(r2 => pintarChat(id, r2, forzarScroll))
     .catch(e => { if ($('#chat') && forzarScroll) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; })
-    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), 15000); });
+    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), document.hidden ? 30000 : 5000); });
 }
 async function enviarChat(id, btn) {
   const t = $('#chat-txt'), texto = (t.value || '').trim();
@@ -2308,7 +2315,7 @@ const ACCESOS = [
   { grupo: 'Para clientes', icon: 'ti-chart-bar', nombre: 'Encuesta de satisfacción (cliente)', desc: 'La página que abre el botón «Responder encuesta» de las plantillas de WhatsApp. Necesita un token por cliente: no se comparte suelta.', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/encuesta.html' },
   { grupo: 'Para eventos', icon: 'ti-calendar-event', nombre: 'Recolector de leads para eventos', desc: 'Formulario rápido para ferias y activaciones. Añade ?e=NombreDelEvento al enlace para etiquetar la campaña; los leads quedan con origen «Evento (cotizador)».', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador-eventos.html' },
   { grupo: 'Para eventos', icon: 'ti-calendar-event', nombre: 'Recolector de leads · ejemplo con evento', desc: 'Enlace listo para copiar: cambia «Evento» por el nombre de la feria o activación.', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/cotizador-eventos.html?e=Evento' },
-  { grupo: 'La app', icon: 'ti-layout-dashboard', nombre: 'CRM Leads Motos (esta app)', desc: 'Enlace de acceso para el equipo comercial.', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/' },
+  { grupo: 'La app', icon: 'ti-layout-dashboard', nombre: 'IC Leads (esta app)', desc: 'Enlace de acceso para el equipo comercial.', url: 'https://orregomejiaj-gif.github.io/crm-leads-motos/' },
   { grupo: 'Datos y repositorios', icon: 'ti-table', nombre: 'Libro principal · Leads, Equipo y Precios', desc: 'AKT-Hero Bot - CRM: precios con bonos, existencias, sedes, personal, leads, perfiles y pauta.', url: 'https://docs.google.com/spreadsheets/d/19JmIvjvafMULmiLhwwwD-tQD_xmENUjbuJegA0wxQOE/edit' },
   { grupo: 'Datos y repositorios', icon: 'ti-table', nombre: 'Cotizaciones (Mes_en_Curso e Histórico)', desc: 'Aquí se pega la exportación mensual de cotizaciones del CRM.', url: 'https://docs.google.com/spreadsheets/d/1LBNF-zkfHdILsSJncFr_V0xTEVEVeiFemA-l_MOF8bc/edit' },
   { grupo: 'Datos y repositorios', icon: 'ti-table', nombre: 'Metas y cifras comerciales (ventas)', desc: 'Metas, ventas del mes (Mes_en_Curso), histórico y referencias más vendidas.', url: 'https://docs.google.com/spreadsheets/d/1w3fRZMVNKwOy6zGMF-KtA5uhAr8ZhpUOyPYqd8mZN_E/edit' },

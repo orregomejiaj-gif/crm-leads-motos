@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CRM Leads Motos — puntos Itagüí y Los Colores
+  IC Leads — puntos Itagüí y Los Colores
   Versión: ver window.AKT_VERSION al final del archivo (se muestra en el encabezado y en el login).
   App estática (GitHub Pages) + API en Google Apps Script (backend/Code.gs).
   Configuración en config.js. Modo demo con datos ficticios: ?demo=1
@@ -10,16 +10,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b2e6e">
-<title>CRM Leads Motos</title>
+<title>IC Leads</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
-<link href="styles.css?v=2.34.0" rel="stylesheet">
-<link href="tema.css?v=2.34.0" rel="stylesheet">
-<link href="chat.css?v=2.34.0" rel="stylesheet">
-<link href="paneles.css?v=2.34.0" rel="stylesheet">
+<link href="styles.css?v=2.35.0" rel="stylesheet">
+<link href="tema.css?v=2.35.0" rel="stylesheet">
+<link href="chat.css?v=2.35.0" rel="stylesheet">
+<link href="paneles.css?v=2.35.0" rel="stylesheet">
 </head>
 <body>
 
@@ -27,7 +27,7 @@
 <section id="login" class="login" hidden>
   <div class="login-card">
     <div class="emblem"><i class="ti ti-motorbike"></i></div>
-    <h1>CRM <span>Leads</span> Motos</h1>
+    <h1>IC <span>Leads</span></h1>
     <p class="muted">Puntos de venta Itagüí y Los Colores</p>
     <form id="login-form" class="login-form" autocomplete="on" hidden>
       <label class="f" for="login-ced">Usuario (número de cédula)</label>
@@ -46,7 +46,7 @@
 <!-- ═══════════ APP ═══════════ -->
 <div id="app" class="app" hidden>
   <header class="topbar">
-    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>CRM <span>Leads</span> Motos <em class="ver-badge" id="tb-ver" title="Versión de la app · versión del servidor (API)"></em></b><small id="tb-sub"></small></div></div>
+    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>IC <span>Leads</span> <em class="ver-badge" id="tb-ver" title="Versión de la app · versión del servidor (API)"></em></b><small id="tb-sub"></small></div></div>
     <div class="topbar-actions">
       <span id="demo-badge" class="pill pill-warn" hidden>MODO DEMO · datos ficticios</span>
       <select id="demo-role" class="sel sel-dark" hidden title="Ver como"></select>
@@ -63,11 +63,11 @@
 <div id="toasts" class="toasts"></div>
 
 <!-- Versión de la app: súbela en cada cambio (también los ?v=) para confirmar que GitHub sirve la versión correcta. -->
-<script>window.AKT_VERSION = '2.34.0';</script>
-<script src="config.js?v=2.34.0"></script>
-<script>if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) document.write('<script src="demo.js?v=2.34.0"><\/script>');</script>
-<script src="modulos.js?v=2.34.0"></script>
-<script src="app.js?v=2.34.0"></script>
+<script>window.AKT_VERSION = '2.35.0';</script>
+<script src="config.js?v=2.35.0"></script>
+<script>if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) document.write('<script src="demo.js?v=2.35.0"><\/script>');</script>
+<script src="modulos.js?v=2.35.0"></script>
+<script src="app.js?v=2.35.0"></script>
 </body>
 </html>
 

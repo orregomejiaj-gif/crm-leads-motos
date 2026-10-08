@@ -50,5 +50,9 @@
 .anuncio-txt .tiny { color: #7b8794; }
 .anuncio-txt a { color: #1a52b8; font-weight: 700; text-decoration: none; }
 
+/* Plantilla de WhatsApp y enlaces dentro del globo */
+.msg-plantilla { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 4px; padding: 2px 8px; border-radius: 10px; background: rgba(11, 20, 26, .07); color: #54656f; font-size: .68rem; font-weight: 700; text-transform: capitalize; }
+.msg-link { color: #1a52b8; font-weight: 700; text-decoration: none; }
+
 /* Visor de imagen */
 .visor-img { display: block; max-width: 100%; max-height: 78vh; margin: 0 auto; border-radius: 8px; }
