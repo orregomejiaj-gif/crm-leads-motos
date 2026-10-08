@@ -1399,22 +1399,55 @@ function abrirChatBandeja(id, silencioso) {
   cargarChat(id, true);
 }
 
+// ── Chat estilo WhatsApp: tipos de mensaje (imagen, audio, video, documento), separador de días y anuncio de origen ──
+function etiquetaDia(d) {
+  const f = x => x.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  if (f(d) === f(new Date())) return 'Hoy';
+  if (f(d) === f(new Date(Date.now() - 864e5))) return 'Ayer';
+  return d.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' });
+}
+function horaChat(d) { return d ? d.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hour12: true }) : ''; }
+function htmlAdjunto(m) {
+  const t = m.tipo || 'text', u = m.media_url || '';
+  if (['text', 'button', 'interactive'].includes(t)) return '';
+  const e = { image: ['ti-photo', 'Imagen'], audio: ['ti-microphone', 'Nota de voz'], video: ['ti-video', 'Video'], document: ['ti-file-text', 'Documento'], location: ['ti-map-pin', 'Ubicación'], sticker: ['ti-mood-smile', 'Sticker'] }[t] || ['ti-paperclip', 'Archivo'];
+  if (!u) return `<div class="msg-vacio"><i class="ti ${e[0]}"></i> ${e[1]} <span class="tiny">(no disponible)</span></div>`;
+  if (t === 'image') return `<img class="msg-img" loading="lazy" src="${esc(u)}" alt="Imagen del chat" data-act="chat-zoom" data-url="${esc(u)}">`;
+  if (t === 'audio') return `<div class="msg-media"><audio controls preload="none" src="${esc(u)}"></audio></div>`;
+  if (t === 'video') return `<div class="msg-media"><video controls preload="metadata" src="${esc(u)}"></video></div>`;
+  return `<a class="msg-doc" href="${esc(u)}" target="_blank" rel="noopener"><i class="ti ${e[0]}"></i> ${e[1]} · abrir</a>`;
+}
+function htmlMensajes(ms) {
+  let dia = '';
+  return ms.map(m => {
+    const rm = norm(m.remitente);
+    const cls = rm.startsWith('asesor') ? 'ase' : /bot|ia|asistente|agente/.test(rm) ? 'bot' : 'cli';
+    const quien = cls === 'ase' ? 'Asesor' : cls === 'bot' ? '🤖 Mateo' : '';
+    const d = parseFecha(m.fecha_hora), etq = d ? etiquetaDia(d) : '';
+    const sep = etq && etq !== dia ? (dia = etq, `<div class="chat-dia">${esc(etq)}</div>`) : '';
+    return sep + `<div class="msg ${cls}">${quien ? `<span class="quien">${quien}</span>` : ''}${htmlAdjunto(m)}${esc(m.mensaje || '')}<small>${horaChat(d)}</small></div>`;
+  }).join('');
+}
+function htmlAnuncio(a) {
+  if (!a || !(a.headline || a.source_id)) return '';
+  const img = a.image_url || a.thumbnail_url || '';
+  return `<div class="anuncio-card"><div class="anuncio-top"><i class="ti ti-ad-2"></i> LLEGÓ DESDE UN ANUNCIO</div><div class="anuncio-body">${img ? `<img class="anuncio-img" src="${esc(img)}" alt="Anuncio" data-act="chat-zoom" data-url="${esc(img)}">` : ''}<div class="anuncio-txt"><b>${esc(a.headline || 'Anuncio de Facebook / Instagram')}</b>${a.body ? `<p>${esc(a.body)}</p>` : ''}<div class="tiny">ID del anuncio: ${esc(a.source_id || '—')}${a.media_type ? ' · ' + esc(a.media_type) : ''}</div>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener">Ver anuncio ↗</a>` : ''}</div></div></div>`;
+}
+function zoomChat(url) {
+  abrirSheet(`<div class="sheet-b"><img class="visor-img" src="${esc(url)}" alt=""><div class="row" style="justify-content:flex-end;margin-top:10px"><a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir</a><button class="btn btn-sm btn-dark" onclick="cerrarModal()">Cerrar</button></div></div>`, true);
+}
+
 // ── Chat del asesor (Fase 1): responde desde la app; el bot se pausa mientras hay asesor asignado ──
 let chatTimer = null, chatSig = '';
 function pintarChat(id, r2, forzarScroll) {
   if (S.leadAbierto !== id || !$('#chat')) return;
   const ms = r2.mensajes || [], at = r2.atencion || {};
-  const sig = ms.length + '|' + (ms.length ? ms[ms.length - 1].fecha_hora : '') + '|' + at.estado;
+  const sig = ms.length + '|' + (ms.length ? ms[ms.length - 1].fecha_hora : '') + '|' + at.estado + '|' + (r2.anuncio ? '1' : '0') + '|' + ms.filter(m => m.media_url).length;
   const c = $('#chat');
   const abajo = c.scrollHeight - c.scrollTop - c.clientHeight < 40;
   if (sig !== chatSig) {
     chatSig = sig;
-    c.innerHTML = ms.length ? ms.map(m => {
-      const rm = norm(m.remitente);
-      const cls = rm.startsWith('asesor') ? 'ase' : /bot|ia|asistente|agente/.test(rm) ? 'bot' : 'cli';
-      const quien = cls === 'ase' ? 'Asesor' : cls === 'bot' ? 'Bot' : 'Cliente';
-      return `<div class="msg ${cls}">${esc(m.mensaje)}<small>${quien} · ${fmtFecha(parseFecha(m.fecha_hora))}</small></div>`;
-    }).join('') : '<p class="small muted">Sin mensajes en Historial_Chats para este contacto.</p>';
+    c.innerHTML = ms.length ? htmlAnuncio(r2.anuncio) + htmlMensajes(ms) : '<p class="small muted">Sin mensajes para este contacto.</p>';
     if (forzarScroll || abajo) c.scrollTop = c.scrollHeight;
   }
   const pausado = at.estado !== 'bot' && at.asesor;
@@ -2480,6 +2513,7 @@ document.addEventListener('click', async e => {
   if (['etapa', 'cita-estado', 'cita-nueva', 'cita-revision', 'entrega-moto'].includes(act)) return accionAvance(act, a);
   if (act === 'ind-recargar') { S.indT = 0; S.ind = null; cargarIndicadores(); return render(); }
   if (act === 'chat-abrir') return abrirChatBandeja(a.dataset.id);
+  if (act === 'chat-zoom') return zoomChat(a.dataset.url);
   if (act === 'ir-chat') { cerrarSheet(); S.chatSel = a.dataset.id; S.view = 'chats'; renderNav(); return render(); }
   if (act === 'chat-volver') { S.chatSel = null; S.leadAbierto = null; return render(); }
   if (act === 'chat-enviar') return enviarChat(a.dataset.id, a);

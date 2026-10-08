@@ -327,8 +327,12 @@
       const m = (min, r, txt) => ({ fecha_hora: fmtB(new Date(t0 + min * 6e4)), telefono_whatsapp: l.telefono_whatsapp, nombre_completo: l.nombre_completo, remitente: r, mensaje: txt });
       const k = l.id_lead, extra = (DEMO_CHAT[k] = DEMO_CHAT[k] || { estado: l.nombre_asesor ? 'asesor' : 'bot', msgs: [] });
       const ahoraD = Date.now();
-      return { ok: true, mensajes: [
+      const svg = (txt, c1, c2) => 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + c1 + '"/><stop offset="1" stop-color="' + c2 + '"/></linearGradient></defs><rect width="480" height="320" fill="url(#g)"/><text x="240" y="170" font-family="Arial" font-size="34" font-weight="700" fill="#fff" text-anchor="middle">' + txt + '</text></svg>');
+      const adj = (min, r, tipo, txt, url) => Object.assign(m(min, r, txt), { tipo, media_url: url });
+      return { ok: true, anuncio: { source_id: '120230000000123', headline: 'Estrena tu ' + (l.modelo_interes || 'moto') + ' con bono de $600.000', body: 'Escríbenos por WhatsApp y te asesoramos con financiación en Itagüí y Los Colores.', source_url: 'https://fb.me/demo-anuncio', media_type: 'image', image_url: svg('ANUNCIO ' + (l.modelo_interes || 'AKT'), '#1a52b8', '#d12a2a') }, mensajes: [
         m(0, 'cliente', 'Hola, info de la ' + (l.modelo_interes || 'moto') + ' (mensaje demo)'),
+        adj(0.5, 'cliente', 'image', 'Esta es la que quiero (demo)', svg('FOTO DEL CLIENTE', '#0e327a', '#3d8bff')),
+        adj(1.5, 'cliente', 'audio', '', ''),
         m(1, 'bot', '¡Hola! Soy el asistente virtual del punto de venta. ¿La quieres de contado o a crédito? (demo)'),
         m(3, 'cliente', l.forma_pago || 'Todavía no sé'),
         m(4, 'bot', 'Perfecto. Te asigno a ' + l.nombre_asesor + ' del punto ' + sedeCanon(l.punto_asignado) + '. (demo)'),
