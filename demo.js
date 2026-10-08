@@ -228,6 +228,11 @@
         ritmo: u.rol === 'asesor' ? [] : [{ sede: 'Itagüí', meta: 36, facturado: 14, entregado: 12, esperado: 5.8, diferencia: 8.2 }, { sede: 'Los Colores', meta: 51, facturado: 6, entregado: 5, esperado: 8.2, diferencia: -2.2 }], motivos: {}, perdidasSede: {} };
     }
     if (action === 'revisarOportunidad' || action === 'validarVenta' || action === 'solicitarReasignacion') return { ok: true };
+    if (action === 'inteligenciaIC') return { ok: true,
+      pauta: [{ anuncio: 'Rally 300 · Los Colores', leads: 18, contactados: 16, cotizados: 9, ventas: 3, conversion_pct: 16.7 }, { anuncio: 'Enduro TTR 200 · Itagüí', leads: 12, contactados: 9, cotizados: 4, ventas: 0, conversion_pct: 0 }, { anuncio: 'Sin anuncio / orgánico', leads: 7, contactados: 6, cotizados: 3, ventas: 1, conversion_pct: 14.3 }],
+      prioridad: [{ id_lead: 'demo-1', nombre_completo: 'Carlos Pérez', modelo_interes: 'Rally 300', temperatura: 'caliente', nombre_asesor: 'Kelly Zapata', minutos_sin_respuesta: 42 }, { id_lead: 'demo-2', nombre_completo: 'Marta Gómez', modelo_interes: 'NKD 125', temperatura: 'tibio', nombre_asesor: 'Luis Arias', minutos_sin_respuesta: 130 }],
+      reactivar: [{ cliente: 'Juan Rojas', modelo: 'CR4 125', dias_sin_cerrar: 5, plan: 'seguimiento_3d', asesor: 'Kelly Zapata', telefono: '3001112233' }],
+      asesores: [{ asesor: 'Kelly Zapata', leads: 20, contactados: 18, ventas: 3 }, { asesor: 'Luis Arias', leads: 17, contactados: 13, ventas: 1 }] };
     if (action === 'pauta') return { ok: true, hoja: true, filas: 4, sinPunto: 0, totales: { gasto: 168066, impresiones: 35633, alcance: 24074, resultados: 175, clics: 453 },
       puntos: [{ punto: 'Los Colores', gasto: 168066, resultados: 175, impresiones: 35633, clics: 453, costoConversacion: 960 }, { punto: 'Itagüí', gasto: 0, resultados: 0, impresiones: 0, clics: 0, costoConversacion: null }],
       anuncios: [{ punto: 'Los Colores', anuncio: 'pauta miguel arias colores med', conjunto: '', estado: 'not_delivering', gasto: 83731, impresiones: 16495, alcance: 10661, resultados: 89, clics: 213, desde: '2026-09-04', hasta: '2026-10-03', costoConversacion: 941, ctr: 1.3, cpm: 5076, leads: null, cotizados: null, ventas: null, costoLead: null, costoVenta: null },

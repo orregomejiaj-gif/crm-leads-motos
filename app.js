@@ -481,6 +481,38 @@ function listaAlertas(ctl) {
 }
 function kpiRow(items) { return `<div class="grid g-kpi">${items.map(i => kpi(i[0], i[1], i[2], i[3])).join('')}</div>`; }
 
+/** Inteligencia comercial (datos de Supabase): pauta → venta, prioridad de leads, cotizaciones por reactivar y rendimiento de asesores. */
+function cargarIC() {
+  if (S.icBusy) return; S.icBusy = true;
+  api('inteligenciaIC').then(r => { S.ic = r; S.icErr = ''; S.icT = Date.now(); }).catch(e => { S.icErr = e.message; S.icT = Date.now(); })
+    .finally(() => { S.icBusy = false; if (S.view === 'icventas') render(); });
+}
+function vICVentas() {
+  if ((!S.ic && Date.now() - (S.icT || 0) > 20e3) || (S.ic && Date.now() - (S.icT || 0) > 120e3)) cargarIC();
+  if (!S.ic) return S.icErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.icErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la inteligencia comercial…</div></div>';
+  const r = S.ic, P = r.pauta || [], Q = r.prioridad || [], R = r.reactivar || [], A = r.asesores || [];
+  const sum = k => P.reduce((s, x) => s + (Number(x[k]) || 0), 0), L = sum('leads'), V = sum('ventas'), CZ = sum('cotizados');
+  const pct = (a, b) => b ? (a * 100 / b).toFixed(1).replace('.', ',') + '%' : '—';
+  const wa = t => { const d = String(t || '').replace(/\D/g, ''); return d ? `https://wa.me/${d.length === 10 ? '57' + d : d}` : ''; };
+  const mejor = P.filter(x => x.ventas > 0).sort((a, b) => b.conversion_pct - a.conversion_pct)[0];
+  const sinVenta = P.filter(x => x.leads >= 5 && !x.ventas).sort((a, b) => b.leads - a.leads)[0];
+  const ia = [];
+  if (mejor) ia.push(`✅ «${mejor.anuncio}» es el que mejor convierte: ${pct(mejor.ventas, mejor.leads)} (${mejor.ventas} ventas de ${mejor.leads} leads).`);
+  if (sinVenta) ia.push(`⚠️ «${sinVenta.anuncio}» trajo ${sinVenta.leads} leads y ninguna venta: revisa el mensaje o el público.`);
+  const calientes = Q.filter(x => /caliente/i.test(x.temperatura || '') && Number(x.minutos_sin_respuesta) > 15).length;
+  if (calientes) ia.push(`🔥 ${calientes} lead${calientes === 1 ? '' : 's'} caliente${calientes === 1 ? '' : 's'} lleva${calientes === 1 ? '' : 'n'} más de 15 min sin respuesta.`);
+  if (R.length) ia.push(`📲 ${R.length} cotizaci${R.length === 1 ? 'ón' : 'ones'} sin venta para reactivar por WhatsApp.`);
+  if (P.length === 1 && /sin anuncio/i.test(P[0].anuncio)) ia.push('🔗 Aún no hay leads con anuncio de origen. Se llenan solos cuando un cliente escribe desde un anuncio de Facebook o Instagram.');
+  const tabla = (cab, filas) => `<div class="table-wrap"><table class="tbl"><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${filas || `<tr><td colspan="${cab.length}" class="muted small">Sin datos todavía.</td></tr>`}</tbody></table></div>`;
+  return `<div class="hero jefe"><div class="hero-ic">🎯</div><div><h2>Pauta → Venta</h2><p>Qué anuncios venden, a quién atender primero y qué cotizaciones recuperar</p></div></div>
+    <div class="grid g-kpi">${kpi('📥 Leads', L, 'con o sin anuncio')}${kpi('📝 Cotizados', CZ, pct(CZ, L) + ' de los leads')}${kpi('💰 Vendidos', V, pct(V, L) + ' de los leads', V ? 'ok' : '')}${kpi('🔥 Por atender', Q.length, `${calientes} calientes con espera`, calientes ? 'bad' : 'ok')}</div>
+    ${ia.length ? `<div class="notice"><i class="ti ti-bulb"></i><div>${ia.map(esc).join('<br>')}</div></div>` : ''}
+    <div class="card"><div class="card-h"><h3>Rendimiento por anuncio</h3></div>${tabla(['Anuncio', 'Leads', 'Contactados', 'Cotizados', 'Ventas', 'Conversión'], P.map(x => `<tr><td><b>${esc(x.anuncio)}</b></td><td>${x.leads}</td><td>${x.contactados}</td><td>${x.cotizados}</td><td>${x.ventas}</td><td>${x.conversion_pct === null || x.conversion_pct === undefined ? '—' : String(x.conversion_pct).replace('.', ',') + '%'}</td></tr>`).join(''))}</div>
+    <div class="card"><div class="card-h"><h3>Leads por atender primero</h3><span class="tiny muted">Calientes arriba · minutos sin respuesta</span></div>${tabla(['Cliente', 'Moto', 'Temperatura', 'Asesor', 'Espera'], Q.map(x => `<tr><td><b data-act="abrir" data-id="${esc(x.id_lead)}" style="cursor:pointer">${esc(x.nombre_completo || 'Sin nombre')}</b></td><td>${esc(x.modelo_interes || '—')}</td><td>${x.temperatura ? pillTemp(canonTemp(x.temperatura)) : '—'}</td><td>${esc(x.nombre_asesor || 'Sin asesor')}</td><td>${x.minutos_sin_respuesta === null || x.minutos_sin_respuesta === undefined ? '—' : fmtHoras(Number(x.minutos_sin_respuesta) / 60)}</td></tr>`).join(''))}</div>
+    <div class="card"><div class="card-h"><h3>Cotizaciones por reactivar</h3><span class="tiny muted">Más de 3 días sin cerrar</span></div>${tabla(['Cliente', 'Moto', 'Días', 'Plan', 'Asesor', ''], R.map(x => `<tr><td><b>${esc(x.cliente || '—')}</b></td><td>${esc(x.modelo || '—')}</td><td>${x.dias_sin_cerrar}</td><td>${esc(String(x.plan || '').replace(/_/g, ' '))}</td><td>${esc(x.asesor || '—')}</td><td>${wa(x.telefono) ? `<a class="btn btn-sm" href="${esc(wa(x.telefono))}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> Escribir</a>` : ''}</td></tr>`).join(''))}</div>
+    <div class="card"><div class="card-h"><h3>Asesores del mes</h3></div>${tabla(['Asesor', 'Leads', 'Contactados', 'Ventas'], A.map(x => `<tr><td><b>${esc(x.asesor)}</b></td><td>${x.leads}</td><td>${x.contactados}</td><td>${x.ventas}</td></tr>`).join(''))}</div>`;
+}
+
 /** Pauta de Facebook e Instagram (exporte de Ads Manager pegado en la hoja Pauta_Meta). */
 function cargarPauta() {
   if (S.pauBusy) return; S.pauBusy = true;
@@ -631,7 +663,7 @@ function vistasDeRol() {
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
@@ -674,7 +706,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { pauta: vPauta, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
+  const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
     alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
   const fn = (MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
