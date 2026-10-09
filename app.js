@@ -1408,7 +1408,7 @@ function cargarBandeja() {
     renderNav();
     if (S.view === 'chats') pintarBandeja();
   }).catch(e => { S.bandejaErr = e.message; if (S.view === 'chats') pintarBandeja(); })
-    .finally(() => { if (!DEMO) bandejaTimer = setTimeout(cargarBandeja, document.hidden ? 180000 : 45000); });
+    .finally(() => { if (!DEMO) bandejaTimer = setTimeout(cargarBandeja, document.hidden ? 300000 : 60000); });
 }
 function vChats() {
   if (!S.bandeja) { cargarBandeja(); }
@@ -1612,7 +1612,7 @@ function cargarChat(id, forzarScroll) {
   if (!l || S.leadAbierto !== id || !$('#chat')) return;
   api('chats', { id_lead: l.id }).then(r2 => pintarChat(id, r2, forzarScroll))
     .catch(e => { if ($('#chat') && forzarScroll) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; })
-    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), document.hidden ? 120000 : 12000); });
+    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), document.hidden ? 300000 : 30000); });
 }
 async function enviarChat(id, btn) {
   const t = $('#chat-txt'), texto = (t.value || '').trim();
