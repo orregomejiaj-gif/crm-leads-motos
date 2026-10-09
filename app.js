@@ -2385,6 +2385,40 @@ const ACCESOS = [
   { grupo: 'Pauta Meta', icon: 'ti-speakerphone', nombre: 'PAUTA LOS COLORES · Administrador de anuncios', desc: 'Cuenta publicitaria 1779823606539913 (portfolio AKT MotoRacing Los Colores). Exporta de aquí el informe semanal para la hoja Pauta_Meta con punto = Los Colores.', url: 'https://adsmanager.facebook.com/adsmanager/manage/adsets?act=1779823606539913' },
   { grupo: 'Automatización y plataformas', icon: 'ti-world', nombre: 'Sitio web Moto Racing', desc: 'motoracing.com.co: de aquí salen las fichas técnicas del catálogo.', url: 'https://motoracing.com.co/' }
 ];
+/** Carga Leaflet (mapa) la primera vez que se abre «Zonas». */
+function cargarLeaflet() {
+  if (window.L && window.L.map) return Promise.resolve();
+  if (S._leafletP) return S._leafletP;
+  S._leafletP = new Promise((ok, fail) => {
+    const st = document.createElement('style'); st.textContent = '.zona-lbl{font-weight:700;font-size:11px;background:rgba(255,255,255,.88);border:0;box-shadow:none;padding:1px 5px}'; document.head.appendChild(st);
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(css);
+    const js = document.createElement('script'); js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; js.onload = ok; js.onerror = () => { S._leafletP = null; fail(new Error('No se pudo cargar el mapa (¿sin internet?)')); }; document.head.appendChild(js);
+  });
+  return S._leafletP;
+}
+function kmDeMedellin(lat, lon) { const r = x => x * Math.PI / 180, a = Math.sin(r(lat - 6.2518) / 2) ** 2 + Math.cos(r(6.2518)) * Math.cos(r(lat)) * Math.sin(r(lon + 75.5636) / 2) ** 2; return 6371 * 2 * Math.asin(Math.sqrt(a)); }
+/** Dibuja el mapa de Antioquia con un círculo por cada municipio desde donde escriben los leads. */
+function pintarMapaZonas(R) {
+  const el = document.getElementById('mapa-zonas'); if (!el || !R) return;
+  cargarLeaflet().then(() => {
+    const el2 = document.getElementById('mapa-zonas'); if (!el2) return;
+    if (S._zmap) { try { S._zmap.remove(); } catch (e) { /* ya no existe */ } S._zmap = null; }
+    const map = L.map(el2, { scrollWheelZoom: true }); S._zmap = map;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 17, attribution: '© OpenStreetMap' }).addTo(map);
+    map.fitBounds([[5.45, -77.0], [8.95, -73.9]]);
+    L.circle([6.2518, -75.5636], { radius: 65000, color: '#0284c7', weight: 2, dashArray: '8 8', fillColor: '#38bdf8', fillOpacity: 0.07 }).addTo(map).bindTooltip('Cobertura de la pauta: Medellín + 65 km', { sticky: true });
+    const cnt = {}; (R.filas || []).forEach(f => { cnt[f.municipio] = f; });
+    const col = p => p === 'Itagüí' ? '#1d4ed8' : '#ea580c', mx = Math.max(1, ...(R.filas || []).map(f => Number(f.leads) || 0));
+    (R.zonas || []).forEach(z => {
+      const f = cnt[z.municipio], n = f ? Number(f.leads) : 0, km = Math.round(kmDeMedellin(Number(z.lat), Number(z.lon)));
+      const info = `<b>${esc(z.municipio)}</b><br>${esc(z.region)} · punto <b>${esc(z.punto)}</b><br>${km} km de Medellín${km > 65 ? ' · <i>fuera del anillo de la pauta</i>' : ''}` +
+        (f ? `<hr style="margin:4px 0"><b>${n}</b> lead${n === 1 ? '' : 's'} · 🔥 ${f.calientes} calientes · 📅 ${f.con_cita} con cita · 💰 ${f.ventas} ventas · 📣 ${f.de_pauta} de pauta` : '<br><span style="color:#64748b">Sin leads todavía</span>');
+      if (n) L.circleMarker([z.lat, z.lon], { radius: 9 + Math.sqrt(n / mx) * 22, color: col(z.punto), weight: 2, fillColor: col(z.punto), fillOpacity: 0.55 }).addTo(map).bindPopup(info).bindTooltip(`${z.municipio} · ${n}`, { permanent: true, direction: 'top', offset: [0, -6], className: 'zona-lbl' });
+      else L.circleMarker([z.lat, z.lon], { radius: 4, color: '#64748b', weight: 1, fillColor: '#94a3b8', fillOpacity: 0.7 }).addTo(map).bindPopup(info).bindTooltip(z.municipio);
+    });
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* mapa cerrado */ } }, 200);
+  }).catch(e => { const el3 = document.getElementById('mapa-zonas'); if (el3) el3.innerHTML = `<div class="notice bad" style="margin:12px"><i class="ti ti-alert-triangle"></i><div>${esc(e.message)}</div></div>`; });
+}
 /** Mapa de zonas (solo Jefe): de qué municipios llegan los leads (Medellín + 65 km) y qué punto atiende cada zona. */
 function cargarZonas() {
   if (S.zonBusy) return; S.zonBusy = true;
@@ -2408,7 +2442,9 @@ function vZonas() {
   const color = p => p === 'Itagüí' ? '#1d4ed8' : '#ea580c';
   const burbujas = todas.map(({ z, f }) => { const n = f ? Number(f.leads) : 0, r = n ? 6 + Math.sqrt(n / mx) * 22 : 3.5;
     return `<g><circle cx="${X(z).toFixed(1)}" cy="${Y(z).toFixed(1)}" r="${r.toFixed(1)}" fill="${n ? color(z.punto) : '#94a3b8'}" fill-opacity="${n ? .55 : .5}" stroke="${n ? color(z.punto) : '#64748b'}"><title>${esc(z.municipio)} · ${n} lead${n === 1 ? '' : 's'} · punto ${esc(z.punto)}</title></circle>${n ? `<text x="${X(z).toFixed(1)}" y="${(Y(z) - r - 3).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">${esc(z.municipio)} ${n}</text>` : ''}</g>`; }).join('');
-  const mapa = `<svg viewBox="0 0 600 524" style="width:100%;max-width:640px;background:#f8fafc;border-radius:14px;border:1px solid #e2e8f0"><circle cx="${cx}" cy="${cy}" r="${65 * K}" fill="#e0f2fe" fill-opacity=".45" stroke="#38bdf8" stroke-dasharray="6 5"/><circle cx="${cx}" cy="${cy}" r="${30 * K}" fill="none" stroke="#bae6fd" stroke-dasharray="3 5"/><text x="${cx}" y="${cy - 65 * K - 6}" text-anchor="middle" font-size="11" fill="#0369a1">65 km de Medellín</text>${burbujas}<text x="14" y="512" font-size="11" fill="#475569">● azul = Itagüí · ● naranja = Los Colores · gris = sin leads aún (tamaño = cantidad)</text></svg>`;
+  setTimeout(() => pintarMapaZonas(R), 60);
+  const mapa = `<div id="mapa-zonas" style="height:620px;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0;background:#eef2f7"></div><p class="tiny muted" style="margin:6px 0 0">Mapa de Antioquia (OpenStreetMap). Cada círculo es un municipio o zona desde donde escribieron: más grande = más leads. 🔵 Itagüí (de Itagüí y Envigado hacia el sur) · 🟠 Los Colores (de Medellín hacia el norte) · anillo = 65 km de cobertura de la pauta · puntos grises = municipios sin leads todavía. Toca un círculo para ver el detalle.</p>`;
+  const mapaSvgViejo = `<svg viewBox="0 0 600 524" style="width:100%;max-width:640px;background:#f8fafc;border-radius:14px;border:1px solid #e2e8f0"><circle cx="${cx}" cy="${cy}" r="${65 * K}" fill="#e0f2fe" fill-opacity=".45" stroke="#38bdf8" stroke-dasharray="6 5"/><circle cx="${cx}" cy="${cy}" r="${30 * K}" fill="none" stroke="#bae6fd" stroke-dasharray="3 5"/><text x="${cx}" y="${cy - 65 * K - 6}" text-anchor="middle" font-size="11" fill="#0369a1">65 km de Medellín</text>${burbujas}<text x="14" y="512" font-size="11" fill="#475569">● azul = Itagüí · ● naranja = Los Colores · gris = sin leads aún (tamaño = cantidad)</text></svg>`;
   const barras = conZona.slice(0, 15).map(f => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><div style="width:190px;font-size:.86rem"><b>${esc(f.municipio)}</b> <span class="tiny muted">${f.km === null ? '' : f.km + ' km'}</span></div><div style="flex:1;background:#eef2f7;border-radius:6px;height:16px"><div style="width:${Math.max(3, Number(f.leads) * 100 / mx)}%;height:16px;border-radius:6px;background:${color(f.punto)}"></div></div><div style="width:150px;font-size:.82rem"><b>${f.leads}</b> · 🔥${f.calientes} · 📅${f.con_cita} · 💰${f.ventas}</div></div>`).join('');
   const reg = {}; conZona.forEach(f => { const g = reg[f.region] || (reg[f.region] = { region: f.region, leads: 0, calientes: 0, citas: 0, ventas: 0, pauta: 0 }); g.leads += Number(f.leads); g.calientes += Number(f.calientes); g.citas += Number(f.con_cita); g.ventas += Number(f.ventas); g.pauta += Number(f.de_pauta); });
   const regs = Object.values(reg).sort((a, b) => b.leads - a.leads);
@@ -2417,7 +2453,9 @@ function vZonas() {
   if (top) ia.push(`📍 La zona que más leads trae es <b>${esc(top.municipio)}</b> (${top.leads}, ${pct(top.leads, ubic)} de los ubicados).`);
   if (regs[0]) ia.push(`🗺️ Por región manda <b>${esc(regs[0].region)}</b> con ${pct(regs[0].leads, ubic)} de los leads.`);
   const lejos = conZona.filter(f => f.km !== null && f.km > 40).reduce((s, f) => s + Number(f.leads), 0);
-  if (ubic) ia.push(`🚗 ${pct(lejos, ubic)} de los leads viven a más de 40 km de Medellín: si la campaña apunta al área metropolitana, revisa la segmentación geográfica.`);
+  const fuera65 = conZona.filter(f => f.lat !== null && kmDeMedellin(Number(f.lat), Number(f.lon)) > 65).reduce((s, f) => s + Number(f.leads), 0);
+  if (ubic) ia.push(`🎯 ${pct(ubic - fuera65, ubic)} de los leads ubicados están dentro del anillo de 65 km de la pauta` + (fuera65 ? ` y ${fuera65} llegan de más lejos (revisa si la segmentación geográfica se está escapando).` : '.'));
+  if (ubic && lejos) ia.push(`🚗 ${pct(lejos, ubic)} de los leads viven a más de 40 km de Medellín.`);
   if (sinZona + otra) ia.push(`❓ ${sinZona + otra} lead${sinZona + otra === 1 ? '' : 's'} sin zona útil: Mateo debe preguntarla antes de asignar.`);
   return `<div class="page-h"><div><h2>Zonas de origen de los leads</h2><p class="muted small">Medellín + 65 km · dónde vive quien escribe y qué punto lo atiende. Sirve para afinar a dónde apuntan las campañas.</p></div>${sel}</div>
     <div class="grid g-kpi">${kpi('📥 Leads', total, 'en el periodo')}${kpi('📍 Ubicados', pct(ubic, total), ubic + ' con municipio')}${kpi('🔵 Punto Itagüí', porPunto('Itagüí'), pct(porPunto('Itagüí'), ubic) + ' de los ubicados')}${kpi('🟠 Punto Los Colores', porPunto('Los Colores'), pct(porPunto('Los Colores'), ubic) + ' de los ubicados')}</div>
