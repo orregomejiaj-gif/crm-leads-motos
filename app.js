@@ -252,7 +252,7 @@ async function arrancar() {
   const ok = await cargar();
   if (!ok) return;
   clearInterval(S.timer);
-  S.timer = setInterval(() => { if (!document.hidden && $('#sheet').hidden) cargar(true); }, Math.max(60000, CFG.REFRESH_MS));
+  S.timer = setInterval(() => { if (!document.hidden && $('#sheet').hidden) cargar(true); }, Math.max(180000, CFG.REFRESH_MS));
 }
 
 async function cargar(silencioso) {
@@ -409,7 +409,7 @@ function cargarPanel() {
   api('panel', { sede: S.panSede || '', dias: S.panDias || 30 }).then(r => { S.pan = r; S.panErr = ''; S.panT = Date.now(); }).catch(e => { S.panErr = e.message; S.panT = Date.now(); })
     .finally(() => { S.panBusy = false; if (PANEL_VIEWS.includes(S.view)) render(); });
 }
-setInterval(() => { try { if (S && S.data && PANEL_VIEWS.includes(S.view) && !document.hidden && $('#sheet').hidden) cargarPanel(); } catch (e) { /* sin panel */ } }, 60e3);
+setInterval(() => { try { if (S && S.data && PANEL_VIEWS.includes(S.view) && !document.hidden && $('#sheet').hidden) cargarPanel(); } catch (e) { /* sin panel */ } }, 180e3);
 function panelListo() {
   if (!S.pan || Date.now() - (S.panT || 0) > 90e3) cargarPanel();
   if (S.pan) return null;
@@ -895,7 +895,7 @@ function resumenPulso() {
   const k = r.kpis, urg = (r.tareas || []).filter(t => t.prioridad <= 1).length;
   return ` <span class="muted small" style="font-weight:400">${k.sinContacto ? '· ⏳ ' + k.sinContacto + ' sin contactar' : '· al día'}${k.cotizadosSinSoporte ? ' · ⚠️ ' + k.cotizadosSinSoporte + ' sin cotización CRM' : ''}${urg ? ' · 🔥 ' + urg + ' urgente' + (urg > 1 ? 's' : '') : ''}</span>`;
 }
-setInterval(() => { try { if (S && S.view === 'hoy' && !document.hidden && $('#hoy-pulso') && $('#sheet').hidden) cargarPulso(); } catch (e) { /* sin pulso */ } }, 60e3);
+setInterval(() => { try { if (S && S.view === 'hoy' && !document.hidden && $('#hoy-pulso') && $('#sheet').hidden) cargarPulso(); } catch (e) { /* sin pulso */ } }, 180e3);
 function vHoy() {
   const u = S.data.user, ls = leadsAlcance(), M = S.M;
   if (S.pul && Date.now() - (S.pulT || 0) > 60e3 && !S.pulBusy) setTimeout(cargarPulso, 0);
@@ -1408,7 +1408,7 @@ function cargarBandeja() {
     renderNav();
     if (S.view === 'chats') pintarBandeja();
   }).catch(e => { S.bandejaErr = e.message; if (S.view === 'chats') pintarBandeja(); })
-    .finally(() => { if (!DEMO) bandejaTimer = setTimeout(cargarBandeja, 20000); });
+    .finally(() => { if (!DEMO) bandejaTimer = setTimeout(cargarBandeja, document.hidden ? 180000 : 45000); });
 }
 function vChats() {
   if (!S.bandeja) { cargarBandeja(); }
@@ -1612,7 +1612,7 @@ function cargarChat(id, forzarScroll) {
   if (!l || S.leadAbierto !== id || !$('#chat')) return;
   api('chats', { id_lead: l.id }).then(r2 => pintarChat(id, r2, forzarScroll))
     .catch(e => { if ($('#chat') && forzarScroll) $('#chat').innerHTML = `<p class="small muted">No se pudo cargar: ${esc(e.message)}</p>`; })
-    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), document.hidden ? 30000 : 5000); });
+    .finally(() => { if (S.leadAbierto === id && !DEMO) chatTimer = setTimeout(() => cargarChat(id), document.hidden ? 120000 : 12000); });
 }
 async function enviarChat(id, btn) {
   const t = $('#chat-txt'), texto = (t.value || '').trim();
