@@ -669,7 +669,7 @@ function vistasDeRolBase() {
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('control', 'ti-radar-2', 'Control'),
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
@@ -713,7 +713,7 @@ function renderNav() {
 }
 function render() {
   const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
-    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad };
+    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
@@ -920,7 +920,22 @@ function vHoy() {
     if (sinCed.length) avisos.push(`En la hoja Equipo falta la cédula de: ${sinCed.join(', ')}. Sin cédula no pueden entrar.`);
   }
   const sinGestion = ls.filter(l => !l.g && l.raw.id_lead).length;
-  if (sinGestion) avisos.push(`${sinGestion} lead(s) aún no tienen fila en Gestion_Asesor (la crea n8n). Hasta entonces no se pueden marcar.`);
+  if (sinGestion) avisos.push(`${sinGestion} lead(s) todavía no tienen asesor asignado: los atiende Mateo (el bot) hasta que estén listos para pasar a un asesor. No se pueden marcar hasta entonces.`);
+  // Las tarjetas son botones: al pulsarlas la lista de abajo muestra solo esos leads (pulsa de nuevo para quitar el filtro)
+  const idsAlerta = new Set(); alertas.forEach(a => [a.id_lead, a.id_contacto].forEach(x => { if (x) idsAlerta.add(String(x)); }));
+  const FILT = {
+    sla: { t: 'SLA vencido', icon: 'ti-alarm', items: grupos[0].items },
+    citas: { t: 'Citas de hoy', icon: 'ti-calendar-event', items: abiertos.filter(l => l.citaHoy) },
+    nuevos: { t: 'Leads nuevos sin contactar', icon: 'ti-sparkles', items: abiertos.filter(l => l.estado === 'Nuevo') },
+    alertas: { t: 'Leads con alertas abiertas', icon: 'ti-bell-ringing', items: ls.filter(l => idsAlerta.has(String(l.raw.id_lead)) || idsAlerta.has(String(l.raw.id_contacto))) }
+  };
+  const kf = (k, html) => html.replace('<div class="kpi', `<div data-act="hoy-f" data-k="${k}" role="button" tabindex="0" title="Pulsa para ver solo estos leads" style="cursor:pointer;${S.hoyF === k ? 'outline:3px solid #0b2e6e;outline-offset:2px' : ''}" class="kpi`);
+  const filtro = S.hoyF && FILT[S.hoyF] ? FILT[S.hoyF] : null;
+  const listado = filtro
+    ? `<div class="section-title"><i class="ti ${filtro.icon}"></i>${filtro.t}<span class="count">${filtro.items.length}</span><button class="btn btn-sm" data-act="hoy-f" data-k="${S.hoyF}" style="margin-left:auto"><i class="ti ti-x"></i> Quitar filtro</button></div>
+       <div class="list">${filtro.items.slice().sort((a, b) => (b.hAsign || 0) - (a.hAsign || 0)).map(leadCard).join('') || empty('ti-mood-check', 'Ningún lead en esta categoría.')}</div>`
+    : (grupos.filter(g => g.items.length).map(g => `<div class="section-title"><i class="ti ${g.icon}"></i>${g.t}<span class="count">${g.items.length}</span></div>
+      <div class="list">${g.items.map(leadCard).join('')}</div>`).join('') || `<div style="margin-top:16px">${empty('ti-mood-check', 'No tienes leads pendientes. ¡Todo al día!')}</div>`);
 
   return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
     ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
@@ -928,13 +943,12 @@ function vHoy() {
     ${u.rol === 'asesor' ? '' : `<button class="btn" id="pulso-btn" data-act="pulso-toggle" style="width:100%;justify-content:space-between;margin-bottom:10px;padding:12px 16px;font-weight:600"><span>⚡ Mi pulso comercial${resumenPulso()}</span><i class="ti ${S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'}"></i></button>
     <div id="hoy-pulso" ${S.pulAbierto ? '' : 'hidden'}>${pulsoHtml()}</div>`}
     <div class="grid g-kpi">
-      ${kpi('SLA vencido', vencidos, `≥ ${M.cfg.sla_vencida_h} h hábiles sin contacto`, vencidos ? 'bad' : 'ok')}
-      ${kpi('Citas hoy', grupos[1].items.length + abiertos.filter(l => l.citaHoy && l.sla === 'bad').length, '')}
-      ${kpi('Nuevos', abiertos.filter(l => l.estado === 'Nuevo').length, 'sin contactar')}
-      ${kpi('Alertas abiertas', alertas.length, S.data.hojas.Alertas_Log ? 'de Alertas_Log (n8n)' : 'falta la hoja Alertas_Log', alertas.length ? 'warn' : '')}
+      ${kf('sla', kpi('SLA vencido', vencidos, `≥ ${M.cfg.sla_vencida_h} h hábiles sin contacto`, vencidos ? 'bad' : 'ok'))}
+      ${kf('citas', kpi('Citas hoy', FILT.citas.items.length, ''))}
+      ${kf('nuevos', kpi('Nuevos', FILT.nuevos.items.length, 'sin contactar'))}
+      ${kf('alertas', kpi('Alertas abiertas', alertas.length, S.data.hojas.Alertas_Log ? 'toca para ver los leads' : 'falta la hoja Alertas_Log', alertas.length ? 'warn' : ''))}
     </div>
-    ${grupos.filter(g => g.items.length).map(g => `<div class="section-title"><i class="ti ${g.icon}"></i>${g.t}<span class="count">${g.items.length}</span></div>
-      <div class="list">${g.items.map(leadCard).join('')}</div>`).join('') || `<div style="margin-top:16px">${empty('ti-mood-check', 'No tienes leads pendientes. ¡Todo al día!')}</div>`}`;
+    ${listado}`;
 }
 
 // ── Detalle del lead ──────────────────────────────────────────────────────
@@ -2371,6 +2385,48 @@ const ACCESOS = [
   { grupo: 'Pauta Meta', icon: 'ti-speakerphone', nombre: 'PAUTA LOS COLORES · Administrador de anuncios', desc: 'Cuenta publicitaria 1779823606539913 (portfolio AKT MotoRacing Los Colores). Exporta de aquí el informe semanal para la hoja Pauta_Meta con punto = Los Colores.', url: 'https://adsmanager.facebook.com/adsmanager/manage/adsets?act=1779823606539913' },
   { grupo: 'Automatización y plataformas', icon: 'ti-world', nombre: 'Sitio web Moto Racing', desc: 'motoracing.com.co: de aquí salen las fichas técnicas del catálogo.', url: 'https://motoracing.com.co/' }
 ];
+/** Mapa de zonas (solo Jefe): de qué municipios llegan los leads (Medellín + 65 km) y qué punto atiende cada zona. */
+function cargarZonas() {
+  if (S.zonBusy) return; S.zonBusy = true;
+  api('zonas', { dias: S.zonDias === undefined ? 90 : S.zonDias }).then(r => { S.zon = r; S.zonErr = ''; S.zonT = Date.now(); }).catch(e => { S.zonErr = e.message; S.zonT = Date.now(); })
+    .finally(() => { S.zonBusy = false; if (S.view === 'zonas') render(); });
+}
+function vZonas() {
+  if (S.data.user.rol !== 'jefe') return empty('ti-lock', 'Solo el Jefe Comercial ve el mapa de zonas.');
+  if ((!S.zon && Date.now() - (S.zonT || 0) > 20e3) || (S.zon && Date.now() - (S.zonT || 0) > 120e3)) cargarZonas();
+  const sel = `<select class="sel" data-ch="zonDias">${[[30, 'Últimos 30 días'], [90, 'Últimos 90 días'], [0, 'Todo el histórico']].map(([v, t]) => `<option value="${v}" ${(S.zonDias === undefined ? 90 : S.zonDias) === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  if (!S.zon) return `<div class="page-h"><div><h2>Zonas de origen de los leads</h2></div>${sel}</div>` + (S.zonErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.zonErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Ubicando los leads en el mapa…</div></div>');
+  const R = S.zon, F = (R.filas || []).filter(f => f.leads), conZona = F.filter(f => f.lat !== null && f.lat !== undefined), total = F.reduce((s, f) => s + Number(f.leads), 0);
+  const sinZona = F.filter(f => f.municipio === 'Sin zona').reduce((s, f) => s + Number(f.leads), 0), otra = F.filter(f => /^Otra zona/.test(f.municipio)).reduce((s, f) => s + Number(f.leads), 0);
+  const ubic = conZona.reduce((s, f) => s + Number(f.leads), 0), pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
+  const porPunto = p => conZona.filter(f => f.punto === p).reduce((s, f) => s + Number(f.leads), 0);
+  const top = conZona[0];
+  // Mapa esquemático (sin depender de internet): Medellín al centro y el anillo de 65 km
+  const K = 3.5, cx = 300, cy = 262, X = f => cx + (Number(f.lon) + 75.5636) * 110.5 * K, Y = f => cy - (Number(f.lat) - 6.2518) * 110.6 * K;
+  const cnt = {}; conZona.forEach(f => { cnt[f.municipio] = f; });
+  const todas = (R.zonas || []).map(z => ({ z, f: cnt[z.municipio] })), mx = Math.max(1, ...conZona.map(f => Number(f.leads)));
+  const color = p => p === 'Itagüí' ? '#1d4ed8' : '#ea580c';
+  const burbujas = todas.map(({ z, f }) => { const n = f ? Number(f.leads) : 0, r = n ? 6 + Math.sqrt(n / mx) * 22 : 3.5;
+    return `<g><circle cx="${X(z).toFixed(1)}" cy="${Y(z).toFixed(1)}" r="${r.toFixed(1)}" fill="${n ? color(z.punto) : '#94a3b8'}" fill-opacity="${n ? .55 : .5}" stroke="${n ? color(z.punto) : '#64748b'}"><title>${esc(z.municipio)} · ${n} lead${n === 1 ? '' : 's'} · punto ${esc(z.punto)}</title></circle>${n ? `<text x="${X(z).toFixed(1)}" y="${(Y(z) - r - 3).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">${esc(z.municipio)} ${n}</text>` : ''}</g>`; }).join('');
+  const mapa = `<svg viewBox="0 0 600 524" style="width:100%;max-width:640px;background:#f8fafc;border-radius:14px;border:1px solid #e2e8f0"><circle cx="${cx}" cy="${cy}" r="${65 * K}" fill="#e0f2fe" fill-opacity=".45" stroke="#38bdf8" stroke-dasharray="6 5"/><circle cx="${cx}" cy="${cy}" r="${30 * K}" fill="none" stroke="#bae6fd" stroke-dasharray="3 5"/><text x="${cx}" y="${cy - 65 * K - 6}" text-anchor="middle" font-size="11" fill="#0369a1">65 km de Medellín</text>${burbujas}<text x="14" y="512" font-size="11" fill="#475569">● azul = Itagüí · ● naranja = Los Colores · gris = sin leads aún (tamaño = cantidad)</text></svg>`;
+  const barras = conZona.slice(0, 15).map(f => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><div style="width:190px;font-size:.86rem"><b>${esc(f.municipio)}</b> <span class="tiny muted">${f.km === null ? '' : f.km + ' km'}</span></div><div style="flex:1;background:#eef2f7;border-radius:6px;height:16px"><div style="width:${Math.max(3, Number(f.leads) * 100 / mx)}%;height:16px;border-radius:6px;background:${color(f.punto)}"></div></div><div style="width:150px;font-size:.82rem"><b>${f.leads}</b> · 🔥${f.calientes} · 📅${f.con_cita} · 💰${f.ventas}</div></div>`).join('');
+  const reg = {}; conZona.forEach(f => { const g = reg[f.region] || (reg[f.region] = { region: f.region, leads: 0, calientes: 0, citas: 0, ventas: 0, pauta: 0 }); g.leads += Number(f.leads); g.calientes += Number(f.calientes); g.citas += Number(f.con_cita); g.ventas += Number(f.ventas); g.pauta += Number(f.de_pauta); });
+  const regs = Object.values(reg).sort((a, b) => b.leads - a.leads);
+  const fuera = (R.sin || []);
+  const ia = [];
+  if (top) ia.push(`📍 La zona que más leads trae es <b>${esc(top.municipio)}</b> (${top.leads}, ${pct(top.leads, ubic)} de los ubicados).`);
+  if (regs[0]) ia.push(`🗺️ Por región manda <b>${esc(regs[0].region)}</b> con ${pct(regs[0].leads, ubic)} de los leads.`);
+  const lejos = conZona.filter(f => f.km !== null && f.km > 40).reduce((s, f) => s + Number(f.leads), 0);
+  if (ubic) ia.push(`🚗 ${pct(lejos, ubic)} de los leads viven a más de 40 km de Medellín: si la campaña apunta al área metropolitana, revisa la segmentación geográfica.`);
+  if (sinZona + otra) ia.push(`❓ ${sinZona + otra} lead${sinZona + otra === 1 ? '' : 's'} sin zona útil: Mateo debe preguntarla antes de asignar.`);
+  return `<div class="page-h"><div><h2>Zonas de origen de los leads</h2><p class="muted small">Medellín + 65 km · dónde vive quien escribe y qué punto lo atiende. Sirve para afinar a dónde apuntan las campañas.</p></div>${sel}</div>
+    <div class="grid g-kpi">${kpi('📥 Leads', total, 'en el periodo')}${kpi('📍 Ubicados', pct(ubic, total), ubic + ' con municipio')}${kpi('🔵 Punto Itagüí', porPunto('Itagüí'), pct(porPunto('Itagüí'), ubic) + ' de los ubicados')}${kpi('🟠 Punto Los Colores', porPunto('Los Colores'), pct(porPunto('Los Colores'), ubic) + ' de los ubicados')}</div>
+    ${ia.length ? `<div class="notice"><i class="ti ti-bulb"></i><div>${ia.join('<br>')}</div></div>` : ''}
+    <div class="card"><div class="card-h"><h3>Mapa</h3></div><div style="text-align:center">${mapa}</div></div>
+    <div class="card"><div class="card-h"><h3>Municipios con más leads</h3><span class="tiny muted">leads · 🔥 calientes · 📅 con cita · 💰 ventas</span></div>${barras || '<p class="small muted">Aún no hay leads con zona.</p>'}</div>
+    <div class="card"><div class="card-h"><h3>Por región</h3></div><div class="table-wrap"><table class="tbl"><thead><tr><th>Región</th><th>Leads</th><th>% </th><th>Calientes</th><th>Con cita</th><th>Ventas</th><th>De pauta</th></tr></thead><tbody>${regs.map(g => `<tr><td><b>${esc(g.region)}</b></td><td>${g.leads}</td><td>${pct(g.leads, ubic)}</td><td>${g.calientes}</td><td>${g.citas}</td><td>${g.ventas}</td><td>${g.pauta}</td></tr>`).join('') || '<tr><td colspan="7" class="muted small">Sin datos todavía.</td></tr>'}</tbody></table></div></div>
+    ${fuera.length ? `<div class="card"><div class="card-h"><h3>Zonas que no se pudieron ubicar</h3><span class="tiny muted">se agregan en la tabla zonas_cobertura</span></div><div class="small">${fuera.map(x => `<span class="pill" style="margin:2px">${esc(x.zona)} · ${x.leads}</span>`).join('')}</div></div>` : ''}`;
+}
 /** Disponibilidad del equipo (solo Jefe): «no disponible» saca a la persona de la rotación automática de leads hasta la hora elegida. */
 function disponibilidadDe(p) {
   const t = Date.parse(String(p.no_disponible_hasta || '').trim());
@@ -2537,6 +2593,7 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'hoy-f') { S.hoyF = S.hoyF === a.dataset.k ? '' : a.dataset.k; render(); return; }
   if (act === 'disp-activar') {
     if (S.data.user.rol !== 'jefe') return;
     a.disabled = true;
@@ -2677,6 +2734,7 @@ document.addEventListener('change', e => {
   if (t.id === 'ctl-dias') { S.ctlDias = Number(t.value); S.ctl = null; S.ctlT = 0; render(); return; }
   if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
   if (t.dataset.sf !== undefined) { S.segFiltro[t.dataset.sf] = t.value; render(); return; }
+  if (t.dataset.ch === 'zonDias') { S.zonDias = Number(t.value); S.zon = null; S.zonT = 0; render(); return; }
   if (t.dataset.ch) { S[t.dataset.ch] = t.value; render(); return; }
   if (t.dataset.mover) { const l = S.M.byId[t.dataset.mover]; if (l && t.value) moverA(l, t.value); t.value = ''; return; }
   if (t.dataset.actCh === 'resultado') {
