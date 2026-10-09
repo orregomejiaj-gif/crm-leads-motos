@@ -795,6 +795,8 @@ function leadCard(l) {
   if (ed && ['Nuevo', 'Contactado', 'Cotizado'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="detenido" data-id="${esc(l.id)}" title="No avanza: no hay la moto disponible o está reuniendo el dinero"><i class="ti ti-player-pause"></i> Detenido</button>`);
   if (ed && !['Facturado', 'Perdido'].includes(l.estado)) acciones.push(`<button class="btn btn-sm" data-act="perdido" data-id="${esc(l.id)}"><i class="ti ti-x"></i> Perdido</button>`);
   if (ed && l.cerrado) acciones.push(`<button class="btn btn-sm btn-dark" data-act="abrir" data-id="${esc(l.id)}"><i class="ti ti-tool"></i> Agendar revisión técnica</button>`);
+  // Solo el Jefe Comercial cambia el asesor y/o el punto de venta del lead
+  if (S.data.user.rol === 'jefe' && l.estado !== 'Perdido') acciones.push(`<button class="btn btn-sm" data-act="cambiar-asig" data-id="${esc(l.id)}" title="Cambiar el asesor y/o el punto de venta de este lead"><i class="ti ti-arrows-exchange"></i> Cambiar asesor / punto</button>`);
   // El chat se atiende dentro de la app con el número del negocio (no desde el WhatsApp personal del asesor)
   acciones.push(`<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>`);
   return `<article class="lead ${s}">
@@ -2512,6 +2514,30 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'cambiar-asig') {
+    const l = S.M.byId[a.dataset.id]; if (!l || S.data.user.rol !== 'jefe') return;
+    const eq = (S.M.asesores || []).filter(p => p.nombre), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
+    const sedeAct = puntos.find(s => norm(s) === norm(l.sede || '')) || puntos[0] || '';
+    const optsAs = punto => opts(eq.filter(p => p.sedeCanon === punto && norm(p.nombre) !== norm(l.asesor || '')).map(p => p.nombre), '', 'Elige el nuevo asesor…');
+    abrirSheet(`<div class="sheet-b"><h3><i class="ti ti-arrows-exchange"></i> Cambiar asesor / punto</h3>
+      <p class="small muted" style="margin:0">${esc(l.nombre)} · hoy: <b>${esc(l.asesor || 'Sin asesor')}</b> · ${esc(l.sede || 'Sin punto')}</p>
+      <label class="f" for="ca-punto">Punto de venta</label><select class="sel w100" id="ca-punto">${puntos.map(p => `<option ${p === sedeAct ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>
+      <label class="f" for="ca-as">Asesor</label><select class="sel w100" id="ca-as">${optsAs(sedeAct)}</select>
+      <label class="f" for="ca-mot">Motivo (obligatorio)</label><input class="inp w100" id="ca-mot" maxlength="200" placeholder="Ej.: el cliente vive cerca de Itagüí">
+      <p class="tiny muted" style="margin:6px 0 0">El asesor nuevo recibe el aviso por WhatsApp y el cambio queda auditado.</p>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-dark" id="c-si">Cambiar</button></div></div>`, true);
+    $('#ca-punto').onchange = () => { $('#ca-as').innerHTML = optsAs($('#ca-punto').value); };
+    $('#c-no').onclick = () => cerrarModal();
+    $('#c-si').onclick = async () => {
+      const punto = $('#ca-punto').value, as = $('#ca-as').value, mot = $('#ca-mot').value.trim();
+      if (!as) { toast('Elige el nuevo asesor.', 'bad'); return; }
+      if (mot.length < 5) { toast('Cuenta el motivo.', 'bad'); return; }
+      $('#c-si').disabled = true;
+      try { await api('reasignar', { id_lead: l.id, asesor: as, punto, motivo: mot }); cerrarModal(); toast('Lead pasado a ' + as + ' · ' + punto, 'ok'); await cargar(true); }
+      catch (e) { toast(e.message, 'bad'); $('#c-si').disabled = false; }
+    };
+    return;
+  }
   if (act === 'reasignar') {
     const jefe = S.data.user.rol === 'jefe', as = ($('#reas-as') || {}).value || '', mot = (($('#reas-mot') || {}).value || '').trim();
     if (jefe && !as) { toast('Elige el nuevo asesor.', 'bad'); return; }
