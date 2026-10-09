@@ -669,7 +669,7 @@ function vistasDeRolBase() {
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('control', 'ti-radar-2', 'Control'),
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
@@ -713,8 +713,8 @@ function renderNav() {
 }
 function render() {
   const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
-    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig };
-  const fn = (MOD && MOD.views[S.view]) || base[S.view];
+    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad };
+  const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
   if (S.view === 'embudo') bindKanban();
@@ -2371,6 +2371,29 @@ const ACCESOS = [
   { grupo: 'Pauta Meta', icon: 'ti-speakerphone', nombre: 'PAUTA LOS COLORES · Administrador de anuncios', desc: 'Cuenta publicitaria 1779823606539913 (portfolio AKT MotoRacing Los Colores). Exporta de aquí el informe semanal para la hoja Pauta_Meta con punto = Los Colores.', url: 'https://adsmanager.facebook.com/adsmanager/manage/adsets?act=1779823606539913' },
   { grupo: 'Automatización y plataformas', icon: 'ti-world', nombre: 'Sitio web Moto Racing', desc: 'motoracing.com.co: de aquí salen las fichas técnicas del catálogo.', url: 'https://motoracing.com.co/' }
 ];
+/** Disponibilidad del equipo (solo Jefe): «no disponible» saca a la persona de la rotación automática de leads hasta la hora elegida. */
+function disponibilidadDe(p) {
+  const t = Date.parse(String(p.no_disponible_hasta || '').trim());
+  if (!t || t <= Date.now()) return { ok: true };
+  return { ok: false, hasta: t, indef: new Date(t).getFullYear() >= 2900, motivo: String(p.motivo_no_disponible || '') };
+}
+function vDisponibilidad() {
+  if (S.data.user.rol !== 'jefe') return empty('ti-lock', 'Solo el Jefe Comercial maneja la disponibilidad del equipo.');
+  const eq = (S.M.personas || []).filter(p => p.nombre && !/vacante/i.test(p.nombre) && p.rolApp !== 'jefe' && (!p.activo || norm(p.activo).startsWith('si')) && !/call\s*center|callcenter/.test(norm(p.cargo)) && !/manual/.test(norm(p.recibe)))
+    .sort((a, b) => String(a.sedeCanon).localeCompare(String(b.sedeCanon)) || String(a.nombre).localeCompare(String(b.nombre)));
+  const fmt = t => new Date(t).toLocaleString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  const filas = eq.map(p => {
+    const d = disponibilidadDe(p);
+    return `<div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px"><b>${esc(p.nombre)}</b><div class="small muted">${esc(p.sedeCanon || p.nombre_punto || '')} · ${esc(p.cargo || '')}</div></div>
+      <div>${d.ok ? '<span class="pill" style="background:#dcfce7;color:#166534"><i class="ti ti-circle-check"></i> Disponible · recibe leads</span>'
+        : `<span class="pill" style="background:#fee2e2;color:#991b1b"><i class="ti ti-player-pause"></i> No disponible ${d.indef ? 'hasta que lo actives' : 'hasta ' + esc(fmt(d.hasta))}</span>${d.motivo ? `<div class="tiny muted">${esc(d.motivo)}</div>` : ''}`}</div>
+      <div>${d.ok ? `<button class="btn btn-sm btn-dark" data-act="disp-abrir" data-nom="${esc(p.nombre)}"><i class="ti ti-user-off"></i> Marcar no disponible</button>`
+        : `<button class="btn btn-sm btn-primary" data-act="disp-activar" data-nom="${esc(p.nombre)}"><i class="ti ti-user-check"></i> Volver a recibir leads</button>`}</div></div>`;
+  }).join('');
+  return `<div class="page-h"><div><h2>Disponibilidad del equipo</h2><p class="muted small">Apaga el ingreso de leads a quien esté ausente (vacaciones, incapacidad, reunión). Los leads nuevos se reparten solo entre quienes están disponibles; vuelve solo a la rotación cuando se cumple el tiempo. Kelly (call center) no recibe leads automáticos: se los asignas tú.</p></div></div>
+    <div class="grid" style="gap:10px">${filas || empty('ti-users', 'No hay asesores configurados.')}</div>`;
+}
 function vAccesos() {
   if (S.data.user.rol !== 'jefe') return empty('ti-lock', 'Solo el Jefe Comercial ve los accesos.');
   const grupos = uniq(ACCESOS.map(a => a.grupo));
@@ -2514,6 +2537,31 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'qr-usar' || act === 'qr-ia') return usarRespuestaRapida(a);
+  if (act === 'disp-activar') {
+    if (S.data.user.rol !== 'jefe') return;
+    a.disabled = true;
+    try { await api('disponibilidad', { asesor: a.dataset.nom, disponible: true }); toast(a.dataset.nom + ' vuelve a recibir leads', 'ok'); await cargar(true); }
+    catch (e) { toast(e.message, 'bad'); a.disabled = false; }
+    return;
+  }
+  if (act === 'disp-abrir') {
+    if (S.data.user.rol !== 'jefe') return;
+    const nom = a.dataset.nom;
+    abrirSheet(`<div class="sheet-b"><h3><i class="ti ti-user-off"></i> ${esc(nom)} no disponible</h3>
+      <p class="small muted" style="margin:0">Mientras esté así no se le asignan leads nuevos (los que ya tiene siguen siendo suyos).</p>
+      <label class="f" for="dp-dur">¿Por cuánto tiempo?</label>
+      <select class="sel w100" id="dp-dur"><option value="2">2 horas</option><option value="4">4 horas</option><option value="cierre" selected>Hasta que cierre el punto hoy</option><option value="manana">Hasta mañana (cuando abra el punto)</option>
+        <option value="24">24 horas</option><option value="72">3 días</option><option value="168">1 semana</option><option value="indefinido">Hasta que yo lo active</option></select>
+      <label class="f" for="dp-mot">Motivo (opcional)</label><input class="inp w100" id="dp-mot" maxlength="120" placeholder="Ej.: cita médica, vacaciones…">
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="c-no">Cancelar</button><button class="btn btn-dark" id="c-si">Dejar sin leads</button></div></div>`, true);
+    $('#c-no').onclick = () => cerrarModal();
+    $('#c-si').onclick = async () => {
+      $('#c-si').disabled = true;
+      try { await api('disponibilidad', { asesor: nom, disponible: false, duracion: $('#dp-dur').value, motivo: $('#dp-mot').value.trim() }); cerrarModal(); toast(nom + ' quedó sin recibir leads', 'ok'); await cargar(true); }
+      catch (e) { toast(e.message, 'bad'); $('#c-si').disabled = false; }
+    };
+    return;
+  }
   if (act === 'cambiar-asig') {
     const l = S.M.byId[a.dataset.id]; if (!l || S.data.user.rol !== 'jefe') return;
     const eq = (S.M.asesores || []).filter(p => p.nombre), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
