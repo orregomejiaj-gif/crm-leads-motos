@@ -1633,7 +1633,6 @@ async function cambiarAtencionChat(id, estado) {
 // ── Escrituras ────────────────────────────────────────────────────────────
 async function setCampo(l, hoja, campo, valor) {
   const fila = hoja === 'Leads' ? l.raw : l.g;
-  if (hoja === 'Gestion_Asesor' && !l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return false; }
   const expected = fila ? String(fila[campo] ?? '') : undefined;
   try {
     const r = await api('update', { sheet: hoja, key: l.id, field: campo, value: valor, expected });
@@ -1759,7 +1758,6 @@ async function moverA(l, destino) {
       toast('Solo el Jefe Comercial autorizado puede devolver un lead a una etapa anterior.', 'bad'); return;
     }
   }
-  if (!l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return; }
   const leadTxt = `<b>${esc(l.nombre)}</b>`;
   if (destino === 'Contactado') {
     if (!(await registrarContacto(l, false))) return;
@@ -2735,7 +2733,7 @@ document.addEventListener('click', async e => {
   if (act === 'chat-tomar') return cambiarAtencionChat(a.dataset.id, 'asesor');
   if (act === 'copiar-acceso') { try { await navigator.clipboard.writeText(a.dataset.url); toast('Enlace copiado', 'ok'); } catch (err) { toast(a.dataset.url); } return; }
   if (act === 'abrir' && l) return abrirLead(l.id);
-  if (act === 'contactado' && l) { if (!puedeEditar(l)) return; if (!l.g) { toast('n8n aún no creó la fila de gestión de este lead.', 'bad'); return; } await registrarContacto(l, false); return refrescar(); }
+  if (act === 'contactado' && l) { if (!puedeEditar(l)) return; await registrarContacto(l, false); return refrescar(); }
   if (act === 'justificar-contacto' && l) { await registrarContacto(l, true); return refrescar(); }
   if (act === 'cotizado' && l) return moverA(l, 'Cotizado');
   if (act === 'perdido' && l) return moverA(l, 'Perdido');
