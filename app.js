@@ -1524,7 +1524,7 @@ function pintarChat(id, r2, forzarScroll) {
   const box = $('#chat-box');
   if (!box.dataset.listo) {
     box.dataset.listo = '1';
-    box.innerHTML = at.puede_escribir ? `${chipsRespuestas(id, at)}<div class="emoji-panel" id="emoji-panel" hidden></div><div class="chat-box"><button type="button" class="icon-btn emoji-btn" data-act="emoji-abrir" title="Emojis" aria-label="Emojis">😊</button><textarea class="inp" id="chat-txt" rows="1" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
+    box.innerHTML = at.puede_escribir ? `${chipsRespuestas(id, at)}<div class="emoji-panel" id="emoji-panel" hidden></div><div class="chat-reactivar" id="chat-reactivar" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;margin:6px 0;border-radius:10px;background:#fff7e6"><span class="tiny">La ventana de 24 h está cerrada: para escribirle de nuevo envía una plantilla de seguimiento aprobada por WhatsApp.</span> <button class="btn btn-sm btn-primary" data-act="chat-reactivar" data-id="${esc(id)}"><i class="ti ti-refresh"></i> Reactivar chat</button></div><div class="chat-box"><button type="button" class="icon-btn emoji-btn" data-act="emoji-abrir" title="Emojis" aria-label="Emojis">😊</button><button type="button" class="icon-btn" data-act="chat-adjuntar" data-id="${esc(id)}" title="Adjuntar imagen o archivo" aria-label="Adjuntar"><i class="ti ti-paperclip"></i></button><input type="file" id="chat-file" hidden accept="image/jpeg,image/png,application/pdf,.doc,.docx,.xls,.xlsx,.txt"><textarea class="inp" id="chat-txt" rows="1" maxlength="3000" placeholder="Escribe tu respuesta al cliente…"></textarea>
       <button class="btn btn-primary" data-act="chat-enviar" data-id="${esc(id)}"><i class="ti ti-send"></i> Enviar</button></div><div class="chat-aviso" id="chat-aviso"></div>`
       : '<p class="chat-aviso">Solo el asesor asignado (o su jefe/administrador) puede escribirle a este cliente.</p>';
     const ta = $('#chat-txt'); if (ta) ta.addEventListener('input', () => autoAltoChat(ta));
@@ -1536,6 +1536,8 @@ function pintarChat(id, r2, forzarScroll) {
     aviso.textContent = motivo || 'El mensaje sale desde el número del negocio y queda registrado. Tu primer mensaje marca el lead como contactado.';
     if (btn) btn.disabled = !!motivo;
   }
+  const rea = $('#chat-reactivar'); if (rea) rea.style.display = (at.envio_configurado && !at.ventana_abierta) ? 'flex' : 'none';
+  const adj = box.querySelector('[data-act="chat-adjuntar"]'); if (adj) adj.disabled = !at.envio_configurado || !at.ventana_abierta;
 }
 // ── Ajuste automático del chat a la pantalla y emojis ──
 function ajustarBandeja() {
@@ -1624,6 +1626,53 @@ async function enviarChat(id, btn) {
     cargarChat(id, true);
   } catch (e) { toast(e.message, 'bad'); }
   finally { btn.disabled = false; }
+}
+// Reactivar un chat con la ventana de 24 h cerrada: envía la plantilla de seguimiento aprobada por Meta
+async function reactivarChat(id, btn) {
+  const l = S.M.byId[id]; if (!l) return;
+  const t = $('#chat-txt'), texto = t ? (t.value || '').trim() : '';
+  if (!(await confirmar('Reactivar chat', `Se enviará a <b>${esc(l.nombre)}</b> la plantilla de seguimiento aprobada${texto ? ' con tu texto: «' + esc(texto.slice(0, 120)) + '»' : ' con un saludo estándar'}. Cuando responda, podrás escribirle con normalidad.`, 'Enviar plantilla'))) return;
+  btn.disabled = true;
+  try { await api('reactivarChat', { id_lead: l.id, texto }); if (t) t.value = ''; toast('Plantilla enviada: esperando respuesta del cliente', 'ok'); cargarChat(id, true); }
+  catch (e) { toast(e.message, 'bad'); }
+  finally { btn.disabled = false; }
+}
+// Adjuntar imagen o archivo: las fotos se reducen a 1600 px antes de enviarlas para que pesen poco
+function leerArchivoChat(file) {
+  return new Promise((ok, mal) => {
+    const fr = new FileReader();
+    fr.onerror = () => mal(new Error('No se pudo leer el archivo.'));
+    fr.onload = () => {
+      const url = fr.result;
+      if (!/^image\/(jpeg|png)$/.test(file.type)) return ok({ mime: file.type || 'application/octet-stream', base64: String(url).split(',')[1] });
+      const img = new Image();
+      img.onerror = () => mal(new Error('La imagen no se pudo abrir.'));
+      img.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        ok({ mime: 'image/jpeg', base64: cv.toDataURL('image/jpeg', 0.85).split(',')[1] });
+      };
+      img.src = url;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+async function adjuntarChat(id) {
+  const inp = $('#chat-file'); if (!inp) return;
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+    if (f.size > 15 * 1024 * 1024) return toast('El archivo pesa más de 15 MB.', 'bad');
+    const t = $('#chat-txt'), caption = t ? (t.value || '').trim() : '';
+    if (!(await confirmar('Enviar archivo', `Se enviará <b>${esc(f.name)}</b> al cliente${caption ? ' con el texto: «' + esc(caption.slice(0, 120)) + '»' : ''}.`, 'Enviar'))) return;
+    try {
+      const d = await leerArchivoChat(f);
+      toast('Enviando archivo…', 'ok');
+      await api('enviarAdjunto', { id_lead: S.M.byId[id].id, nombre: /^image\//.test(d.mime) ? f.name.replace(/\.\w+$/, '') + '.jpg' : f.name, mime: d.mime, base64: d.base64, caption });
+      if (t) t.value = ''; toast('Archivo enviado', 'ok'); cargarChat(id, true);
+    } catch (e) { toast(e.message, 'bad'); }
+  };
+  inp.click();
 }
 async function cambiarAtencionChat(id, estado) {
   try { await api('atencion', { id_lead: S.M.byId[id].id, estado }); toast(estado === 'bot' ? 'El bot vuelve a atender a este cliente' : 'Tomaste el chat: el bot queda en pausa', 'ok'); cargarChat(id, true); }
@@ -2729,6 +2778,8 @@ document.addEventListener('click', async e => {
   if (act === 'ir-chat') { cerrarSheet(); S.chatSel = a.dataset.id; S.view = 'chats'; renderNav(); return render(); }
   if (act === 'chat-volver') { S.chatSel = null; S.leadAbierto = null; return render(); }
   if (act === 'chat-enviar') return enviarChat(a.dataset.id, a);
+  if (act === 'chat-reactivar') return reactivarChat(a.dataset.id, a);
+  if (act === 'chat-adjuntar') return adjuntarChat(a.dataset.id);
   if (act === 'chat-bot') return cambiarAtencionChat(a.dataset.id, 'bot');
   if (act === 'chat-tomar') return cambiarAtencionChat(a.dataset.id, 'asesor');
   if (act === 'copiar-acceso') { try { await navigator.clipboard.writeText(a.dataset.url); toast('Enlace copiado', 'ok'); } catch (err) { toast(a.dataset.url); } return; }
