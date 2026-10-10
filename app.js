@@ -262,6 +262,39 @@ async function arrancar() {
   S.timer = setInterval(() => { if (!document.hidden && $('#sheet').hidden) cargar(true); }, Math.max(180000, CFG.REFRESH_MS));
 }
 
+// Verificación de la migración (solo Jefe, una vez por ingreso): compara la lista de chats y un chat de Supabase contra Google.
+async function verificarEdge() {
+  if (DEMO || !CFG.API_EDGE || !S.token) return;
+  const post = async (url, action, extra) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ action, token: S.token }, extra || {})) })).json();
+  try {
+    const [a, b] = await Promise.all([post(CFG.API_URL, 'bandeja'), post(CFG.API_EDGE, 'bandeja')]);
+    if (!a.ok || !b.ok) { toast('Verificación Supabase: ' + (!b.ok ? (b.error || 'error en Supabase') : 'Google no respondió'), 'bad'); return; }
+    const mapa = x => Object.fromEntries((x.chats || []).map(c => [c.id_lead, c]));
+    const A = mapa(a), B = mapa(b), dif = [];
+    Object.keys(A).forEach(k => {
+      if (!B[k]) { dif.push('Falta en Supabase: ' + A[k].nombre); return; }
+      ['estado', 'asesor', 'punto', 'remitente', 'espera'].forEach(f => { if (String(A[k][f]) !== String(B[k][f])) dif.push(A[k].nombre + ' · ' + f + ': Google=' + A[k][f] + ' / Supabase=' + B[k][f]); });
+      if (Math.abs(Number(A[k].mensajes) - Number(B[k].mensajes)) > 1) dif.push(A[k].nombre + ' · mensajes: Google=' + A[k].mensajes + ' / Supabase=' + B[k].mensajes);
+    });
+    Object.keys(B).forEach(k => { if (!A[k]) dif.push('Solo en Supabase: ' + B[k].nombre); });
+    // Un chat concreto (el más reciente)
+    const id = (b.chats[0] || {}).id_lead; let chatTxt = '';
+    if (id) {
+      const [c1, c2] = await Promise.all([post(CFG.API_URL, 'chats', { id_lead: id }), post(CFG.API_EDGE, 'chats', { id_lead: id })]);
+      if (!c1.ok || !c2.ok) dif.push('Chat de ' + b.chats[0].nombre + ': ' + (c2.error || c1.error || 'error'));
+      else {
+        const n1 = c1.mensajes.length, n2 = c2.mensajes.length;
+        if (Math.abs(n1 - n2) > 1) dif.push('Chat de ' + b.chats[0].nombre + ' · mensajes: Google=' + n1 + ' / Supabase=' + n2);
+        ['estado', 'asesor', 'puede_escribir'].forEach(f => { if (String(c1.atencion[f]) !== String(c2.atencion[f])) dif.push('Chat · ' + f + ': Google=' + c1.atencion[f] + ' / Supabase=' + c2.atencion[f]); });
+        chatTxt = ' y 1 chat abierto (' + n2 + ' mensajes)';
+      }
+    }
+    window.__verificacionEdge = { chatsGoogle: Object.keys(A).length, chatsSupabase: Object.keys(B).length, diferencias: dif };
+    console.log('Verificación Supabase vs Google', window.__verificacionEdge);
+    toast(dif.length ? `Supabase vs Google: ${dif.length} diferencia(s). ${dif.slice(0, 3).join(' | ')}` : `✔ Supabase coincide con Google: ${Object.keys(B).length} chats${chatTxt}`, dif.length ? 'bad' : 'ok');
+  } catch (e) { toast('Verificación Supabase falló: ' + e.message, 'bad'); }
+}
+
 async function cargar(silencioso) {
   if (S.busy) return false;
   S.busy = true;
@@ -281,6 +314,7 @@ async function cargar(silencioso) {
     renderNav(); render();
     // Ventana grande de bienvenida: una vez por ingreso (no en las actualizaciones automáticas)
     if (!S.bienvenidaVista) { S.bienvenidaVista = true; try { mostrarBienvenida(); } catch (e2) { console.error(e2); } }
+    if (!S.edgeChk && S.data.user.rol === 'jefe' && CFG.API_EDGE) { S.edgeChk = true; setTimeout(verificarEdge, 8000); }
     return true;
   } catch (e) {
     if (['AUTH', 'NOUSER'].includes(e.code)) { salir(e.message); return false; }
