@@ -262,6 +262,121 @@ async function arrancar() {
   S.timer = setInterval(() => { if (!document.hidden && $('#sheet').hidden) cargar(true); }, Math.max(180000, CFG.REFRESH_MS));
 }
 
+// ═══════════════ CARGAR DATOS (Jefe y Administrador): cotizaciones del CRM y ventas de Síntesis → Supabase ═══════════════
+let _xlsxP = null;
+function cargarXlsx() {
+  return _xlsxP || (_xlsxP = new Promise((ok, mal) => {
+    if (window.XLSX) return ok(window.XLSX);
+    const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = () => ok(window.XLSX); s.onerror = () => { _xlsxP = null; mal(new Error('No se pudo cargar el lector de Excel. Revisa tu conexión.')); };
+    document.head.appendChild(s);
+  }));
+}
+const kn = s => String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+const dg = s => String(s == null ? '' : s).replace(/\D/g, '');
+const lim = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+const pad2 = n => ('0' + n).slice(-2);
+/** Fecha de Excel (número de serie, Date o texto) → 'yyyy-mm-dd' (y hora si la trae). */
+function fechaExcel(v, conHora) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && window.XLSX) { const d = window.XLSX.SSF.parse_date_code(v); if (!d) return ''; const f = d.y + '-' + pad2(d.m) + '-' + pad2(d.d); return conHora ? f + 'T' + pad2(d.H) + ':' + pad2(d.M) + ':' + pad2(Math.floor(d.S)) : f; }
+  if (v instanceof Date) return v.getFullYear() + '-' + pad2(v.getMonth() + 1) + '-' + pad2(v.getDate());
+  const s = String(v).trim(); let m;
+  if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(s))) { const f = m[1] + '-' + pad2(m[2]) + '-' + pad2(m[3]); return conHora && m[4] ? f + 'T' + pad2(m[4]) + ':' + m[5] + ':' + (m[6] || '00') : f; }
+  if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s))) return m[3] + '-' + pad2(m[2]) + '-' + pad2(m[1]);
+  return '';
+}
+const numX = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? null : n; };
+function zonaDeTexto(t) { const n = kn(t); if (/medellin|itag|colores/.test(n)) return 'Antioquia'; if (/duitama|sogamoso/.test(n)) return 'Boyacá'; if (/bogota|paloquemao|meissen/.test(n)) return 'Bogotá'; if (/acacias|villavicencio|granada|cumaral|sanjose|guaviare/.test(n)) return 'Llanos'; return 'Otra'; }
+function puntoDeTexto(t) { const n = kn(t); if (n.includes('itag')) return 'Itagüí'; if (n.includes('medellin') || n.includes('colores')) return 'Los Colores'; return lim(t) || 'Otro'; }
+/** Una fila del exporte de ventas de Síntesis → fila de ventas_sintesis (solo motos de Antioquia; nunca serie, costo, dirección ni correo). */
+function normalizarVentaX(f) {
+  const v = (...n) => { for (const k in f) if (n.includes(kn(k))) return f[k]; return ''; };
+  const cat = String(v('categoriaproducto', 'categoria')).trim().toUpperCase();
+  if (cat && cat !== 'MOTOCICLETA') return null;
+  const fecha = fechaExcel(v('fechadocumento', 'fecha'));
+  const bodega = lim(v('bodega')), cc = lim(v('centrocosto')), base = bodega || cc;
+  const cant = numX(v('cantidad')), total = numX(v('totalarticulo')) || numX(v('valor')) || numX(v('total')) || 0;
+  const ref = lim(v('producto', 'referencia')).replace(/[.\s]+$/g, '').toUpperCase();
+  if (!fecha || !ref || !cant) return null;
+  if (zonaDeTexto(base) !== 'Antioquia') return null;
+  const o = { fecha, mes: fecha.slice(0, 7), nro_factura: lim(v('nrofactura')), tipo: lim(v('tipo')), identificacion: dg(v('identificacion')), cliente: lim(v('cliente')), telefono: dg(v('telefono')),
+    centro_costo: cc, bodega, punto: puntoDeTexto(base), zona: 'Antioquia', vendedor: lim(v('vendedor')), modalidad: lim(v('modalidadventa', 'modalidad')), forma_pago: lim(v('formapago')),
+    codproducto: lim(v('codproducto')), referencia: ref, presentacion: lim(v('presenproducto', 'presentacion')), cantidad: Math.round(cant), valor: Math.round(total),
+    detalle: String(v('detalle') || '').slice(0, 200).trim(), consecutivo: lim(v('consecutivointerno', 'consecutivo')) };
+  o.sede = o.punto; o.llave = [o.nro_factura, o.consecutivo, o.codproducto, o.cantidad].join('|');
+  return o;
+}
+/** Una fila del exporte «motoracing_cotizaciones» del CRM → fila de crm_cotizaciones (sin correo ni dirección). */
+function normalizarCotizacionX(f) {
+  const g = k => f[k] == null ? '' : f[k];
+  const id = Number(dg(g('cotizacion_id'))), fecha = fechaExcel(g('cotizacion_fecha'));
+  if (!id || !fecha) return null;
+  const sede = lim(g('sede_nombre')), nombre = lim(g('cliente_razon_social')) || lim(g('cliente_nombres') + ' ' + g('cliente_apellidos'));
+  return { cotizacion_id: id, cotizacion: lim(g('cotizacion_referencia')), fecha_cotizacion: fecha, mes: fecha.slice(0, 7), sede, punto: puntoDeTexto(sede), zona: lim(g('zona_nombre')) || zonaDeTexto(sede),
+    calificacion: lim(g('cotizacion_calificacion')), tipo_producto: lim(g('cotizacion_tipo_producto')), identificacion: dg(g('cliente_identificacion')), cliente: nombre,
+    telefono: dg(g('cliente_celular')) || dg(g('cliente_telefono')), estado_negocio: lim(g('estado_nombre')), estado_label: lim(g('estado_label')), fecha_estado: fechaExcel(g('estado_fecha'), true) || null,
+    forma_pago: lim(g('detalle_forma_pago')), financiera: lim(g('detalle_financiera_nombre')), referencia: lim(g('detalle_producto_descripcion')).toUpperCase(), modelo_anio: lim(g('detalle_producto_modelo')),
+    color: lim(g('detalle_producto_color')), precio_venta: numX(g('detalle_producto_precio_venta')), valor_bono: numX(g('detalle_producto_valor_bono')), total_negocio: numX(g('detalle_producto_total_negocio')),
+    cuota_inicial: numX(g('detalle_producto_valor_cuota_inicial')), plazo_meses: numX(g('detalle_producto_plazo_meses')), cuota_mensual: numX(g('detalle_producto_cuota_mensual')),
+    asesor: lim(g('cotizacion_asesor_nombre')), asesor_lead: lim(g('cotizacion_lead_asesor_nombre')), asesor_sala: lim(g('cotizacion_asesor_sala')), origen: lim(g('cotizacion_como_supo_de_nosotros')),
+    canal: lim(g('trafico_nombre')), campanya: lim(g('campanya_nombre')), seguimientos: numX(g('cotizacion_contador_seguimientos')), fecha_ultimo_seguimiento: fechaExcel(g('cotizacion_fecha_ultimo_seguimiento'), true) || null,
+    observacion: String(g('cotizacion_observacion') || '').slice(0, 300).trim() };
+}
+const CARGAS_X = { cot: { tipo: 'cotizaciones', titulo: 'Cotizaciones del CRM', ayuda: 'Archivo «motoracing_cotizaciones…xlsx» exportado del CRM.', hojaDatos: /cotizacion/i, clave: 'cotizacion_id', norm: normalizarCotizacionX },
+  ven: { tipo: 'ventas', titulo: 'Ventas facturadas de Síntesis', ayuda: 'Archivo «Ventas síntesis.xlsx» (hoja «Table»). Solo entran motos de Medellín e Itagüí.', hojaDatos: /table|datos|ventas/i, clave: 'llave', norm: normalizarVentaX } };
+function vCargaDatos() {
+  const u = S.data.user;
+  if (!['jefe', 'admin'].includes(u.rol)) return empty('ti-lock', 'Solo el Jefe Comercial o un Administrador puede cargar datos.');
+  if (!S.carga) { S.carga = { cot: null, ven: null, estado: null, enviando: false }; cargarEstadoCarga(); }
+  const est = S.carga.estado;
+  const fila = (c, k) => {
+    const x = S.carga[k], e = est && est[c.tipo];
+    return `<div class="card"><h3 style="margin:0 0 4px">${c.titulo}</h3><p class="small muted" style="margin:0 0 8px">${c.ayuda}</p>
+      <p class="small" style="margin:0 0 8px">${e ? `En Supabase: <b>${e.total}</b> registros · último: <b>${esc(e.ultima_fecha || '—')}</b>` : 'Consultando lo cargado…'}</p>
+      <input type="file" accept=".xlsx,.xls,.csv" data-carga="${k}">
+      ${x ? `<div class="notice ${x.error ? 'bad' : ''}" style="margin-top:8px"><i class="ti ti-info-circle"></i><div>${x.error ? esc(x.error) : `<b>${x.filas.length}</b> filas listas (de ${x.leidas} leídas${x.descartadas ? ', ' + x.descartadas + ' descartadas: no son motos de Antioquia o no tienen datos' : ''}). Fechas: ${esc(x.desde)} a ${esc(x.hasta)}.`}</div></div>
+        ${x.error ? '' : `<button class="btn btn-primary" style="margin-top:8px" data-act="carga-enviar" data-k="${k}" ${S.carga.enviando ? 'disabled' : ''}><i class="ti ti-cloud-upload"></i> Cargar a Supabase</button>`}` : ''}
+      <div class="small muted" id="carga-prog-${k}" style="margin-top:6px"></div></div>`;
+  };
+  return `<div class="grid g2">${fila(CARGAS_X.cot, 'cot')}${fila(CARGAS_X.ven, 'ven')}</div>
+    <p class="small muted" style="margin-top:10px">Cada carga actualiza lo que ya existe y agrega lo nuevo, sin duplicar. No borra nada. Mientras la migración no termine, sigue pegando los mismos archivos en las hojas de Google.</p>`;
+}
+async function cargarEstadoCarga() {
+  try { S.carga.estado = await api('cargaEstado'); if (S.view === 'carga') render(); } catch (e) { toast('No se pudo consultar las cargas: ' + e.message, 'bad'); }
+}
+async function leerArchivoCarga(inp) {
+  const k = inp.dataset.carga, c = CARGAS_X[k], f = inp.files && inp.files[0]; if (!f || !c) return;
+  S.carga[k] = { error: 'Leyendo el archivo…', filas: [] }; render();
+  try {
+    const X = await cargarXlsx();
+    const wb = X.read(await f.arrayBuffer(), { type: 'array' });
+    // Hoja de datos: la que tiene más filas (en el archivo de ventas la primera es un resumen)
+    const hojas = wb.SheetNames.map(n => ({ n, rows: X.utils.sheet_to_json(wb.Sheets[n], { defval: '', raw: true }) })).sort((a, b) => b.rows.length - a.rows.length);
+    const rows = hojas[0].rows, norm = rows.map(r => c.norm(r)).filter(Boolean), vistos = {};
+    const filas = norm.filter(r => { const key = r[c.clave]; if (vistos[key]) return false; vistos[key] = 1; return true; });
+    if (!filas.length) { S.carga[k] = { error: 'No encontré filas válidas. Revisa que sea el archivo correcto (' + c.ayuda + ')' }; render(); return; }
+    const fechas = filas.map(r => r.fecha || r.fecha_cotizacion).filter(Boolean).sort();
+    S.carga[k] = { filas, leidas: rows.length, descartadas: rows.length - norm.length, desde: fechas[0], hasta: fechas[fechas.length - 1] };
+  } catch (e) { S.carga[k] = { error: 'No se pudo leer el archivo: ' + e.message }; }
+  render();
+}
+async function enviarCarga(k) {
+  const c = CARGAS_X[k], x = S.carga[k]; if (!x || !x.filas || S.carga.enviando) return;
+  S.carga.enviando = true; render();
+  const prog = () => $('#carga-prog-' + k), TAM = 300; let hechas = 0;
+  try {
+    for (let i = 0; i < x.filas.length; i += TAM) {
+      const lote = x.filas.slice(i, i + TAM);
+      await api('cargar', { tipo: c.tipo, filas: lote }); hechas += lote.length;
+      if (prog()) prog().textContent = 'Cargadas ' + hechas + ' de ' + x.filas.length + '…';
+    }
+    toast('Carga lista: ' + hechas + ' registros en Supabase', 'ok'); S.carga[k] = null; await cargarEstadoCarga();
+  } catch (e) { toast('Se cargaron ' + hechas + ' de ' + x.filas.length + '. Error: ' + e.message, 'bad'); }
+  S.carga.enviando = false; render();
+}
+document.addEventListener('change', e => { const i = e.target && e.target.closest && e.target.closest('[data-carga]'); if (i) leerArchivoCarga(i); });
+
 // Verificación de la migración (solo Jefe, una vez por ingreso): compara la lista de chats y un chat de Supabase contra Google.
 async function verificarEdge() {
   if (DEMO || !CFG.API_EDGE || !S.token) return;
@@ -709,11 +824,11 @@ function vistasDeRolBase() {
   if (r === 'asesor') return [it('dia', 'ti-sun', 'Mi Día'), it('hoy', 'ti-checklist', 'Mis Leads'), it('chats', 'ti-messages', 'Mis Chats'), it('miscot', 'ti-file-dollar', 'Mis Cotizaciones'),
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
-    it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('alertas', 'ti-bell-ringing', 'Alertas')];
+    it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('alertas', 'ti-bell-ringing', 'Alertas')];
   return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
-    it('conciliacion', 'ti-git-compare', 'Conciliación'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
+    it('conciliacion', 'ti-git-compare', 'Conciliación'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
 }
 function homeDeRol() { return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
 function vistasDeRolViejas() {
@@ -754,7 +869,7 @@ function renderNav() {
 }
 function render() {
   const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
-    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas };
+    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
@@ -2819,6 +2934,7 @@ document.addEventListener('click', async e => {
   if (act === 'ir-chat') { cerrarSheet(); S.chatSel = a.dataset.id; S.view = 'chats'; renderNav(); return render(); }
   if (act === 'chat-volver') { S.chatSel = null; S.leadAbierto = null; return render(); }
   if (act === 'chat-enviar') return enviarChat(a.dataset.id, a);
+  if (act === 'carga-enviar') return enviarCarga(a.dataset.k);
   if (act === 'chat-reactivar') return reactivarChat(a.dataset.id, a);
   if (act === 'chat-adjuntar') return adjuntarChat(a.dataset.id);
   if (act === 'chat-bot') return cambiarAtencionChat(a.dataset.id, 'bot');
