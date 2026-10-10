@@ -174,7 +174,7 @@ async function api(action, payload = {}) {
   const usaEdge = CFG.API_EDGE && (CFG.EDGE_RUTAS || []).includes(action) && localStorage.getItem('akt_sin_edge') !== '1';
   if (usaEdge) {
     try { j = await llamar(CFG.API_EDGE); } catch (e) { j = null; }
-    if (!j || (!j.ok && ['AUTH', 'UPSTREAM', 'INVALID'].includes(j.code))) j = await llamar(CFG.API_URL);
+    if (!j || (!j.ok && (['AUTH', 'UPSTREAM', 'INVALID'].includes(j.code) || (action === 'login' && j.code === 'LOGIN')))) j = await llamar(CFG.API_URL);
   } else j = await llamar(CFG.API_URL);
   if (!j.ok && !j.conflict) { const e = new Error(j.error || 'Error desconocido'); e.code = j.code; throw e; }
   return j;
