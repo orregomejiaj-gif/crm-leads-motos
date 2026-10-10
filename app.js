@@ -162,13 +162,20 @@ function fmtHoras(h) {
 // ── API ───────────────────────────────────────────────────────────────────
 async function api(action, payload = {}) {
   if (DEMO) return window.AKT_DEMO.handle(action, payload, S.demoRole);
-  const res = await fetch(CFG.API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS en Apps Script
-    body: JSON.stringify(Object.assign({ action, token: S.token }, payload))
-  });
-  if (!res.ok) throw new Error('El servidor respondió ' + res.status);
-  const j = await res.json();
+  const cuerpo = JSON.stringify(Object.assign({ action, token: S.token }, payload));
+  const llamar = async (url) => {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: cuerpo }); // sin preflight CORS
+    if (!res.ok) throw new Error('El servidor respondió ' + res.status);
+    return res.json();
+  };
+  // Migración fuera de Google: estas rutas se atienden en Supabase (CFG.API_EDGE). Si la función nueva falla o no valida la sesión, se usa Apps Script.
+  // Vuelta atrás inmediata: localStorage.akt_sin_edge = '1' o quitar API_EDGE de config.js.
+  let j;
+  const usaEdge = CFG.API_EDGE && (CFG.EDGE_RUTAS || []).includes(action) && localStorage.getItem('akt_sin_edge') !== '1';
+  if (usaEdge) {
+    try { j = await llamar(CFG.API_EDGE); } catch (e) { j = null; }
+    if (!j || (!j.ok && ['AUTH', 'UPSTREAM', 'INVALID'].includes(j.code))) j = await llamar(CFG.API_URL);
+  } else j = await llamar(CFG.API_URL);
   if (!j.ok && !j.conflict) { const e = new Error(j.error || 'Error desconocido'); e.code = j.code; throw e; }
   return j;
 }

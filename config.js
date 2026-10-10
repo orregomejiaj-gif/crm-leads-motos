@@ -8,6 +8,9 @@ window.AKT_CONFIG = {
   // Ejemplo: 'https://script.google.com/macros/s/AKfy.../exec'
   // Implementación activa desde la v2.6.0 (3-oct-2026). La anterior (AKfycbwMK6…) quedó en la v2.5.0.
   API_URL: 'https://script.google.com/macros/s/AKfycbznBSzZc1E3Kd85y8jkN2o09L_WMLOIC2SEpwnciZglV7VX4qi8WcgnE6MiWCen91O7TA/exec',
+  // Migración fuera de Google (Fase 1): rutas atendidas por la función «api» de Supabase; con respaldo automático a Apps Script.
+  API_EDGE: 'https://nqrmpunlgdbicwhpinmq.supabase.co/functions/v1/api',
+  EDGE_RUTAS: ['bandeja', 'chats'],
   // Refresco automático (ms). Brief: cada 1–2 minutos.
   REFRESH_MS: 90000
 };
