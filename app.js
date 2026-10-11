@@ -304,7 +304,8 @@ function normalizarVentaX(f) {
     centro_costo: cc, bodega, punto: puntoDeTexto(base), zona: 'Antioquia', vendedor: lim(v('vendedor')), modalidad: lim(v('modalidadventa', 'modalidad')), forma_pago: lim(v('formapago')),
     codproducto: lim(v('codproducto')), referencia: ref, presentacion: lim(v('presenproducto', 'presentacion')), cantidad: Math.round(cant), valor: Math.round(total),
     detalle: String(v('detalle') || '').slice(0, 200).trim(), consecutivo: lim(v('consecutivointerno', 'consecutivo')) };
-  o.sede = o.punto; o.llave = [o.nro_factura, o.consecutivo, o.codproducto, o.cantidad].join('|');
+  o.sede = o.punto === 'Itagüí' ? 'itagui' : (o.punto === 'Los Colores' ? 'los_colores' : null); // código de la tabla sedes
+  o.llave = [o.nro_factura, o.consecutivo, o.referencia, o.cantidad].join('|'); // misma clave que las ventas ya cargadas
   return o;
 }
 /** Una fila del exporte «motoracing_cotizaciones» del CRM → fila de crm_cotizaciones (sin correo ni dirección). */
