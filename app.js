@@ -417,7 +417,7 @@ async function cargar(silencioso) {
   $('#btn-refresh i').classList.add('spin');
   try {
     if (!DEMO && S.token && !tokenVigente(S.token)) { salir('Tu sesión venció. Vuelve a entrar.'); return false; }
-    S.data = await api('bootstrap');
+    S.data = await api('bootstrap', { fresco: !silencioso }); // la actualización automática puede venir de la memoria de Supabase; el botón de refrescar siempre pide datos nuevos
     construirModelo();
     S.lastLoad = new Date();
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
@@ -980,13 +980,16 @@ function leadCard(l) {
 function leadsAlcance() {
   const u = S.data.user;
   let ls = S.M.leads;
-  if (u.rol !== 'asesor' && S.hoyAsesor) ls = ls.filter(l => norm(l.asesor) === norm(S.hoyAsesor));
+  if (u.rol !== 'asesor' && S.hoyAsesor === SIN_ASESOR) ls = ls.filter(l => !String(l.asesor || '').trim());
+  else if (u.rol !== 'asesor' && S.hoyAsesor) ls = ls.filter(l => norm(l.asesor) === norm(S.hoyAsesor));
   return ls;
 }
+const SIN_ASESOR = '__sin_asesor__'; // valor especial del filtro: leads que todavía no tienen asesor (los atiende Mateo)
+const OPC_SIN_ASESOR = { v: SIN_ASESOR, t: '⚪ Sin asesor (los atiende Mateo)' };
 /** «Mi pulso»: el mix completo (leads, cotizaciones, ventas, meta) al minuto, con mensajes que empujan a actuar. */
 function cargarPulso() {
   if (S.pulBusy) return; S.pulBusy = true;
-  const as = S.hoyAsesor || '';
+  const as = S.hoyAsesor === SIN_ASESOR ? '' : (S.hoyAsesor || '');
   api('control', { dias: 30, asesor: as }).then(r => { S.pul = r; S.pulAs = as; S.pulErr = ''; S.pulT = Date.now(); })
     .catch(e => { S.pulErr = e.message; })
     .finally(() => { S.pulBusy = false; const c = $('#hoy-pulso'); if (S.view === 'hoy' && c) { c.innerHTML = pulsoHtml(); const b = $('#pulso-btn'); if (b && b.firstElementChild) b.firstElementChild.innerHTML = '⚡ Mi pulso comercial' + resumenPulso(); } });
@@ -1015,7 +1018,7 @@ function pulsoLista(r, kSel, accionFiltro) {
 }
 function pulsoHtml() {
   const r = S.pul;
-  if (!r || !r.kpis || S.pulAs !== (S.hoyAsesor || '')) { if (!S.pulBusy) cargarPulso(); return `<div class="notice" style="margin-bottom:10px"><i class="ti ti-loader"></i><div>⏳ ${S.pulErr ? esc(S.pulErr) : 'Cargando tus números en tiempo real…'}</div></div>`; }
+  if (!r || !r.kpis || S.pulAs !== (S.hoyAsesor === SIN_ASESOR ? '' : (S.hoyAsesor || ''))) { if (!S.pulBusy) cargarPulso(); return `<div class="notice" style="margin-bottom:10px"><i class="ti ti-loader"></i><div>⏳ ${S.pulErr ? esc(S.pulErr) : 'Cargando tus números en tiempo real…'}</div></div>`; }
   const k = r.kpis, conT = k.conTiempoContacto || 0, R = r.reasignaciones || { total: 0 };
   const tareas = (r.tareas || []).length, urgentes = (r.tareas || []).filter(t => t.prioridad <= 1).length;
   let msg;
@@ -1095,7 +1098,7 @@ function vHoy() {
       <div class="list">${g.items.map(leadCard).join('')}</div>`).join('') || `<div style="margin-top:16px">${empty('ti-mood-check', 'No tienes leads pendientes. ¡Todo al día!')}</div>`);
 
   return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
-    ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
+    ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts([OPC_SIN_ASESOR].concat(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre)), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
     ${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><div>${esc(a)}</div></div>`).join('')}
     ${u.rol === 'asesor' ? '' : `<button class="btn" id="pulso-btn" data-act="pulso-toggle" style="width:100%;justify-content:space-between;margin-bottom:10px;padding:12px 16px;font-weight:600"><span>⚡ Mi pulso comercial${resumenPulso()}</span><i class="ti ${S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'}"></i></button>
     <div id="hoy-pulso" ${S.pulAbierto ? '' : 'hidden'}>${pulsoHtml()}</div>`}
@@ -1995,7 +1998,7 @@ function periodoDesde(p) {
 }
 function filtrar(ls, f) {
   const [desde, hasta] = periodoDesde(f.periodo);
-  return ls.filter(l => (!f.punto || l.sede === f.punto) && (!f.asesor || norm(l.asesor) === norm(f.asesor)) && (!f.origen || l.origen === f.origen) &&
+  return ls.filter(l => (!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) &&
     (!desde || (l.asign && l.asign >= desde)) && (!hasta || (l.asign && l.asign < hasta)));
 }
 function filtrosHTML(conOrigen = true) {
@@ -2003,7 +2006,7 @@ function filtrosHTML(conOrigen = true) {
   const sedes = uniq(M.leads.map(l => l.sede).concat(M.personas.map(p => p.sedeCanon))).filter(s => s === 'Itagüí' || s === 'Los Colores' || M.leads.some(l => l.sede === s));
   return `<div class="filters">
     ${u.rol === 'jefe' ? `<select class="sel" data-f="punto">${opts(sedes, f.punto, 'Todos los puntos')}</select>` : ''}
-    ${u.rol !== 'asesor' ? `<select class="sel" data-f="asesor">${opts(uniq(M.asesores.filter(p => !f.punto || p.sedeCanon === f.punto).map(p => p.nombre).concat(M.leads.map(l => l.asesor))).sort(), f.asesor, 'Todos los asesores')}</select>` : ''}
+    ${u.rol !== 'asesor' ? `<select class="sel" data-f="asesor">${opts([OPC_SIN_ASESOR].concat(uniq(M.asesores.filter(p => !f.punto || p.sedeCanon === f.punto).map(p => p.nombre).concat(M.leads.map(l => l.asesor))).filter(Boolean).sort()), f.asesor, 'Todos los asesores')}</select>` : ''}
     ${conOrigen ? `<select class="sel" data-f="origen">${opts(uniq(M.leads.map(l => l.origen)).sort(), f.origen, 'Todos los orígenes')}</select>` : ''}
     <select class="sel" data-f="periodo">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
   </div>`;
