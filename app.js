@@ -1098,6 +1098,7 @@ function vHoy() {
       <div class="list">${g.items.map(leadCard).join('')}</div>`).join('') || `<div style="margin-top:16px">${empty('ti-mood-check', 'No tienes leads pendientes. ¡Todo al día!')}</div>`);
 
   return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
+    ${u.rol === 'jefe' ? '<button class="btn btn-sm" data-act="asig-masiva" title="Seleccionar varios leads y asignarlos a un asesor de una vez"><i class="ti ti-users-group"></i> Asignar por lotes</button>' : ''}
     ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts([OPC_SIN_ASESOR].concat(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre)), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
     ${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><div>${esc(a)}</div></div>`).join('')}
     ${u.rol === 'asesor' ? '' : `<button class="btn" id="pulso-btn" data-act="pulso-toggle" style="width:100%;justify-content:space-between;margin-bottom:10px;padding:12px 16px;font-weight:600"><span>⚡ Mi pulso comercial${resumenPulso()}</span><i class="ti ${S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'}"></i></button>
@@ -2864,11 +2865,59 @@ document.addEventListener('click', async e => {
     };
     return;
   }
+  if (act === 'asig-masiva') {
+    if (S.data.user.rol !== 'jefe') return;
+    const eq = (S.M.asesores || []).filter(p => p.nombre), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
+    const base = S.M.leads.filter(l => !['Facturado', 'Perdido', 'Otra ciudad'].includes(l.estado));
+    const sel = new Set(); let soloSin = true;
+    const optsAs = punto => opts(eq.filter(p => p.sedeCanon === punto).map(p => p.nombre), '', 'Elige el asesor…');
+    const visibles = () => { const q = norm($('#am-q').value || ''); return base.filter(l => (!soloSin || !String(l.asesor || '').trim()) && (!q || norm([l.nombre, l.raw.modelo_interes, l.asesor, l.sede].join(' ')).includes(q))).slice(0, 300); };
+    const pintar = () => {
+      const v = visibles();
+      $('#am-lista').innerHTML = v.map(l => `<label class="row" style="gap:8px;padding:7px 0;border-bottom:1px solid rgba(0,0,0,.08);cursor:pointer"><input type="checkbox" data-am="${esc(l.id)}" ${sel.has(l.id) ? 'checked' : ''}><span class="grow"><b>${esc(l.nombre)}</b><br><small class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')} · ${esc(l.estado)}</small></span></label>`).join('') || '<div class="tiny muted" style="padding:14px;text-align:center">Ningún lead con este filtro.</div>';
+      $('#am-n').textContent = sel.size + ' seleccionado(s) · ' + v.length + ' en la lista';
+    };
+    abrirSheet(`<div class="sheet-b"><h3><i class="ti ti-users-group"></i> Asignar por lotes</h3>
+      <p class="small muted" style="margin:0">Marca los leads y elige a qué asesor pasan. Cada asesor recibe su aviso por WhatsApp y el cambio queda auditado (máximo 40 por lote).</p>
+      <div class="row" style="gap:6px;margin-top:8px"><input class="inp grow" id="am-q" placeholder="Buscar por nombre, modelo o asesor…"><label class="small" style="white-space:nowrap"><input type="checkbox" id="am-sin" checked> Solo sin asesor</label></div>
+      <div class="row between" style="margin:6px 0"><span class="tiny muted" id="am-n"></span><span><button class="btn btn-sm" id="am-todos">Marcar visibles</button> <button class="btn btn-sm" id="am-ninguno">Quitar marcas</button></span></div>
+      <div id="am-lista" style="max-height:260px;overflow:auto;border:1px solid rgba(0,0,0,.12);border-radius:8px;padding:0 8px"></div>
+      <label class="f" for="am-punto">Punto de venta</label><select class="sel w100" id="am-punto">${puntos.map(p => `<option>${esc(p)}</option>`).join('')}</select>
+      <label class="f" for="am-as">Asesor</label><select class="sel w100" id="am-as">${optsAs(puntos[0] || '')}</select>
+      <label class="f" for="am-mot">Motivo (obligatorio)</label><input class="inp w100" id="am-mot" maxlength="200" placeholder="Ej.: reparto de leads sin asesor">
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" id="am-no">Cancelar</button><button class="btn btn-dark" id="am-go">Asignar</button></div></div>`, true);
+    pintar();
+    $('#am-q').oninput = pintar;
+    $('#am-sin').onchange = () => { soloSin = $('#am-sin').checked; pintar(); };
+    $('#am-lista').onchange = e => { const id = e.target.dataset && e.target.dataset.am; if (!id) return; e.target.checked ? sel.add(id) : sel.delete(id); $('#am-n').textContent = sel.size + ' seleccionado(s) · ' + visibles().length + ' en la lista'; };
+    $('#am-todos').onclick = () => { visibles().forEach(l => sel.add(l.id)); pintar(); };
+    $('#am-ninguno').onclick = () => { sel.clear(); pintar(); };
+    $('#am-punto').onchange = () => { $('#am-as').innerHTML = optsAs($('#am-punto').value); };
+    $('#am-no').onclick = () => cerrarSheet();
+    $('#am-go').onclick = async () => {
+      const punto = $('#am-punto').value, as = $('#am-as').value, mot = $('#am-mot').value.trim(), ids = [...sel];
+      if (!ids.length) { toast('Marca al menos un lead.', 'bad'); return; }
+      if (ids.length > 40) { toast('Máximo 40 leads por lote: quita algunos.', 'bad'); return; }
+      if (!as) { toast('Elige el asesor.', 'bad'); return; }
+      if (mot.length < 5) { toast('Cuenta el motivo.', 'bad'); return; }
+      if (!confirm('¿Pasar ' + ids.length + ' lead(s) a ' + as + ' (' + punto + ')?')) return;
+      $('#am-go').disabled = true; let ok = 0; const fallos = [];
+      for (let i = 0; i < ids.length; i++) {
+        $('#am-go').textContent = 'Asignando ' + (i + 1) + ' de ' + ids.length + '…';
+        try { await api('reasignar', { id_lead: ids[i], asesor: as, punto, motivo: mot }); ok++; }
+        catch (e) { fallos.push(((S.M.byId[ids[i]] || {}).nombre || ids[i]) + ': ' + e.message); }
+      }
+      cerrarSheet();
+      toast(ok + ' lead(s) asignados a ' + as + (fallos.length ? ' · ' + fallos.length + ' con error (' + fallos[0] + ')' : ''), fallos.length ? 'bad' : 'ok');
+      await cargar(true);
+    };
+    return;
+  }
   if (act === 'cambiar-asig') {
     const l = S.M.byId[a.dataset.id]; if (!l || S.data.user.rol !== 'jefe') return;
     const eq = (S.M.asesores || []).filter(p => p.nombre), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
     const sedeAct = puntos.find(s => norm(s) === norm(l.sede || '')) || puntos[0] || '';
-    const optsAs = punto => opts(eq.filter(p => p.sedeCanon === punto && norm(p.nombre) !== norm(l.asesor || '')).map(p => p.nombre), '', 'Elige el nuevo asesor…');
+    const optsAs = punto => opts(eq.filter(p => p.sedeCanon === punto).map(p => p.nombre), '', 'Elige el nuevo asesor…');
     abrirSheet(`<div class="sheet-b"><h3><i class="ti ti-arrows-exchange"></i> Cambiar asesor / punto</h3>
       <p class="small muted" style="margin:0">${esc(l.nombre)} · hoy: <b>${esc(l.asesor || 'Sin asesor')}</b> · ${esc(l.sede || 'Sin punto')}</p>
       <label class="f" for="ca-punto">Punto de venta</label><select class="sel w100" id="ca-punto">${puntos.map(p => `<option ${p === sedeAct ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>
