@@ -713,10 +713,31 @@ function clasificarEquipo(p) {
       nota: altaAct && !altoRes ? `${e.nombre.split(' ')[0]}: ${f.seg} seguimientos y ${e.ventas} venta${e.ventas === 1 ? '' : 's'}. Revisar calidad de negociación y manejo de objeciones.` : (!altaAct && !altoRes ? `${e.nombre.split(' ')[0]}: baja actividad y bajo resultado. Es un tema de disciplina comercial.` : '') };
   });
 }
+/** Ranking de motos por interés de los clientes (leads del período y punto elegidos): cuántos preguntan por cada una y cuántos llegan a cotización y venta. */
+function rankingMotos(L) {
+  const g = {}; let sin = 0;
+  L.forEach(l => {
+    const raw = String(l.producto || '').replace(/\s+/g, ' ').trim();
+    if (!raw || /^sin modelo$/i.test(raw)) { sin++; return; }
+    const x = g[norm(raw)] || (g[norm(raw)] = { t: raw, n: 0, cot: 0, ven: 0 });
+    x.n++;
+    if (/factur|ganad/i.test(l.estado || '')) { x.ven++; x.cot++; } else if (l.cotizado || /cotiz/i.test(l.estado || '')) x.cot++;
+  });
+  const lista = Object.keys(g).map(k => g[k]).sort((a, b) => b.n - a.n || b.cot - a.cot);
+  return { lista, sin, total: lista.reduce((s, x) => s + x.n, 0) };
+}
+function tablaMotos(R) {
+  if (!R.lista.length) return '<p class="small muted">Aún no hay leads con modelo de interés en este período.</p>';
+  const top = R.lista.slice(0, 10), mx = top[0].n;
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Moto</th><th>Interés (leads)</th><th class="r">% del total</th><th class="r">Cotizados</th><th class="r">Vendidos</th></tr></thead><tbody>${top.map((x, i) =>
+    `<tr><td>${i + 1}</td><td><b>${esc(x.t)}</b></td><td><div class="fn-bar" style="width:${Math.max(8, Math.round(x.n * 100 / mx))}%;min-width:34px">${x.n}</div></td><td class="r">${pctDe(x.n, R.total)} %</td><td class="r">${x.cot}</td><td class="r">${x.ven}</td></tr>`).join('')}</tbody></table></div>
+    <p class="tiny muted" style="margin:8px 0 0">${R.lista.length > 10 ? `Se muestran las 10 primeras de ${R.lista.length} referencias. ` : ''}${R.sin ? `${R.sin} lead${R.sin === 1 ? '' : 's'} sin modelo registrado todavía (no cuentan en el ranking). ` : ''}Sale del modelo de interés que el cliente le dice a Mateo.</p>`;
+}
 function vInteligencia() {
   const c = panelListo(); if (c) return c;
   const p = S.pan, ctl = p.control, k = ctl.kpis || {}, L = ctl.lista || [], conT = k.conTiempoContacto || 0;
-  const lect = [];
+  const motos = rankingMotos(L), lect = [];
+  if (motos.lista.length) { const m0 = motos.lista[0]; lect.push(`🏍️ La moto que más preguntan es ${m0.t}: ${m0.n} de ${motos.total} leads (${pctDe(m0.n, motos.total)} %)${motos.lista[1] ? `, seguida de ${motos.lista[1].t} (${motos.lista[1].n})` : ''}.`); }
   if (k.sinContacto) lect.push(`Hay ${k.sinContacto} lead${k.sinContacto === 1 ? '' : 's'} sin contactar. Cada hora sin respuesta baja la probabilidad de venta.`);
   if (k.cotizadosSinSoporte) lect.push(`${k.cotizadosSinSoporte} lead${k.cotizadosSinSoporte === 1 ? ' marcado' : 's marcados'} como cotizado${k.cotizadosSinSoporte === 1 ? '' : 's'} no cruza${k.cotizadosSinSoporte === 1 ? '' : 'n'} con ninguna cotización del CRM.`);
   if (conT && pctDe(k.contactoEn2h || 0, conT) < 70) lect.push(`Solo el ${pctDe(k.contactoEn2h || 0, conT)} % de los leads se contacta en las primeras 2 horas (la meta es 70 % o más).`);
@@ -733,6 +754,7 @@ function vInteligencia() {
       <div class="pn-card"><h3>📣 Por origen</h3>${tablaOrigen(ctl)}</div>
       <div class="pn-card"><h3>📊 Embudo</h3>${L.length ? funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') : '<p class="small muted">Sin movimiento todavía en este período.</p>'}</div>
     </div>
+    <div class="pn-card"><h3>🏍️ Motos de mayor interés</h3>${tablaMotos(motos)}</div>
     <div class="pn-card"><h3>👥 Asesores: contacto, cotización y reasignación</h3>${tablaAsesores(ctl)}<p class="tiny muted" style="margin:8px 0 0">«1er contacto» es la mediana entre que entra el lead y el asesor lo contacta. «Sin cotización CRM»: el asesor lo marcó cotizado y no aparece en el CRM. «Vendidos» solo cuenta ventas que cruzan con Síntesis.</p></div>
     <div class="pn-grid">
       <div class="pn-card"><h3>🔁 Reasignaciones recientes</h3>${listaReasignaciones(ctl)}</div>
