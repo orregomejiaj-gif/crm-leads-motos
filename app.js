@@ -737,22 +737,52 @@ function tablaMotos(R) {
 const FL_GL = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', contactados: l => l.contactado, cotizaciones: l => l.cotizado, concrm: l => l.cotizado && !l.sinSoporte,
   sincontacto: l => l.abierto && l.sinContacto, sinsoporte: l => l.sinSoporte, reasignados: l => (l.reasignaciones || 0) > 0, ventas: l => l.estado === 'Cerrado ganado' };
 const TIT_GL = { leads: 'Leads recibidos', nuevos: 'Leads nuevos', contactados: 'Contactados', cotizaciones: 'Cotizados', concrm: 'Con cotización en el CRM', sincontacto: 'Sin contactar', sinsoporte: 'Cotizado sin soporte', reasignados: 'Reasignados', ventas: 'Vendidos', atender: 'Por atender' };
-function glActivo() { return !!(S.panF || S.gMoto || S.gCanal || S.gAs); }
+function glActivo() { return !!(S.panF || S.gMoto || S.gCanal || S.gAs || S.gDia); }
 function glFiltrados(L) {
   let R = L;
   if (S.panF && FL_GL[S.panF]) R = R.filter(FL_GL[S.panF]);
   if (S.gMoto) R = R.filter(l => norm(l.producto) === norm(S.gMoto));
   if (S.gCanal) R = R.filter(l => l.canal === S.gCanal);
   if (S.gAs) R = R.filter(l => S.gAs === '__sin__' ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(S.gAs));
+  if (S.gDia) R = R.filter(l => { const x = S.M.byId[l.id], f = x && fechaLlegada(x); return !!f && ymd(f) === S.gDia; });
   return R;
 }
+/** Rango del informe por día: fechas elegidas o, si no, los últimos días del filtro del panel (Hoy / Semana / Mes). */
+function diasRango() {
+  const p = S.pan, n = (p && p.filtro && p.filtro.dias) || 30;
+  return [S.glDesde || ymd(new Date(Date.now() - (n - 1) * 864e5)), S.glHasta || ymd(new Date())];
+}
+/** Leads recibidos por día (según el punto elegido arriba), con su origen y cuántos ya se contactaron y cotizaron. Más reciente primero. */
+function diasReporte() {
+  const [desde, hasta] = diasRango(), sede = (S.pan && S.pan.filtro && S.pan.filtro.sede) || '', m = {};
+  (S.M.leads || []).forEach(l => {
+    if (sede && l.sede !== sede) return;
+    const f = fechaLlegada(l); if (!f) return;
+    const k = ymd(f); if (k < desde || k > hasta) return;
+    const x = m[k] || (m[k] = { k, n: 0, pauta: 0, ref: 0, otro: 0, con: 0, cot: 0 }), c = canalLead(l);
+    x.n++; if (c === 'Pauta redes sociales') x.pauta++; else if (c === 'Referido') x.ref++; else x.otro++;
+    if (l.contactado || l.cotizado || /cotiz|factur/i.test(l.estado || '')) x.con++;
+    if (l.cotizado || /cotiz|factur/i.test(l.estado || '')) x.cot++;
+  });
+  const rows = []; let d = parseFecha(desde); const fin = parseFecha(hasta);
+  for (let i = 0; d && fin && d <= fin && i < 400; i++, d = new Date(d.getTime() + 864e5)) { const k = ymd(d); rows.push(m[k] || { k, n: 0, pauta: 0, ref: 0, otro: 0, con: 0, cot: 0 }); }
+  return rows.reverse();
+}
+function tablaDias() {
+  const R = diasReporte(), [desde, hasta] = diasRango(), tot = R.reduce((s, x) => s + x.n, 0), mx = Math.max(1, ...R.map(x => x.n)), conD = R.filter(x => x.n).length;
+  const dia = k => { const [y, mo, d] = k.split('-').map(Number); return new Date(y, mo - 1, d).toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' }); };
+  return `<div class="row wrap" style="gap:8px;align-items:center;margin-bottom:8px"><span class="small muted">Desde</span><input type="date" class="inp" data-ch="glDesde" value="${esc(desde)}"> <span class="small muted">hasta</span><input type="date" class="inp" data-ch="glHasta" value="${esc(hasta)}">
+      ${S.glDesde || S.glHasta ? '<button class="btn btn-sm" data-act="gl-fechas-q"><i class="ti ti-x"></i> Usar el período de arriba</button>' : ''}<span class="grow"></span><button class="btn btn-sm" data-act="gl-exp" data-m="dias"><i class="ti ti-download"></i> Exportar informe</button></div>
+    <p class="small" style="margin:0 0 8px"><b>${tot}</b> leads recibidos entre ${esc(desde)} y ${esc(hasta)} · promedio <b>${R.length ? (tot / R.length).toFixed(1).replace('.', ',') : 0}</b> por día${conD ? ` · ${conD} día${conD === 1 ? '' : 's'} con leads` : ''}</p>
+    <div class="tbl-wrap" style="max-height:340px;overflow:auto"><table class="tbl"><thead><tr><th>Fecha</th><th>Leads recibidos</th><th class="r">Pauta</th><th class="r">Referido</th><th class="r">Otros</th><th class="r">Contactados</th><th class="r">Cotizados</th></tr></thead><tbody>${R.map(x => `<tr${x.n ? ` data-act="gl-f" data-t="dia" data-v="${x.k}" title="Toca para ver los leads de este día" style="cursor:pointer;${S.gDia === x.k ? 'background:rgba(37,99,235,.14)' : ''}"` : ''}><td><b>${esc(dia(x.k))}</b></td><td>${x.n ? `<div class="fn-bar" style="width:${Math.max(8, Math.round(x.n * 100 / mx))}%;min-width:30px">${x.n}</div>` : '<span class="muted">0</span>'}</td><td class="r">${x.pauta}</td><td class="r">${x.ref}</td><td class="r">${x.otro}</td><td class="r">${x.con}</td><td class="r">${x.cot}</td></tr>`).join('')}</tbody></table></div>`;
+}
 function glDescripcion() {
-  return [S.panF && (TIT_GL[S.panF] || S.panF), S.gMoto && 'Moto: ' + S.gMoto, S.gCanal && 'Origen: ' + S.gCanal, S.gAs && 'Asesor: ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)].filter(Boolean);
+  return [S.panF && (TIT_GL[S.panF] || S.panF), S.gMoto && 'Moto: ' + S.gMoto, S.gCanal && 'Origen: ' + S.gCanal, S.gAs && 'Asesor: ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs), S.gDia && 'Día: ' + S.gDia].filter(Boolean);
 }
 function panelFiltrado(ctl) {
   if (!glActivo()) return '';
-  if (S.panF === 'atender' && !(S.gMoto || S.gCanal || S.gAs)) return `<div class="pn-card" id="gl-panel" style="margin-top:12px">${pulsoLista(ctl, 'atender', 'panel-f')}</div>`;
-  const R = glFiltrados(ctl.lista || []), chips = [['kpi', S.panF && (TIT_GL[S.panF] || S.panF)], ['moto', S.gMoto && '🏍️ ' + S.gMoto], ['canal', S.gCanal && '📣 ' + S.gCanal], ['asesor', S.gAs && '👤 ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)]].filter(c => c[1]);
+  if (S.panF === 'atender' && !(S.gMoto || S.gCanal || S.gAs || S.gDia)) return `<div class="pn-card" id="gl-panel" style="margin-top:12px">${pulsoLista(ctl, 'atender', 'panel-f')}</div>`;
+  const R = glFiltrados(ctl.lista || []), chips = [['kpi', S.panF && (TIT_GL[S.panF] || S.panF)], ['moto', S.gMoto && '🏍️ ' + S.gMoto], ['canal', S.gCanal && '📣 ' + S.gCanal], ['asesor', S.gAs && '👤 ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)], ['dia', S.gDia && '📅 ' + S.gDia]].filter(c => c[1]);
   return `<div class="pn-card" id="gl-panel" style="margin-top:12px">
     <div class="row between wrap" style="gap:8px"><b>🔎 Leads con este filtro <span class="pill">${R.length}</span></b>
       <span class="row wrap" style="gap:6px"><button class="btn btn-sm btn-primary" data-act="gl-exp" data-m="filtro"><i class="ti ti-download"></i> Exportar este filtro</button><button class="btn btn-sm" data-act="gl-exp" data-m="todo"><i class="ti ti-database-export"></i> Base completa</button><button class="btn btn-sm" data-act="gl-q" data-t="all"><i class="ti ti-x"></i> Quitar filtros</button></span></div>
@@ -761,7 +791,13 @@ function panelFiltrado(ctl) {
 }
 /** Descarga en Excel: los leads del filtro activo (modo «filtro») o toda la base de leads (modo «todo»), con todas las columnas del lead. */
 async function exportarLeads(modo) {
-  const L = (S.pan && S.pan.control && S.pan.control.lista) || [];
+  if (modo === 'dias') {
+    const R = diasReporte(), [desde, hasta] = diasRango(), XL0 = await cargarXlsx(), wb0 = XL0.utils.book_new();
+    XL0.utils.book_append_sheet(wb0, XL0.utils.json_to_sheet(R.slice().reverse().map(x => ({ Fecha: x.k, 'Leads recibidos': x.n, Pauta: x.pauta, Referido: x.ref, Otros: x.otro, Contactados: x.con, Cotizados: x.cot }))), 'Leads por día');
+    XL0.utils.book_append_sheet(wb0, XL0.utils.aoa_to_sheet([['Exportado', new Date().toLocaleString('es-CO')], ['Por', S.data.user.nombre], ['Desde', desde], ['Hasta', hasta], ['Punto', (S.pan && S.pan.filtro && S.pan.filtro.sede) || 'Todos'], ['Leads', R.reduce((s, x) => s + x.n, 0)]]), 'Filtro aplicado');
+    const n0 = 'leads_por_dia_' + desde + '_a_' + hasta + '.xlsx'; XL0.writeFile(wb0, n0); toast('Informe exportado (' + n0 + ')', 'ok'); return;
+  }
+  const L =(S.pan && S.pan.control && S.pan.control.lista) || [];
   const ids = modo === 'todo' ? null : new Set(glFiltrados(L).map(l => String(l.id)));
   const src = (S.M.leads || []).filter(l => !ids || ids.has(String(l.id)));
   if (!src.length) { toast('No hay leads para exportar con este filtro.', 'bad'); return; }
@@ -796,6 +832,7 @@ function vInteligencia() {
       <div class="pn-card"><h3>📣 Por origen</h3>${tablaOrigen(ctl, true)}</div>
       <div class="pn-card"><h3>📊 Embudo</h3>${L.length ? funnel.map(f => `<div class="fn-row" data-act="panel-f" data-k="${f[2]}" title="Toca para ver estos leads" style="cursor:pointer;${S.panF === f[2] ? 'outline:2px solid #2563eb;outline-offset:2px;border-radius:8px' : ''}"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') : '<p class="small muted">Sin movimiento todavía en este período.</p>'}</div>
     </div>
+    <div class="pn-card"><h3>📅 Leads recibidos por día</h3>${tablaDias()}</div>
     <div class="pn-card"><h3>🏍️ Motos de mayor interés</h3>${tablaMotos(motos)}</div>
     <div class="pn-card"><h3>👥 Asesores: contacto, cotización y reasignación</h3>${tablaAsesores(ctl, { gl: true })}<p class="tiny muted" style="margin:8px 0 0">«1er contacto» es la mediana entre que entra el lead y el asesor lo contacta. «Sin cotización CRM»: el asesor lo marcó cotizado y no aparece en el CRM. «Vendidos» solo cuenta ventas que cruzan con Síntesis.</p></div>
     <div class="pn-grid">
@@ -1041,9 +1078,26 @@ function leadCard(l) {
 }
 
 // ── Vista: Hoy ────────────────────────────────────────────────────────────
+/** Moto de interés del lead (modelo que le dijo a Mateo; si no, la cotizada), en mayúsculas y sin espacios dobles. Vacío si no se sabe. */
+function motoLead(l) { const r = l.raw || {}; return String(r.modelo_interes || r.producto_cotizado || '').replace(/\s+/g, ' ').trim().toUpperCase(); }
+/** Opciones del filtro «Moto de interés»: cada modelo con su cantidad de leads, de más a menos consultado. */
+function motosOpts(ls) {
+  const c = {}; ls.forEach(l => { const m = motoLead(l); if (m) c[m] = (c[m] || 0) + 1; });
+  return Object.keys(c).sort((a, b) => c[b] - c[a] || a.localeCompare(b)).map(m => ({ v: m, t: m + ' (' + c[m] + ')' }));
+}
+/** Cuándo llegó el lead: su primer mensaje al bot; si no se sabe, cuando se asignó. */
+function fechaLlegada(l) { return parseFecha((l.raw || {}).fecha_primer_contacto) || l.asign || null; }
+function enRangoFecha(l, desde, hasta) {
+  if (!desde && !hasta) return true;
+  const f = fechaLlegada(l); if (!f) return false;
+  const k = ymd(f); return (!desde || k >= desde) && (!hasta || k <= hasta);
+}
 function leadsAlcance() {
   const u = S.data.user;
   let ls = S.M.leads;
+  if (S.hoyDesde || S.hoyHasta) ls = ls.filter(l => enRangoFecha(l, S.hoyDesde, S.hoyHasta));
+  if (u.rol === 'jefe' && S.hoyPunto) ls = ls.filter(l => l.sede === S.hoyPunto);
+  if (S.hoyMoto) ls = ls.filter(l => motoLead(l) === S.hoyMoto);
   if (u.rol !== 'asesor' && S.hoyAsesor === SIN_ASESOR) ls = ls.filter(l => !String(l.asesor || '').trim());
   else if (u.rol !== 'asesor' && S.hoyAsesor) ls = ls.filter(l => norm(l.asesor) === norm(S.hoyAsesor));
   return ls;
@@ -1163,6 +1217,9 @@ function vHoy() {
 
   return `<div class="page-h"><div><h2>Hoy</h2><p class="muted small">${cap(fmtFecha(new Date(), false))} · ${abiertos.length} leads abiertos · plazos en horas hábiles</p></div>
     ${u.rol === 'jefe' ? '<button class="btn btn-sm" data-act="asig-masiva" title="Seleccionar varios leads y asignarlos a un asesor de una vez"><i class="ti ti-users-group"></i> Asignar por lotes</button>' : ''}
+    ${u.rol === 'jefe' ? `<select class="sel" data-ch="hoyPunto" title="Filtrar por punto de venta">${opts(uniq(M.leads.map(l => l.sede)).filter(Boolean).sort(), S.hoyPunto, 'Todos los puntos')}</select>` : ''}
+    <select class="sel" data-ch="hoyMoto" title="Filtrar por moto de interés">${opts(motosOpts(S.M.leads), S.hoyMoto, 'Todas las motos')}</select>
+    <span class="row" style="gap:4px;align-items:center" title="Leads que llegaron entre estas fechas"><input type="date" class="inp" data-ch="hoyDesde" value="${esc(S.hoyDesde || '')}" aria-label="Desde"> <span class="small muted">a</span> <input type="date" class="inp" data-ch="hoyHasta" value="${esc(S.hoyHasta || '')}" aria-label="Hasta">${S.hoyDesde || S.hoyHasta ? ' <button class="btn btn-sm" data-act="hoy-fechas-q" title="Quitar el filtro de fechas"><i class="ti ti-x"></i></button>' : ''}</span>
     ${u.rol !== 'asesor' ? `<select class="sel" data-ch="hoyAsesor">${opts([OPC_SIN_ASESOR].concat(M.asesores.filter(p => u.rol === 'jefe' || p.sedeCanon === u.sede).map(p => p.nombre)), S.hoyAsesor, u.rol === 'jefe' ? 'Todos los asesores' : 'Todo mi punto')}</select>` : ''}</div>
     ${avisos.map(a => `<div class="notice" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><div>${esc(a)}</div></div>`).join('')}
     ${u.rol === 'asesor' ? '' : `<button class="btn" id="pulso-btn" data-act="pulso-toggle" style="width:100%;justify-content:space-between;margin-bottom:10px;padding:12px 16px;font-weight:600"><span>⚡ Mi pulso comercial${resumenPulso()}</span><i class="ti ${S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'}"></i></button>
@@ -2062,8 +2119,9 @@ function periodoDesde(p) {
   return [new Date(now - Number(p) * 864e5), null];
 }
 function filtrar(ls, f) {
-  const [desde, hasta] = periodoDesde(f.periodo);
-  return ls.filter(l => (!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) &&
+  const rango = !!(f.desde || f.hasta);   // con fechas elegidas a mano manda ese rango (por fecha de llegada) y no el período
+  const [desde, hasta] = rango ? [null, null] : periodoDesde(f.periodo);
+  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.moto || motoLead(l) === f.moto) &&
     (!desde || (l.asign && l.asign >= desde)) && (!hasta || (l.asign && l.asign < hasta)));
 }
 function filtrosHTML(conOrigen = true) {
@@ -2073,7 +2131,9 @@ function filtrosHTML(conOrigen = true) {
     ${u.rol === 'jefe' ? `<select class="sel" data-f="punto">${opts(sedes, f.punto, 'Todos los puntos')}</select>` : ''}
     ${u.rol !== 'asesor' ? `<select class="sel" data-f="asesor">${opts([OPC_SIN_ASESOR].concat(uniq(M.asesores.filter(p => !f.punto || p.sedeCanon === f.punto).map(p => p.nombre).concat(M.leads.map(l => l.asesor))).filter(Boolean).sort()), f.asesor, 'Todos los asesores')}</select>` : ''}
     ${conOrigen ? `<select class="sel" data-f="origen">${opts(uniq(M.leads.map(l => l.origen)).sort(), f.origen, 'Todos los orígenes')}</select>` : ''}
-    <select class="sel" data-f="periodo">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
+    <select class="sel" data-f="moto" title="Filtrar por moto de interés">${opts(motosOpts(M.leads), f.moto, 'Todas las motos')}</select>
+    <select class="sel" data-f="periodo" ${f.desde || f.hasta ? 'disabled title="Hay fechas elegidas: manda ese rango"' : ''}>${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
+    <span class="row" style="gap:4px;align-items:center" title="Leads que llegaron entre estas fechas"><input type="date" class="inp" data-f="desde" value="${esc(f.desde || '')}" aria-label="Desde"> <span class="small muted">a</span> <input type="date" class="inp" data-f="hasta" value="${esc(f.hasta || '')}" aria-label="Hasta">${f.desde || f.hasta ? ' <button class="btn btn-sm" data-act="f-fechas-q" title="Quitar fechas"><i class="ti ti-x"></i></button>' : ''}</span>
   </div>`;
 }
 function vEmbudo() {
@@ -3011,15 +3071,18 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
+  if (act === 'gl-fechas-q') { S.glDesde = ''; S.glHasta = ''; render(); return; }
+  if (act === 'hoy-fechas-q') { S.hoyDesde = ''; S.hoyHasta = ''; render(); return; }
+  if (act === 'f-fechas-q') { S.f.desde = ''; S.f.hasta = ''; render(); return; }
   if (act === 'gl-f') {
-    const key = { moto: 'gMoto', canal: 'gCanal', asesor: 'gAs' }[a.dataset.t]; if (!key) return;
+    const key = { moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia' }[a.dataset.t]; if (!key) return;
     S[key] = S[key] === a.dataset.v ? '' : a.dataset.v; render();
     const pn = $('#gl-panel'); if (pn) pn.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
   if (act === 'gl-q') {
     const t = a.dataset.t;
-    if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs' }[t]] = '';
+    if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; S.gDia = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia' }[t]] = '';
     render(); return;
   }
   if (act === 'gl-exp') {
