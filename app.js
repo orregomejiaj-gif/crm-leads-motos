@@ -607,13 +607,13 @@ function tablaAsesores(ctl, opts) {
   let rows = (ctl.asesores || []).filter(a => a.k && a.k !== 'Sin asesor' && a.leads > 0);
   const sinAs = (ctl.asesores || []).find(a => a.k === 'Sin asesor');
   if (!rows.length && !sinAs) return '<p class="small muted">Aún no hay leads asignados en este período.</p>';
-  const fila = a => { const rr = reas(a.k), p2 = pctDe(a.en2h || 0, a.conTResp || 0); return `<tr${opts.click ? ` data-act="eq-sel" data-id="${esc(a.k)}" style="cursor:pointer"` : ''}><td><b>${esc(a.k)}</b></td><td class="r">${a.leads}</td><td class="r">${a.sinContacto ? `<span class="pill pill-bad">${a.sinContacto}</span>` : 0}</td><td class="r">${txtT(a.tResp)}</td><td class="r">${txtPct(p2)}</td><td class="r">${a.cotizaciones}</td><td class="r">${a.sinSoporte ? `<span class="pill pill-warn">${a.sinSoporte}</span>` : 0}</td><td class="r"><b>${a.ventas}</b></td><td class="r">${rr.cedidos}</td><td class="r">${rr.recibidos}</td></tr>`; };
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r" title="Mediana entre que entró el lead y el primer contacto">1er contacto</th><th class="r" title="Leads contactados dentro de las 2 primeras horas">≤ 2 h</th><th class="r">Cotizados</th><th class="r" title="Marcados cotizados sin cotización en el CRM">Sin cotización CRM</th><th class="r" title="Cruzadas con ventas de Síntesis">Vendidos</th><th class="r" title="Leads que perdió por reasignación">Cedidos</th><th class="r" title="Leads que recibió por reasignación">Recibidos</th></tr></thead><tbody>${rows.map(fila).join('')}${sinAs ? `<tr><td><b>Sin asesor</b></td><td class="r">${sinAs.leads}</td><td class="r"><span class="pill pill-bad">${sinAs.sinContacto}</span></td><td class="r" colspan="7"><span class="small muted">Asígnalos cuanto antes</span></td></tr>` : ''}</tbody></table></div>`;
+  const fila = a => { const rr = reas(a.k), p2 = pctDe(a.en2h || 0, a.conTResp || 0); return `<tr${opts.click ? ` data-act="eq-sel" data-id="${esc(a.k)}" style="cursor:pointer"` : opts.gl ? ` data-act="gl-f" data-t="asesor" data-v="${esc(a.k)}" title="Toca para ver solo los leads de este asesor" style="cursor:pointer;${S.gAs === a.k ? 'background:rgba(37,99,235,.14)' : ''}"` : ''}><td><b>${esc(a.k)}</b></td><td class="r">${a.leads}</td><td class="r">${a.sinContacto ? `<span class="pill pill-bad">${a.sinContacto}</span>` : 0}</td><td class="r">${txtT(a.tResp)}</td><td class="r">${txtPct(p2)}</td><td class="r">${a.cotizaciones}</td><td class="r">${a.sinSoporte ? `<span class="pill pill-warn">${a.sinSoporte}</span>` : 0}</td><td class="r"><b>${a.ventas}</b></td><td class="r">${rr.cedidos}</td><td class="r">${rr.recibidos}</td></tr>`; };
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Leads</th><th class="r">Sin contacto</th><th class="r" title="Mediana entre que entró el lead y el primer contacto">1er contacto</th><th class="r" title="Leads contactados dentro de las 2 primeras horas">≤ 2 h</th><th class="r">Cotizados</th><th class="r" title="Marcados cotizados sin cotización en el CRM">Sin cotización CRM</th><th class="r" title="Cruzadas con ventas de Síntesis">Vendidos</th><th class="r" title="Leads que perdió por reasignación">Cedidos</th><th class="r" title="Leads que recibió por reasignación">Recibidos</th></tr></thead><tbody>${rows.map(fila).join('')}${sinAs ? `<tr${opts.gl ? ` data-act="gl-f" data-t="asesor" data-v="__sin__" title="Toca para ver los leads sin asesor" style="cursor:pointer;${S.gAs === '__sin__' ? 'background:rgba(37,99,235,.14)' : ''}"` : ''}><td><b>Sin asesor</b></td><td class="r">${sinAs.leads}</td><td class="r"><span class="pill pill-bad">${sinAs.sinContacto}</span></td><td class="r" colspan="7"><span class="small muted">Asígnalos cuanto antes</span></td></tr>` : ''}</tbody></table></div>`;
 }
 /** Tabla por origen: pauta en redes, referidos, orgánico y cotizador web. */
-function tablaOrigen(ctl) {
+function tablaOrigen(ctl, filtra) {
   const G = (ctl.grupos || {}).canal || []; if (!G.length) return '<p class="small muted">Sin leads en el período.</p>';
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Origen</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">1er contacto</th><th class="r">Cotizados</th><th class="r">Vendidos</th><th class="r">Conversión</th><th class="r">Reasignados</th></tr></thead><tbody>${G.map(g => `<tr><td><b>${esc(g.k)}</b></td><td class="r">${g.leads}</td><td class="r">${g.contactados}</td><td class="r">${txtT(g.tResp)}</td><td class="r">${g.cotizaciones}${g.sinSoporte ? ` <span class="pill pill-warn" title="sin cotización en el CRM">${g.sinSoporte}</span>` : ''}</td><td class="r"><b>${g.ventas}</b></td><td class="r">${txtPct(g.conv)}</td><td class="r">${g.reasignados || 0}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Origen</th><th class="r">Leads</th><th class="r">Contactados</th><th class="r">1er contacto</th><th class="r">Cotizados</th><th class="r">Vendidos</th><th class="r">Conversión</th><th class="r">Reasignados</th></tr></thead><tbody>${G.map(g => `<tr${filtra ? ` data-act="gl-f" data-t="canal" data-v="${esc(g.k)}" title="Toca para filtrar este origen" style="cursor:pointer;${S.gCanal === g.k ? 'background:rgba(37,99,235,.14)' : ''}"` : ''}><td><b>${esc(g.k)}</b></td><td class="r">${g.leads}</td><td class="r">${g.contactados}</td><td class="r">${txtT(g.tResp)}</td><td class="r">${g.cotizaciones}${g.sinSoporte ? ` <span class="pill pill-warn" title="sin cotización en el CRM">${g.sinSoporte}</span>` : ''}</td><td class="r"><b>${g.ventas}</b></td><td class="r">${txtPct(g.conv)}</td><td class="r">${g.reasignados || 0}</td></tr>`).join('')}</tbody></table></div>`;
 }
 /** Tarjetas de lo que se mide: contacto, tiempos, cotización con soporte y reasignación. Cada una abre la lista de leads. */
 function kpisGestion(ctl) {
@@ -730,8 +730,50 @@ function tablaMotos(R) {
   if (!R.lista.length) return '<p class="small muted">Aún no hay leads con modelo de interés en este período.</p>';
   const top = R.lista.slice(0, 10), mx = top[0].n;
   return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Moto</th><th>Interés (leads)</th><th class="r">% del total</th><th class="r">Cotizados</th><th class="r">Vendidos</th></tr></thead><tbody>${top.map((x, i) =>
-    `<tr><td>${i + 1}</td><td><b>${esc(x.t)}</b></td><td><div class="fn-bar" style="width:${Math.max(8, Math.round(x.n * 100 / mx))}%;min-width:34px">${x.n}</div></td><td class="r">${pctDe(x.n, R.total)} %</td><td class="r">${x.cot}</td><td class="r">${x.ven}</td></tr>`).join('')}</tbody></table></div>
+    `<tr data-act="gl-f" data-t="moto" data-v="${esc(x.t)}" title="Toca para filtrar solo esta moto" style="cursor:pointer;${norm(S.gMoto || '') === norm(x.t) ? 'background:rgba(37,99,235,.14)' : ''}"><td>${i + 1}</td><td><b>${esc(x.t)}</b></td><td><div class="fn-bar" style="width:${Math.max(8, Math.round(x.n * 100 / mx))}%;min-width:34px">${x.n}</div></td><td class="r">${pctDe(x.n, R.total)} %</td><td class="r">${x.cot}</td><td class="r">${x.ven}</td></tr>`).join('')}</tbody></table></div>
     <p class="tiny muted" style="margin:8px 0 0">${R.lista.length > 10 ? `Se muestran las 10 primeras de ${R.lista.length} referencias. ` : ''}${R.sin ? `${R.sin} lead${R.sin === 1 ? '' : 's'} sin modelo registrado todavía (no cuentan en el ranking). ` : ''}Sale del modelo de interés que el cliente le dice a Mateo.</p>`;
+}
+/** Filtros de «Gestión de Leads»: todo lo que se toca (tarjetas, embudo, moto, origen, asesor) se combina y filtra la lista de leads. */
+const FL_GL = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', contactados: l => l.contactado, cotizaciones: l => l.cotizado, concrm: l => l.cotizado && !l.sinSoporte,
+  sincontacto: l => l.abierto && l.sinContacto, sinsoporte: l => l.sinSoporte, reasignados: l => (l.reasignaciones || 0) > 0, ventas: l => l.estado === 'Cerrado ganado' };
+const TIT_GL = { leads: 'Leads recibidos', nuevos: 'Leads nuevos', contactados: 'Contactados', cotizaciones: 'Cotizados', concrm: 'Con cotización en el CRM', sincontacto: 'Sin contactar', sinsoporte: 'Cotizado sin soporte', reasignados: 'Reasignados', ventas: 'Vendidos', atender: 'Por atender' };
+function glActivo() { return !!(S.panF || S.gMoto || S.gCanal || S.gAs); }
+function glFiltrados(L) {
+  let R = L;
+  if (S.panF && FL_GL[S.panF]) R = R.filter(FL_GL[S.panF]);
+  if (S.gMoto) R = R.filter(l => norm(l.producto) === norm(S.gMoto));
+  if (S.gCanal) R = R.filter(l => l.canal === S.gCanal);
+  if (S.gAs) R = R.filter(l => S.gAs === '__sin__' ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(S.gAs));
+  return R;
+}
+function glDescripcion() {
+  return [S.panF && (TIT_GL[S.panF] || S.panF), S.gMoto && 'Moto: ' + S.gMoto, S.gCanal && 'Origen: ' + S.gCanal, S.gAs && 'Asesor: ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)].filter(Boolean);
+}
+function panelFiltrado(ctl) {
+  if (!glActivo()) return '';
+  if (S.panF === 'atender' && !(S.gMoto || S.gCanal || S.gAs)) return `<div class="pn-card" id="gl-panel" style="margin-top:12px">${pulsoLista(ctl, 'atender', 'panel-f')}</div>`;
+  const R = glFiltrados(ctl.lista || []), chips = [['kpi', S.panF && (TIT_GL[S.panF] || S.panF)], ['moto', S.gMoto && '🏍️ ' + S.gMoto], ['canal', S.gCanal && '📣 ' + S.gCanal], ['asesor', S.gAs && '👤 ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)]].filter(c => c[1]);
+  return `<div class="pn-card" id="gl-panel" style="margin-top:12px">
+    <div class="row between wrap" style="gap:8px"><b>🔎 Leads con este filtro <span class="pill">${R.length}</span></b>
+      <span class="row wrap" style="gap:6px"><button class="btn btn-sm btn-primary" data-act="gl-exp" data-m="filtro"><i class="ti ti-download"></i> Exportar este filtro</button><button class="btn btn-sm" data-act="gl-exp" data-m="todo"><i class="ti ti-database-export"></i> Base completa</button><button class="btn btn-sm" data-act="gl-q" data-t="all"><i class="ti ti-x"></i> Quitar filtros</button></span></div>
+    <div class="row wrap" style="gap:6px;margin:8px 0">${chips.map(c => `<span class="pill pill-info" style="cursor:pointer" data-act="gl-q" data-t="${c[0]}" title="Quitar este filtro">${esc(c[1])} ✕</span>`).join('')}</div>
+    ${R.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Moto</th><th>Asesor</th><th>Origen</th><th>Estado</th><th class="r">Score</th></tr></thead><tbody>${R.slice(0, 100).map(l => `<tr><td><b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b></td><td>${esc(l.producto || '—')}</td><td>${esc(l.asesor || 'Sin asesor')}${l.sede ? ` <span class="tiny muted">· ${esc(l.sede)}</span>` : ''}</td><td>${esc(l.canal || '—')}</td><td><span class="pill">${esc(l.fase || l.estado)}</span></td><td class="r">${scoreChip(l.score)}</td></tr>`).join('')}</tbody></table></div>${R.length > 100 ? `<p class="tiny muted">Se muestran 100 de ${R.length}; la exportación trae todos.</p>` : ''}` : '<p class="small muted">No hay leads con esta combinación de filtros.</p>'}</div>`;
+}
+/** Descarga en Excel: los leads del filtro activo (modo «filtro») o toda la base de leads (modo «todo»), con todas las columnas del lead. */
+async function exportarLeads(modo) {
+  const L = (S.pan && S.pan.control && S.pan.control.lista) || [];
+  const ids = modo === 'todo' ? null : new Set(glFiltrados(L).map(l => String(l.id)));
+  const src = (S.M.leads || []).filter(l => !ids || ids.has(String(l.id)));
+  if (!src.length) { toast('No hay leads para exportar con este filtro.', 'bad'); return; }
+  const XL = await cargarXlsx();
+  const filas = src.map(l => Object.assign({ Estado: l.estado || '', Asesor: l.asesor || '', Punto: l.sede || '', Origen: canalLead(l) }, l.raw || {}));
+  const wb = XL.utils.book_new(), ws = XL.utils.json_to_sheet(filas);
+  XL.utils.book_append_sheet(wb, ws, 'Leads');
+  const desc = modo === 'todo' ? ['Base completa de leads'] : glDescripcion();
+  XL.utils.book_append_sheet(wb, XL.utils.aoa_to_sheet([['Exportado', new Date().toLocaleString('es-CO')], ['Por', S.data.user.nombre], ['Filtro', desc.join(' · ') || 'Sin filtro'], ['Leads', src.length]]), 'Filtro aplicado');
+  const nom = 'leads_' + (modo === 'todo' ? 'base_completa' : (desc.join('_') || 'filtro').toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, '-').slice(0, 50)) + '_' + ymd(new Date()) + '.xlsx';
+  XL.writeFile(wb, nom);
+  toast(src.length + ' leads exportados (' + nom + ')', 'ok');
 }
 function vInteligencia() {
   const c = panelListo(); if (c) return c;
@@ -743,19 +785,19 @@ function vInteligencia() {
   if (conT && pctDe(k.contactoEn2h || 0, conT) < 70) lect.push(`Solo el ${pctDe(k.contactoEn2h || 0, conT)} % de los leads se contacta en las primeras 2 horas (la meta es 70 % o más).`);
   if (k.reasignados) lect.push(`${k.reasignados} lead${k.reasignados === 1 ? ' cambió' : 's cambiaron'} de asesor: revisa el motivo en «Reasignaciones recientes».`);
   if (!lect.length) lect.push(L.length ? '🟢 La gestión de leads está al día: sin pendientes críticos ahora mismo.' : 'Aún no hay leads en este período: cuando entren por la pauta o por referidos aparecerán aquí.');
-  const funnel = [['Leads recibidos', k.recibidos || 0], ['Contactados', k.contactados || 0], ['Cotizados', k.cotizaciones || 0], ['Con cotización en el CRM', Math.max(0, (k.cotizaciones || 0) - (k.cotizadosSinSoporte || 0))], ['Vendidos (Síntesis)', k.ventas || 0]];
+  const funnel = [['Leads recibidos', k.recibidos || 0, 'leads'], ['Contactados', k.contactados || 0, 'contactados'], ['Cotizados', k.cotizaciones || 0, 'cotizaciones'], ['Con cotización en el CRM', Math.max(0, (k.cotizaciones || 0) - (k.cotizadosSinSoporte || 0)), 'concrm'], ['Vendidos (Síntesis)', k.ventas || 0, 'ventas']];
   const mx = Math.max(1, ...funnel.map(x => x[1])), T = (ctl.tareas || []).slice(0, 6);
   return `${hero('jefe', 'ti-brain', 'Gestión de Leads', `Pauta en redes y referidos · ${esc((p.filtro || {}).sede || 'Todos los puntos')}`)}
     ${filtrosPanel(p)}
     ${kpisGestion(ctl)}
-    ${S.panF ? `<div class="pn-card" style="margin-top:12px">${pulsoLista(ctl, S.panF, 'panel-f')}</div>` : ''}
+    ${panelFiltrado(ctl)}
     <div class="lectura"><b>🧠 Lectura de hoy</b>${lect.map(x => `<div style="margin-top:4px">${esc(x)}</div>`).join('')}</div>
     <div class="pn-grid">
-      <div class="pn-card"><h3>📣 Por origen</h3>${tablaOrigen(ctl)}</div>
-      <div class="pn-card"><h3>📊 Embudo</h3>${L.length ? funnel.map(f => `<div class="fn-row"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') : '<p class="small muted">Sin movimiento todavía en este período.</p>'}</div>
+      <div class="pn-card"><h3>📣 Por origen</h3>${tablaOrigen(ctl, true)}</div>
+      <div class="pn-card"><h3>📊 Embudo</h3>${L.length ? funnel.map(f => `<div class="fn-row" data-act="panel-f" data-k="${f[2]}" title="Toca para ver estos leads" style="cursor:pointer;${S.panF === f[2] ? 'outline:2px solid #2563eb;outline-offset:2px;border-radius:8px' : ''}"><span class="fn-lbl">${f[0]}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(f[1] * 100 / mx))}%">${f[1]}</div></div>`).join('') : '<p class="small muted">Sin movimiento todavía en este período.</p>'}</div>
     </div>
     <div class="pn-card"><h3>🏍️ Motos de mayor interés</h3>${tablaMotos(motos)}</div>
-    <div class="pn-card"><h3>👥 Asesores: contacto, cotización y reasignación</h3>${tablaAsesores(ctl)}<p class="tiny muted" style="margin:8px 0 0">«1er contacto» es la mediana entre que entra el lead y el asesor lo contacta. «Sin cotización CRM»: el asesor lo marcó cotizado y no aparece en el CRM. «Vendidos» solo cuenta ventas que cruzan con Síntesis.</p></div>
+    <div class="pn-card"><h3>👥 Asesores: contacto, cotización y reasignación</h3>${tablaAsesores(ctl, { gl: true })}<p class="tiny muted" style="margin:8px 0 0">«1er contacto» es la mediana entre que entra el lead y el asesor lo contacta. «Sin cotización CRM»: el asesor lo marcó cotizado y no aparece en el CRM. «Vendidos» solo cuenta ventas que cruzan con Síntesis.</p></div>
     <div class="pn-grid">
       <div class="pn-card"><h3>🔁 Reasignaciones recientes</h3>${listaReasignaciones(ctl)}</div>
       <div class="pn-card"><h3>🚨 Alertas recientes</h3>${listaAlertas(ctl)}<button class="btn btn-sm" style="margin-top:8px" data-nav="control">Ver todo en Control →</button></div>
@@ -2969,6 +3011,22 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
+  if (act === 'gl-f') {
+    const key = { moto: 'gMoto', canal: 'gCanal', asesor: 'gAs' }[a.dataset.t]; if (!key) return;
+    S[key] = S[key] === a.dataset.v ? '' : a.dataset.v; render();
+    const pn = $('#gl-panel'); if (pn) pn.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  if (act === 'gl-q') {
+    const t = a.dataset.t;
+    if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs' }[t]] = '';
+    render(); return;
+  }
+  if (act === 'gl-exp') {
+    a.disabled = true;
+    try { await exportarLeads(a.dataset.m); } catch (e) { toast(e.message || 'No se pudo exportar.', 'bad'); }
+    a.disabled = false; return;
+  }
   if (act === 'pan-filtro') { const v = a.dataset.v; if (a.dataset.k === 'sede') S.panSede = v; else S.panDias = Number(v); S.pan = null; S.panT = 0; render(); return; }
   if (act === 'pulso-toggle') { S.pulAbierto = !S.pulAbierto; const c = $('#hoy-pulso'), b = $('#pulso-btn'); if (c) c.hidden = !S.pulAbierto; if (b) b.querySelector('i').className = 'ti ' + (S.pulAbierto ? 'ti-chevron-up' : 'ti-chevron-down'); return; }
   if (act === 'pulso-f') { S.pulF = S.pulF === a.dataset.k ? '' : a.dataset.k; const c = $('#hoy-pulso'); if (c) c.innerHTML = pulsoHtml(); return; }
