@@ -944,10 +944,10 @@ function vistasDeRolBase() {
   // v2.33 — la app solo gestiona leads de pauta en redes y referidos. Inventario, bonos, metas, cifras, comisiones, entregas y posventa ya no se muestran
   // (el inventario y los bonos los lee solo el agente IA; la información comercial vive en el CRM de la empresa). Los datos siguen guardados.
   if (r === 'asesor') return [it('dia', 'ti-sun', 'Mi Día'), it('hoy', 'ti-checklist', 'Mis Leads'), it('chats', 'ti-messages', 'Mis Chats'), it('miscot', 'ti-file-dollar', 'Mis Cotizaciones'),
-    it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas')];
-  if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
+    it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas'), it('comisiones', 'ti-coin', 'Mis Comisiones')];
+  if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('alertas', 'ti-bell-ringing', 'Alertas')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('mateo', 'ti-robot', 'Reactivar Mateo'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
@@ -991,7 +991,7 @@ function renderNav() {
 }
 function render() {
   const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
-    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
+    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, mateo: vMateo, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
@@ -2461,6 +2461,27 @@ function comisionDe(f) {
     siguiente: sig ? { tasa: sig.tasa, motos: Math.max(1, Math.ceil(f.meta * sig.min / 100 - 1e-9) - f.facturados), min: sig.min } : null };
 }
 // ── Comisiones desde Supabase: motos vendidas del mes × meta, sobre el precio de cada moto SIN impuestos (neto de notas crédito) ──
+// ── Reactivar Mateo: cuando la IA se queda sin saldo los mensajes quedan sin atender; con el saldo recargado se reenvían a Mateo con un clic ──
+function cargarMateo() {
+  const M = S.mat || (S.mat = {}); if (M.busy) return; M.busy = true;
+  api('mateoPendientes').then(r => { M.data = r; M.err = ''; }).catch(e => { M.err = e.message; M.data = null; })
+    .finally(() => { M.busy = false; M.t = Date.now(); if (S.view === 'mateo') render(); });
+}
+function vMateo() {
+  const M = S.mat || (S.mat = {});
+  if (!M.busy && !M.go && (!M.t || Date.now() - M.t > 60e3)) cargarMateo();
+  const cab = `<div class="page-h"><div><h2>Reactivar Mateo</h2><p class="muted small">Cuando Mateo se queda sin saldo, los mensajes de los clientes quedan sin atender. Recarga el saldo de la IA y pulsa el botón: cada chat vuelve a Mateo y él responde.</p></div></div>`;
+  if (M.err && !M.data) return cab + `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(M.err)}</div></div>`;
+  if (!M.data) return cab + '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Buscando chats sin atender…</div></div>';
+  const D = M.data, hora = x => new Date(x).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return cab + `<div class="grid g-kpi">${kpi('Por reactivar', D.pendientes, 'dentro de las 24 h de WhatsApp', D.pendientes ? 'bad' : 'ok')}${kpi('Ya reactivados', D.reactivadas, 'reenviados a Mateo')}${kpi('Vencidos', D.vencidas, 'pasaron ' + D.ventanaHoras + ' h: solo se les puede escribir con plantilla')}</div>
+    <div class="card" style="margin-top:12px;padding:16px">
+      <button class="btn btn-primary" data-act="mateo-go" ${M.go || !D.pendientes ? 'disabled' : ''}><i class="ti ti-robot"></i> ${M.go ? esc(M.msg || 'Reactivando…') : (D.pendientes ? 'Reactivar ' + D.pendientes + ' chat' + (D.pendientes === 1 ? '' : 's') + ' con Mateo' : 'No hay chats por reactivar')}</button>
+      <p class="small muted" style="margin:8px 0 0">Antes de pulsarlo, confirma que la IA ya tiene saldo. Cada chat se reenvía a Mateo con el mensaje original del cliente; él lo guarda, crea el lead y responde. Se atienden primero los que están por vencer.</p>
+      ${D.lista && D.lista.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Llegó</th><th class="r">Vence en</th></tr></thead><tbody>${D.lista.map(x => `<tr><td>${esc(hora(x.inicio))}</td><td class="r num">${Math.max(0, D.ventanaHoras - x.horas).toFixed(1).replace('.', ',')} h</td></tr>`).join('')}</tbody></table></div>` : ''}</div>`;
+}
+/** Mes que se está viendo en Comisiones (yyyy-mm): el elegido en el selector o, si no hay, el actual. */
+function mesComi() { return /^\d{4}-\d{2}$/.test(String(S.mes || '')) ? S.mes : mesesRecientes(1)[0]; }
 function cargarComi(mes, forzar) {
   const C = S.comi || (S.comi = {}); if (C.busy) return; C.busy = true;
   api('comisiones', { mes }).then(r => { C.data = r; C.err = ''; }).catch(e => { C.err = e.message; C.data = null; })
@@ -3157,6 +3178,18 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
+  if (act === 'mateo-go') {
+    const M = S.mat; if (!M || M.go) return; M.go = true; M.msg = 'Reactivando…'; render();
+    let hechos = 0, fallidos = 0;
+    try {
+      for (let i = 0; i < 20; i++) {
+        const r = await api('mateoReactivar', { max: 5 }); hechos += r.hechos || 0; fallidos += r.fallidos || 0; M.msg = 'Reactivados ' + hechos + '…'; render();
+        if (!r.restantes || (r.hechos + r.fallidos) === 0) break;
+      }
+      toast(hechos + ' chat' + (hechos === 1 ? '' : 's') + ' reactivado' + (hechos === 1 ? '' : 's') + ' con Mateo' + (fallidos ? ' · ' + fallidos + ' con error' : ''), fallidos ? 'bad' : 'ok');
+    } catch (e) { toast(e.message, 'bad'); }
+    M.go = false; M.msg = ''; M.t = 0; cargarMateo(); return;
+  }
   if (act === 'com-exp') { try { await exportarComisiones(); } catch (e) { toast(e.message || 'No se pudo exportar.', 'bad'); } return; }
   if (act === 'gl-fechas-q') { S.glDesde = ''; S.glHasta = ''; render(); return; }
   if (act === 'hoy-fechas-q') { S.hoyDesde = ''; S.hoyHasta = ''; render(); return; }
