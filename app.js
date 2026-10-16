@@ -2452,7 +2452,7 @@ function detalleComision(filas) {
   return cards ? `<div class="section-title"><i class="ti ti-receipt-2"></i>Comisión por venta y descuentos</div><p class="small muted" style="margin:0 0 8px">El valor a comisionar es el valor de la venta en Síntesis, cruzado con su factura (neto de notas crédito). Mientras más alto se venda y menos descuento se dé, mayor la comisión. El precio final es el de la hoja «precios de venta con bonos».</p>${cards}` : '';
 }
 // Escala de comisión (regla del Jefe Comercial): según el % de cumplimiento de la meta de motos, se paga ese porcentaje sobre cada moto facturada, antes de IVA.
-const COMISION = { escala: [{ min: 120, tasa: 0.014 }, { min: 110, tasa: 0.012 }, { min: 100, tasa: 0.01 }, { min: 90, tasa: 0.006 }], valorIncluyeIva: true, iva: 0.19 }; // El valor de Síntesis coincide con el precio final al público del catálogo (que incluye IVA); la comisión se liquida antes de IVA.
+const COMISION = { escala: [{ min: 120, tasa: 0.014 }, { min: 110, tasa: 0.012 }, { min: 100, tasa: 0.01 }, { min: 90, tasa: 0.009 }], valorIncluyeIva: true, iva: 0.19 }; // El valor de Síntesis coincide con el precio final al público del catálogo (que incluye IVA); la comisión se liquida antes de IVA.
 function comisionDe(f) {
   const cumpl = f.meta ? f.facturados * 100 / f.meta : null;
   const esc = cumpl === null ? null : COMISION.escala.find(e => cumpl >= e.min), base = COMISION.valorIncluyeIva ? f.valor / (1 + COMISION.iva) : f.valor;
@@ -2465,22 +2465,34 @@ function comisionDe(f) {
 function cargarMateo() {
   const M = S.mat || (S.mat = {}); if (M.busy) return; M.busy = true;
   api('mateoPendientes').then(r => { M.data = r; M.err = ''; }).catch(e => { M.err = e.message; M.data = null; })
-    .finally(() => { M.busy = false; M.t = Date.now(); if (S.view === 'mateo') render(); });
+    .finally(() => { M.busy = false; M.t = Date.now(); if (S.view === 'mateo') render(); if (M.data && M.data.sinLeer > 0 && !M.err) setTimeout(() => { M.t = 0; cargarMateo(); }, 300); });
+}
+function filasMateo(L, conVence, D) {
+  const hora = x => new Date(x).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const orden = L.slice().sort((a, b) => (a.origen === 'Pauta' ? 0 : 1) - (b.origen === 'Pauta' ? 0 : 1) || Date.parse(a.llegada) - Date.parse(b.llegada));
+  return `<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Llegó</th><th>Quién escribió</th><th>Mensaje</th><th>Origen</th>${conVence ? '<th class="r">Vence en</th>' : ''}</tr></thead><tbody>${orden.map(x => `<tr><td>${esc(hora(x.llegada))}</td>
+    <td><b>${esc(x.nombre || 'Sin nombre')}</b><div class="tiny muted">${esc(x.telefono || x.id_contacto || 'sin número')}</div></td><td style="max-width:360px">${esc(x.mensaje || '—')}</td>
+    <td><span class="pill ${x.origen === 'Pauta' ? 'pill-info' : ''}">${esc(x.origen || '—')}</span>${x.anuncio ? `<div class="tiny muted">${esc(x.anuncio)}</div>` : ''}</td>
+    ${conVence ? `<td class="r num">${Math.max(0, D.ventanaHoras - x.horas).toFixed(1).replace('.', ',')} h</td>` : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 function vMateo() {
   const M = S.mat || (S.mat = {});
-  if (!M.busy && !M.go && (!M.t || Date.now() - M.t > 60e3)) cargarMateo();
-  const cab = `<div class="page-h"><div><h2>Reactivar Mateo</h2><p class="muted small">Cuando Mateo se queda sin saldo, los mensajes de los clientes quedan sin atender. Recarga el saldo de la IA y pulsa el botón: cada chat vuelve a Mateo y él responde.</p></div></div>`;
+  if (!M.busy && !M.go && (!M.t || Date.now() - M.t > 90e3)) cargarMateo();
+  const cab = `<div class="page-h"><div><h2>Reactivar Mateo</h2><p class="muted small">Chats de clientes que Mateo no pudo atender porque la IA falló (por ejemplo, sin saldo). Recarga el saldo y reactívalos: los que siguen dentro de la ventana de WhatsApp vuelven a Mateo; los que ya la cerraron entran a Chats como urgentes para que un asesor los gestione.</p></div></div>`;
   if (M.err && !M.data) return cab + `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(M.err)}</div></div>`;
-  if (!M.data) return cab + '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Buscando chats sin atender…</div></div>';
-  const D = M.data, hora = x => new Date(x).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-  return cab + `<div class="grid g-kpi">${kpi('Por reactivar', D.pendientes, 'dentro de las 24 h de WhatsApp', D.pendientes ? 'bad' : 'ok')}${kpi('Ya reactivados', D.reactivadas, 'reenviados a Mateo')}${kpi('Vencidos', D.vencidas, 'pasaron ' + D.ventanaHoras + ' h: solo se les puede escribir con plantilla')}</div>
-    <div class="card" style="margin-top:12px;padding:16px">
-      <button class="btn btn-primary" data-act="mateo-go" ${M.go || !D.pendientes ? 'disabled' : ''}><i class="ti ti-robot"></i> ${M.go ? esc(M.msg || 'Reactivando…') : (D.pendientes ? 'Reactivar ' + D.pendientes + ' chat' + (D.pendientes === 1 ? '' : 's') + ' con Mateo' : 'No hay chats por reactivar')}</button>
-      <p class="small muted" style="margin:8px 0 0">Antes de pulsarlo, confirma que la IA ya tiene saldo. Cada chat se reenvía a Mateo con el mensaje original del cliente; él lo guarda, crea el lead y responde. Se atienden primero los que están por vencer.</p>
-      ${D.lista && D.lista.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Llegó</th><th class="r">Vence en</th></tr></thead><tbody>${D.lista.map(x => `<tr><td>${esc(hora(x.inicio))}</td><td class="r num">${Math.max(0, D.ventanaHoras - x.horas).toFixed(1).replace('.', ',')} h</td></tr>`).join('')}</tbody></table></div>` : ''}</div>`;
-}
-/** Mes que se está viendo en Comisiones (yyyy-mm): el elegido en el selector o, si no hay, el actual. */
+  if (!M.data) return cab + '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo los chats sin atender desde n8n…</div></div>';
+  const D = M.data, A = D.abiertas || [], C = D.cerradas || [], pa = L => L.filter(x => x.origen === 'Pauta').length;
+  return cab + `${D.sinLeer > 0 ? `<div class="notice"><i class="ti ti-loader-2 spin"></i><div>Leyendo mensajes de n8n… faltan ${D.sinLeer}.</div></div>` : ''}
+    <div class="grid g-kpi">${kpi('Ventana abierta', A.length, pa(A) + ' de pauta · ' + (A.length - pa(A)) + ' orgánicos', A.length ? 'bad' : 'ok')}${kpi('Ventana cerrada', C.length, pa(C) + ' de pauta · ' + (C.length - pa(C)) + ' orgánicos', C.length ? 'warn' : 'ok')}${kpi('Reactivados con Mateo', D.reactivadas, 'ya reenviados')}${kpi('Pasados a Chats', D.guardadas, 'urgentes sin IA')}</div>
+    <div class="card" style="margin-top:12px;padding:16px"><h3 style="margin:0 0 4px">🟢 Ventana de WhatsApp abierta (${A.length})</h3>
+      <p class="small muted" style="margin:0 0 8px">Siguen dentro de las 24 h: Mateo puede responderles libremente. Antes de pulsar, confirma que la IA ya tiene saldo. Se atienden primero los que están por vencer.</p>
+      <button class="btn btn-primary" data-act="mateo-go" ${M.go || !A.length ? 'disabled' : ''}><i class="ti ti-robot"></i> ${M.go ? esc(M.msg || 'Reactivando…') : (A.length ? 'Reactivar ' + A.length + ' chat' + (A.length === 1 ? '' : 's') + ' con Mateo' : 'No hay chats con ventana abierta')}</button>
+      ${A.length ? filasMateo(A, true, D) : ''}</div>
+    <div class="card" style="margin-top:12px;padding:16px"><h3 style="margin:0 0 4px">🔴 Ventana de WhatsApp cerrada (${C.length})</h3>
+      <p class="small muted" style="margin:0 0 8px">Pasaron más de ${D.ventanaHoras} h: WhatsApp ya no deja escribirles libremente. Entran a <b>Chats</b> con su mensaje, como lead sin clasificar y marcado <b>URGENTE · sin agente IA</b>; el asesor los retoma con «Reactivar chat» (plantilla aprobada).</p>
+      <button class="btn" data-act="mateo-guardar" ${M.go || !C.length ? 'disabled' : ''}><i class="ti ti-inbox"></i> ${C.length ? 'Pasar ' + C.length + ' a Chats como urgentes' : 'No hay chats con ventana cerrada'}</button>
+      ${C.length ? filasMateo(C, false, D) : ''}</div>`;
+}/** Mes que se está viendo en Comisiones (yyyy-mm): el elegido en el selector o, si no hay, el actual. */
 function mesComi() { return /^\d{4}-\d{2}$/.test(String(S.mes || '')) ? S.mes : mesesRecientes(1)[0]; }
 function cargarComi(mes, forzar) {
   const C = S.comi || (S.comi = {}); if (C.busy) return; C.busy = true;
@@ -2533,21 +2545,50 @@ async function exportarComisiones() {
   if (D.puntos.length) XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(D.puntos.map(p => ({ Punto: p.sede, Meta: p.meta, Motos: p.motos, 'Cumplimiento %': p.pct, 'Ventas sin impuestos': p.base, 'Facturado con IVA': p.valor, 'Valor por moto': p.ticket }))), 'Ventas por punto');
   XL.writeFile(wb, 'comisiones_' + D.mes + '.xlsx'); toast('Informe exportado', 'ok');
 }
+function posventaDetalle(p) {
+  const pv = p.posventa || { lineas: 0, base: 0, categorias: [], vendedores: [] }, tot = pv.base || 1;
+  const rep = (pv.categorias.find(c => c.categoria === 'REPUESTOS') || {}).base || 0;
+  return `<div class="card" style="margin-bottom:14px;padding:16px"><div class="row between wrap"><b style="font-size:1.1rem">Posventa · ${esc(p.sede)}</b><span class="pill">${pv.lineas} líneas facturadas</span></div>
+    <div class="mt-mini" style="margin-top:8px"><div><b>${money(pv.base)}</b><span>Posventa sin impuestos</span></div><div><b>${money(rep)}</b><span>Solo repuestos</span></div><div><b>${money(pv.base - rep)}</b><span>Mano de obra, lubricantes y otros</span></div></div>
+    ${pv.categorias.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Categoría</th><th class="r">Líneas</th><th class="r">Sin impuestos</th><th class="r">% de la posventa</th></tr></thead><tbody>${pv.categorias.map(c => `<tr><td>${esc(cap(String(c.categoria).toLowerCase()))}</td><td class="r num">${c.lineas}</td><td class="r num">${money(c.base)}</td><td class="r num">${pctTxt(c.base * 100 / tot)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">Sin posventa cargada este mes: sube el archivo «Ventas Detalladas» en Cargar datos.</p>'}
+    ${pv.vendedores.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Quién factura</th><th class="r">Sin impuestos</th></tr></thead><tbody>${pv.vendedores.map(v => `<tr><td>${esc(cap(String(v.vendedor).toLowerCase()))}</td><td class="r num">${money(v.base)}</td></tr>`).join('')}</tbody></table></div>` : ''}</div>`;
+}
+function generalComi(D, u) {
+  const P = D.puntos || [];
+  if (!P.length) return '<div class="notice"><i class="ti ti-building-store"></i><div>No hay ventas ni metas cargadas para este mes.</div></div>';
+  return P.map(p => {
+    const pv = p.posventa || { base: 0, lineas: 0, categorias: [] }, rep = (pv.categorias.find(c => c.categoria === 'REPUESTOS') || {}).base || 0;
+    const asesores = (D.asesores || []).filter(f => f.sede === p.sede && !f.vacante);
+    return `<div class="card" style="margin-bottom:14px;padding:16px"><div class="row between wrap"><b style="font-size:1.15rem">${esc(p.sede)}</b><span class="pill">${p.pct === null ? 'Sin meta' : pctTxt(p.pct) + ' de la meta de motos'}</span></div>
+      <div class="grid g2" style="margin-top:10px">
+        <div class="card" style="padding:12px"><b class="small">🏍️ Motos</b><div class="mt-mini" style="margin-top:6px"><div><b>${p.motos}${p.meta ? ' / ' + p.meta : ''}</b><span>Motos${p.meta ? ' / meta' : ''}</span></div><div><b>${money(p.base)}</b><span>Sin impuestos</span></div><div><b>${p.motos ? money(p.ticket) : '—'}</b><span>Por moto</span></div></div></div>
+        <div class="card" style="padding:12px"><b class="small">🔧 Repuestos y posventa</b><div class="mt-mini" style="margin-top:6px"><div><b>${money(rep)}</b><span>Repuestos</span></div><div><b>${money(pv.base)}</b><span>Posventa total</span></div><div><b>${pv.lineas}</b><span>Líneas</span></div></div></div></div>
+      <div class="row wrap" style="gap:6px;margin-top:10px"><button class="btn btn-sm" data-act="com-ver" data-v="punto:${esc(p.sede)}"><i class="ti ti-motorbike"></i> Detalle de motos</button><button class="btn btn-sm" data-act="com-ver" data-v="pv:${esc(p.sede)}"><i class="ti ti-tool"></i> Posventa</button></div>
+      ${asesores.length ? `<div style="margin-top:12px"><b class="small">Asesores del punto (toca uno para ver su comisión)</b><div class="tbl-wrap" style="margin-top:6px"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Motos / meta</th><th class="r">% meta</th><th class="r">Comisión hoy</th><th></th></tr></thead><tbody>${asesores.map(f => `<tr data-act="com-ver" data-v="asesor:${esc(f.persona)}" style="cursor:pointer"><td><b>${esc(cap(String(f.persona).toLowerCase()))}</b> <span class="tiny muted">${esc(f.rol || '')}</span></td><td class="r num">${f.motos} / ${f.meta}</td><td class="r num">${pctTxt(f.pct)}</td><td class="r num"><b>${money(f.comision)}</b></td><td class="r"><button class="btn btn-sm" data-act="com-ver" data-v="asesor:${esc(f.persona)}">Ver</button></td></tr>`).join('')}</tbody></table></div></div>` : ''}</div>`;
+  }).join('');
+}
 function vComisionesSb() {
   const u = S.data.user, mes = mesComi(), C = S.comi || (S.comi = {});
   if ((C.mes !== mes || (!C.data && !C.err)) && !C.busy) cargarComi(mes);
   else if (C.mes === mes && Date.now() - (C.t || 0) > 120e3 && !C.busy) cargarComi(mes);
-  const cab = `<div class="page-h"><div><h2>Comisiones</h2><p class="muted small">${u.rol === 'asesor' ? 'Lo que llevas ganado este mes y qué hacer para ganar más.' : 'Por asesor y mes, con el informe de ventas de cada punto.'}</p></div>
+  const cab = `<div class="page-h"><div><h2>Comisiones</h2><p class="muted small">${u.rol === 'asesor' ? 'Lo que llevas ganado este mes y qué hacer para ganar más.' : 'Ventas del mes por punto, comisión de cada asesor y posventa.'}</p></div>
     <div class="row" style="gap:6px"><select class="sel" data-ch="mes">${opts(mesesRecientes(12).map(m => ({ v: m, t: fmtMes(m) })), mes)}</select>${u.rol !== 'asesor' && C.data ? '<button class="btn btn-sm" data-act="com-exp"><i class="ti ti-download"></i> Exportar</button>' : ''}</div></div>`;
   if (C.err && !C.data) return cab + `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(C.err)}</div></div>`;
   if (!C.data || C.mes !== mes) return cab + '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Calculando comisiones…</div></div>';
-  const D = C.data, ase = D.asesores || [];
-  return cab + `<div class="notice" style="margin-bottom:12px"><i class="ti ti-coin"></i><div><b>Cómo se calcula</b><br><span class="small">Se paga desde el <b>90 %</b> de la meta de motos: 90 % → 0,6 % · 100 % → 1 % · 110 % → 1,2 % · 120 % → 1,4 %. El porcentaje se aplica sobre el <b>precio de cada moto vendida sin impuestos</b>, neto de notas crédito, y vale para todas las motos del mes. Comisión = motos × valor por moto × tasa. Estimada: la liquidación oficial la define el Jefe.</span></div></div>
-    ${ase.length ? ase.map(tarjetaComi).join('') : '<div class="notice"><i class="ti ti-target-off"></i><div>No hay metas cargadas para este mes.</div></div>'}
-    ${(D.sinMeta || []).length ? `<div class="notice" style="margin-bottom:12px"><i class="ti ti-user-question"></i><div><b>Ventas sin meta este mes:</b> ${D.sinMeta.map(s => `${esc(s.vendedor)} (${s.motos} moto${s.motos === 1 ? '' : 's'}, ${money(s.base)})`).join(' · ')}</div></div>` : ''}
-    ${(D.puntos || []).length ? `<div class="section-title"><i class="ti ti-building-store"></i>Informe de ventas del punto</div>${D.puntos.map(tarjetaPunto).join('')}` : ''}`;
-}
-function vComisiones() {
+  const D = C.data, ase = (D.asesores || []).filter(f => !f.vacante), puntos = D.puntos || [];
+  let vista = C.vista || (u.rol === 'asesor' ? 'asesor:' + ((ase[0] || {}).persona || '') : 'general');
+  const tx = x => x.length > 14 ? x.slice(0, 13) + '…' : x;
+  const btn = (v, label, icon) => `<button class="${vista === v ? 'on' : ''}" data-act="com-ver" data-v="${esc(v)}">${icon ? `<i class="ti ${icon}"></i> ` : ''}${esc(label)}</button>`;
+  const botones = u.rol === 'asesor' ? '' : `<div class="seg" style="margin:0 0 12px;flex-wrap:wrap">${btn('general', 'General', 'ti-layout-dashboard')}${puntos.map(p => btn('punto:' + p.sede, 'Motos ' + p.sede, 'ti-motorbike')).join('')}${puntos.map(p => btn('pv:' + p.sede, 'Posventa ' + p.sede, 'ti-tool')).join('')}${ase.map(f => btn('asesor:' + f.persona, tx(cap(String(f.persona).split(' ')[0].toLowerCase()) + ' ' + cap(String(f.persona).split(' ')[1] || '').toLowerCase()), 'ti-user')).join('')}</div>`;
+  const nota = `<div class="notice" style="margin-bottom:12px"><i class="ti ti-coin"></i><div><b>Cómo se calcula</b><br><span class="small">Se paga desde el <b>90 %</b> de la meta de motos: 90 % → 0,9 % · 100 % → 1 % · 110 % → 1,2 % · 120 % → 1,4 %. El porcentaje se aplica sobre el <b>precio de cada moto vendida sin impuestos</b>, neto de notas crédito, y vale para todas las motos del mes. Comisión = motos × valor por moto × tasa. Estimada: la liquidación oficial la define el Jefe.</span></div></div>`;
+  let cuerpo;
+  if (vista === 'general') cuerpo = nota + generalComi(D, u) + ((D.sinMeta || []).length ? `<div class="notice" style="margin-top:6px"><i class="ti ti-user-question"></i><div><b>Ventas sin meta este mes:</b> ${D.sinMeta.map(s => `${esc(s.vendedor)} (${s.motos} moto${s.motos === 1 ? '' : 's'}, ${money(s.base)})`).join(' · ')}</div></div>` : '');
+  else if (vista.startsWith('asesor:')) { const f = (D.asesores || []).find(x => x.persona === vista.slice(7)); cuerpo = nota + (f ? tarjetaComi(f) : '<div class="notice"><i class="ti ti-target-off"></i><div>No hay metas cargadas para este mes.</div></div>'); }
+  else if (vista.startsWith('punto:')) { const p = puntos.find(x => x.sede === vista.slice(6)); cuerpo = p ? tarjetaPunto(p) : ''; }
+  else if (vista.startsWith('pv:')) { const p = puntos.find(x => x.sede === vista.slice(3)); cuerpo = p ? posventaDetalle(p) : ''; }
+  else cuerpo = '';
+  return cab + botones + cuerpo;
+}function vComisiones() {
   const u = S.data.user, M = S.M;
   S.mes = S.mes || mesesRecientes(1)[0];
   let personas = u.rol === 'asesor' ? [{ nombre: u.nombre, sedeCanon: u.sede, rolApp: 'asesor' }] :
@@ -2557,7 +2598,7 @@ function vComisiones() {
   return `<div class="page-h"><div><h2>Comisiones</h2><p class="muted small">Por asesor y mes. Las motos facturadas salen de la hoja Facturas.</p></div>
       <select class="sel" data-ch="mes">${opts(mesesRecientes(12).map(m => ({ v: m, t: fmtMes(m) })), S.mes)}</select></div>
     <div class="notice" style="margin-bottom:10px"><i class="ti ti-coin"></i><div><b>Escala de comisión por cumplimiento de la meta</b> (sobre cada moto facturada, antes de IVA):<br>
-      <span class="small">🔹 90 % → 0,6 % · 🔹 100 % → 1 % · 🔹 110 % → 1,2 % · 🔹 120 % → 1,4 %. Por debajo de 90 % no hay comisión. Base: valor facturado en Síntesis, neto de notas crédito${COMISION.valorIncluyeIva ? ` (se le descuenta el IVA ${COMISION.iva * 100} %)` : ' (se toma como valor antes de IVA)'}. Estimada: la liquidación oficial la define el Jefe.</span></div></div>
+      <span class="small">🔹 90 % → 0,9 % · 🔹 100 % → 1 % · 🔹 110 % → 1,2 % · 🔹 120 % → 1,4 %. Por debajo de 90 % no hay comisión. Base: valor facturado en Síntesis, neto de notas crédito${COMISION.valorIncluyeIva ? ` (se le descuenta el IVA ${COMISION.iva * 100} %)` : ' (se toma como valor antes de IVA)'}. Estimada: la liquidación oficial la define el Jefe.</span></div></div>
     ${sinFact ? '<div class="notice bad" style="margin-bottom:10px"><i class="ti ti-file-off"></i><div>Falta la hoja <b>Facturas</b>: facturados y valor se muestran en 0 hasta que exista (solicitud al Sheet).</div></div>' : ''}
     ${sinMetas ? '<div class="notice" style="margin-bottom:10px"><i class="ti ti-target-off"></i><div>Falta la hoja <b>Metas</b>: la meta se muestra en blanco.</div></div>' : ''}
     ${filas.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th class="r">Asignados</th><th class="r">Contactados a tiempo</th><th class="r">Cotizados</th><th class="r">Facturados</th><th class="r">Meta</th><th class="r">% meta</th><th class="r">Valor facturado</th><th class="r">Comisión</th></tr></thead><tbody>
@@ -3178,6 +3219,13 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
+  if (act === 'com-ver') { (S.comi || (S.comi = {})).vista = a.dataset.v; render(); window.scrollTo({ top: 0 }); return; }
+  if (act === 'mateo-guardar') {
+    const M = S.mat; if (!M || M.go) return; M.go = true; M.msg = 'Guardando…'; render();
+    try { let n = 0; for (let i = 0; i < 10; i++) { const r = await api('mateoGuardar', { max: 20 }); n += r.hechos || 0; if (!r.hechos) break; }
+      toast(n + ' chat' + (n === 1 ? '' : 's') + ' pasado' + (n === 1 ? '' : 's') + ' a Chats como urgente' + (n === 1 ? '' : 's') + ' (sin IA)', 'ok'); await cargar(true); } catch (e) { toast(e.message, 'bad'); }
+    M.go = false; M.msg = ''; M.t = 0; cargarMateo(); return;
+  }
   if (act === 'mateo-go') {
     const M = S.mat; if (!M || M.go) return; M.go = true; M.msg = 'Reactivando…'; render();
     let hechos = 0, fallidos = 0;
