@@ -757,9 +757,18 @@ function tablaMotos(R) {
 const FL_GL = { leads: l => !l.sala, nuevos: l => !l.sala && l.estado === 'Nuevo', contactados: l => l.contactado, cotizaciones: l => l.cotizado, concrm: l => l.cotizado && !l.sinSoporte,
   sincontacto: l => l.abierto && l.sinContacto, sinsoporte: l => l.sinSoporte, reasignados: l => (l.reasignaciones || 0) > 0, ventas: l => l.estado === 'Cerrado ganado' };
 const TIT_GL = { leads: 'Leads recibidos', nuevos: 'Leads nuevos', contactados: 'Contactados', cotizaciones: 'Cotizados', concrm: 'Con cotización en el CRM', sincontacto: 'Sin contactar', sinsoporte: 'Cotizado sin soporte', reasignados: 'Reasignados', ventas: 'Vendidos', atender: 'Por atender' };
-function glActivo() { return !!(S.panF || S.gMoto || S.gCanal || S.gAs || S.gDia); }
-function glFiltrados(L) {
+const NIV_SC = { inmediato: { t: 'Gestionar ya', ic: '🔴', d: 'score 80 o más', f: s => s >= 80 }, pronto: { t: 'Gestionar hoy', ic: '🟡', d: 'score 60 a 79', f: s => s >= 60 && s < 80 }, espera: { t: 'Puede esperar', ic: '🟢', d: 'score menor de 60', f: s => s < 60 } };
+function glActivo() { return !!(S.panF || S.gMoto || S.gCanal || S.gAs || S.gDia || S.gScore); }
+/** Botones por score: cuántos leads abiertos hay en cada nivel (según el punto y los demás filtros) y filtro con un toque. */
+function barraScore(ctl) {
+  const base = glFiltrados((ctl.lista || []).filter(l => l.abierto), true), n = k => base.filter(l => NIV_SC[k].f(Number(l.score) || 0)).length;
+  return `<div class="row wrap" style="gap:8px;align-items:center;margin:10px 0"><b class="small">⭐ Prioridad por score</b>
+    ${Object.keys(NIV_SC).map(k => `<button class="btn btn-sm${S.gScore === k ? ' btn-primary' : ''}" data-act="gl-f" data-t="score" data-v="${k}" title="${NIV_SC[k].d}">${NIV_SC[k].ic} ${NIV_SC[k].t} <span class="pill">${n(k)}</span></button>`).join('')}
+    ${S.gScore ? '<button class="btn btn-sm" data-act="gl-q" data-t="score"><i class="ti ti-x"></i> Todos</button>' : ''}<span class="tiny muted">Solo leads abiertos · ${S.gScore ? NIV_SC[S.gScore].d : 'toca un nivel para ver la lista'}</span></div>`;
+}
+function glFiltrados(L, sinScore) {
   let R = L;
+  if (S.gScore && !sinScore) R = R.filter(l => l.abierto && NIV_SC[S.gScore].f(Number(l.score) || 0)).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
   if (S.panF && FL_GL[S.panF]) R = R.filter(FL_GL[S.panF]);
   if (S.gMoto) R = R.filter(l => norm(l.producto) === norm(S.gMoto));
   if (S.gCanal) R = R.filter(l => l.canal === S.gCanal);
@@ -797,12 +806,12 @@ function tablaDias() {
     <div class="tbl-wrap" style="max-height:340px;overflow:auto"><table class="tbl"><thead><tr><th>Fecha</th><th>Leads recibidos</th><th class="r">Pauta</th><th class="r">Referido</th><th class="r">Otros</th><th class="r">Contactados</th><th class="r">Cotizados</th></tr></thead><tbody>${R.map(x => `<tr${x.n ? ` data-act="gl-f" data-t="dia" data-v="${x.k}" title="Toca para ver los leads de este día" style="cursor:pointer;${S.gDia === x.k ? 'background:rgba(37,99,235,.14)' : ''}"` : ''}><td><b>${esc(dia(x.k))}</b></td><td>${x.n ? `<div class="fn-bar" style="width:${Math.max(8, Math.round(x.n * 100 / mx))}%;min-width:30px">${x.n}</div>` : '<span class="muted">0</span>'}</td><td class="r">${x.pauta}</td><td class="r">${x.ref}</td><td class="r">${x.otro}</td><td class="r">${x.con}</td><td class="r">${x.cot}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function glDescripcion() {
-  return [S.panF && (TIT_GL[S.panF] || S.panF), S.gMoto && 'Moto: ' + S.gMoto, S.gCanal && 'Origen: ' + S.gCanal, S.gAs && 'Asesor: ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs), S.gDia && 'Día: ' + S.gDia].filter(Boolean);
+  return [S.panF && (TIT_GL[S.panF] || S.panF), S.gMoto && 'Moto: ' + S.gMoto, S.gCanal && 'Origen: ' + S.gCanal, S.gAs && 'Asesor: ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs), S.gDia && 'Día: ' + S.gDia, S.gScore && 'Prioridad: ' + NIV_SC[S.gScore].t].filter(Boolean);
 }
 function panelFiltrado(ctl) {
   if (!glActivo()) return '';
-  if (S.panF === 'atender' && !(S.gMoto || S.gCanal || S.gAs || S.gDia)) return `<div class="pn-card" id="gl-panel" style="margin-top:12px">${pulsoLista(ctl, 'atender', 'panel-f')}</div>`;
-  const R = glFiltrados(ctl.lista || []), chips = [['kpi', S.panF && (TIT_GL[S.panF] || S.panF)], ['moto', S.gMoto && '🏍️ ' + S.gMoto], ['canal', S.gCanal && '📣 ' + S.gCanal], ['asesor', S.gAs && '👤 ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)], ['dia', S.gDia && '📅 ' + S.gDia]].filter(c => c[1]);
+  if (S.panF === 'atender' && !(S.gMoto || S.gCanal || S.gAs || S.gDia || S.gScore)) return `<div class="pn-card" id="gl-panel" style="margin-top:12px">${pulsoLista(ctl, 'atender', 'panel-f')}</div>`;
+  const R = glFiltrados(ctl.lista || []), chips = [['kpi', S.panF && (TIT_GL[S.panF] || S.panF)], ['moto', S.gMoto && '🏍️ ' + S.gMoto], ['canal', S.gCanal && '📣 ' + S.gCanal], ['asesor', S.gAs && '👤 ' + (S.gAs === '__sin__' ? 'Sin asesor' : S.gAs)], ['dia', S.gDia && '📅 ' + S.gDia], ['score', S.gScore && NIV_SC[S.gScore].ic + ' ' + NIV_SC[S.gScore].t + ' (' + NIV_SC[S.gScore].d + ')']].filter(c => c[1]);
   return `<div class="pn-card" id="gl-panel" style="margin-top:12px">
     <div class="row between wrap" style="gap:8px"><b>🔎 Leads con este filtro <span class="pill">${R.length}</span></b>
       <span class="row wrap" style="gap:6px"><button class="btn btn-sm btn-primary" data-act="gl-exp" data-m="filtro"><i class="ti ti-download"></i> Exportar este filtro</button><button class="btn btn-sm" data-act="gl-exp" data-m="todo"><i class="ti ti-database-export"></i> Base completa</button><button class="btn btn-sm" data-act="gl-q" data-t="all"><i class="ti ti-x"></i> Quitar filtros</button></span></div>
@@ -845,6 +854,7 @@ function vInteligencia() {
   const mx = Math.max(1, ...funnel.map(x => x[1])), T = (ctl.tareas || []).slice(0, 6);
   return `${hero('jefe', 'ti-brain', 'Gestión de Leads', `Pauta en redes y referidos · ${esc((p.filtro || {}).sede || 'Todos los puntos')}`)}
     ${filtrosPanel(p)}
+    ${barraScore(ctl)}
     ${kpisGestion(ctl)}
     ${panelFiltrado(ctl)}
     <div class="lectura"><b>🧠 Lectura de hoy</b>${lect.map(x => `<div style="margin-top:4px">${esc(x)}</div>`).join('')}</div>
@@ -3243,14 +3253,14 @@ document.addEventListener('click', async e => {
   if (act === 'hoy-fechas-q') { S.hoyDesde = ''; S.hoyHasta = ''; render(); return; }
   if (act === 'f-fechas-q') { S.f.desde = ''; S.f.hasta = ''; render(); return; }
   if (act === 'gl-f') {
-    const key = { moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia' }[a.dataset.t]; if (!key) return;
+    const key = { moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia', score: 'gScore' }[a.dataset.t]; if (!key) return;
     S[key] = S[key] === a.dataset.v ? '' : a.dataset.v; render();
     const pn = $('#gl-panel'); if (pn) pn.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
   if (act === 'gl-q') {
     const t = a.dataset.t;
-    if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; S.gDia = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia' }[t]] = '';
+    if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; S.gDia = ''; S.gScore = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia', score: 'gScore' }[t]] = '';
     render(); return;
   }
   if (act === 'gl-exp') {
