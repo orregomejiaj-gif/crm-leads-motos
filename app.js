@@ -296,7 +296,7 @@ function normalizarVentaX(f) {
   if (cat && cat !== 'MOTOCICLETA') return null;
   const fecha = fechaExcel(v('fechadocumento', 'fecha'));
   const bodega = lim(v('bodega')), cc = lim(v('centrocosto')), base = bodega || cc;
-  const cant = numX(v('cantidad')), total = numX(v('totalarticulo')) || numX(v('valor')) || numX(v('total')) || 0;
+  const cant = numX(v('cantidad')), total = numX(v('total')) || numX(v('totalarticulo')) || numX(v('valor')) || 0;   // «total» lleva el signo (notas crédito en negativo)
   const ref = lim(v('producto', 'referencia')).replace(/[.\s]+$/g, '').toUpperCase();
   if (!fecha || !ref || !cant) return null;
   if (zonaDeTexto(base) !== 'Antioquia') return null;
@@ -304,6 +304,9 @@ function normalizarVentaX(f) {
     centro_costo: cc, bodega, punto: puntoDeTexto(base), zona: 'Antioquia', vendedor: lim(v('vendedor')), modalidad: lim(v('modalidadventa', 'modalidad')), forma_pago: lim(v('formapago')),
     codproducto: lim(v('codproducto')), referencia: ref, presentacion: lim(v('presenproducto', 'presentacion')), cantidad: Math.round(cant), valor: Math.round(total),
     detalle: String(v('detalle') || '').slice(0, 200).trim(), consecutivo: lim(v('consecutivointerno', 'consecutivo')) };
+  // Valor sin impuestos (base de la comisión): total de la línea menos IVA e impoconsumo; sirve igual para ventas y notas crédito.
+  const iva = (numX(v('iva')) || 0) + (numX(v('inc')) || 0);
+  o.precio_unit = numX(v('precio')); o.descuento_unit = numX(v('descuentounidad')); o.iva_unit = iva; o.base_sin_iva = Math.round((total - iva) * 100) / 100;
   o.sede = o.punto === 'Itagüí' ? 'itagui' : (o.punto === 'Los Colores' ? 'los_colores' : null); // código de la tabla sedes
   o.llave = [o.nro_factura, o.consecutivo, o.referencia, o.cantidad].join('|'); // misma clave que las ventas ya cargadas
   return o;
@@ -971,7 +974,7 @@ function renderNav() {
 }
 function render() {
   const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
-    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisiones, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
+    alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
@@ -2440,6 +2443,62 @@ function comisionDe(f) {
   return { cumpl, tasa: esc ? esc.tasa : 0, valor: esc ? Math.round(base * esc.tasa) : 0, base,
     siguiente: sig ? { tasa: sig.tasa, motos: Math.max(1, Math.ceil(f.meta * sig.min / 100 - 1e-9) - f.facturados), min: sig.min } : null };
 }
+// ── Comisiones desde Supabase: motos vendidas del mes × meta, sobre el precio de cada moto SIN impuestos (neto de notas crédito) ──
+function cargarComi(mes, forzar) {
+  const C = S.comi || (S.comi = {}); if (C.busy) return; C.busy = true;
+  api('comisiones', { mes }).then(r => { C.data = r; C.err = ''; }).catch(e => { C.err = e.message; C.data = null; })
+    .finally(() => { C.busy = false; C.mes = mes; C.t = Date.now(); if (S.view === 'comisiones') render(); });
+}
+const pctTxt = v => (v === null || v === undefined) ? '—' : Number(v).toFixed(1).replace('.', ',') + ' %';
+const tasaTxt = t => (t * 100).toFixed(1).replace('.', ',') + ' %';
+function barraComi(pct) {
+  const top = 130, w = Math.min(100, Math.max(0, pct) / top * 100), pos = x => (x / top * 100).toFixed(1) + '%';
+  return `<div style="position:relative;height:12px;border-radius:6px;background:rgba(120,130,140,.22);margin:10px 0 22px"><div style="height:100%;width:${w}%;border-radius:6px;background:${pct >= 90 ? '#16a34a' : '#f59e0b'}"></div>
+    ${[90, 100, 110, 120].map(x => `<span style="position:absolute;left:${pos(x)};top:-2px;height:16px;border-left:2px solid rgba(60,70,80,.55)"></span><span class="tiny muted" style="position:absolute;left:${pos(x)};top:16px;transform:translateX(-50%)">${x}%</span>`).join('')}</div>`;
+}
+function tarjetaComi(f) {
+  if (f.vacante) return `<div class="card" style="margin-bottom:12px"><b>Vacante · ${esc(f.sede)}</b> <span class="pill">Meta ${f.meta} motos</span><p class="small muted" style="margin:6px 0 0">Meta sin asesor asignado: nadie la está vendiendo.</p></div>`;
+  const esc90 = f.escenarios[0], sig = f.escenarios.find(e => e.pct > f.pct);
+  return `<div class="card" style="margin-bottom:14px;padding:16px">
+    <div class="row between wrap" style="gap:8px"><div><b style="font-size:1.1rem">${esc(cap(String(f.persona).toLowerCase()))}</b> <span class="pill">${esc(f.rol || 'Asesor')}</span> <span class="small muted">· ${esc(f.sede)}</span></div>
+      <div style="text-align:right"><div class="tiny muted">Comisión que lleva</div><b style="font-size:1.6rem;color:${f.comision ? '#16a34a' : 'inherit'}">${money(f.comision)}</b></div></div>
+    ${barraComi(f.pct)}
+    <div class="mt-mini"><div><b>${f.motos} / ${f.meta}</b><span>Motos / meta</span></div><div><b>${pctTxt(f.pct)}</b><span>Cumplimiento</span></div><div><b>${tasaTxt(f.tasa)}</b><span>Tasa que le pagan</span></div><div><b>${money(f.base)}</b><span>Base sin impuestos</span></div><div><b>${f.motos > 0 ? money(f.ticket) : '—'}</b><span>Valor por moto</span></div></div>
+    <div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Si llega a</th><th class="r">Motos que faltan</th><th class="r">Tasa</th><th class="r">Comisión estimada</th></tr></thead><tbody>
+      ${f.escenarios.map(e => `<tr${sig && e.pct === sig.pct ? ' style="font-weight:600"' : ''}><td>${e.pct} % de la meta (${e.motosTotal} motos)</td><td class="r num">${e.motos || '✔ ya'}</td><td class="r num">${tasaTxt(e.tasa)}</td><td class="r num">${money(e.comision)}</td></tr>`).join('')}</tbody></table></div>
+    ${S.comi.data.mes === mesComi() && f.motos > 0 ? `<p class="small" style="margin:8px 0 0">📈 Al ritmo actual cerraría el mes con <b>${String(f.proyeccion.motos).replace('.', ',')}</b> motos (${pctTxt(f.proyeccion.pct)} de la meta) y una comisión de <b>${money(f.proyeccion.comision)}</b>.</p>` : ''}
+    <div style="margin-top:10px"><b class="small">¿Por qué gana lo que gana?</b><ul class="small" style="margin:6px 0 0;padding-left:20px">${(f.porQue || []).map(t => `<li style="margin:4px 0">${esc(t)}</li>`).join('')}</ul></div></div>`;
+}
+function tarjetaPunto(p) {
+  const mx = Math.max(1, ...p.dias.map(d => d.motos));
+  return `<div class="card" style="margin-bottom:14px;padding:16px"><div class="row between wrap"><b style="font-size:1.1rem">${esc(p.sede)}</b><span class="pill">${p.pct === null ? 'Sin meta' : pctTxt(p.pct) + ' de la meta'}</span></div>
+    <div class="mt-mini" style="margin-top:8px"><div><b>${p.motos}${p.meta ? ' / ' + p.meta : ''}</b><span>Motos${p.meta ? ' / meta' : ''}</span></div><div><b>${money(p.base)}</b><span>Ventas sin impuestos</span></div><div><b>${money(p.valor)}</b><span>Facturado con IVA</span></div><div><b>${p.motos > 0 ? money(p.ticket) : '—'}</b><span>Valor por moto</span></div><div><b>${p.descPct === null ? '—' : pctTxt(p.descPct)}</b><span>Descuento medio</span></div></div>
+    <div class="grid g2" style="margin-top:10px"><div><b class="small">Modelos más vendidos</b>${p.modelos.length ? p.modelos.slice(0, 6).map(m => `<div class="row between small" style="margin:4px 0"><span>${esc(m.ref)}</span><b>${m.n}</b></div>`).join('') : '<p class="small muted">Sin ventas.</p>'}</div>
+      <div><b class="small">Cómo pagan</b>${p.formaPago.length ? p.formaPago.map(m => `<div class="row between small" style="margin:4px 0"><span>${esc(m.forma)}</span><b>${m.n}</b></div>`).join('') : '<p class="small muted">Sin ventas.</p>'}</div></div>
+    <div style="margin-top:10px"><b class="small">Ventas por día</b>${p.dias.length ? p.dias.map(d => `<div class="row small" style="gap:8px;margin:3px 0;align-items:center"><span style="width:62px">${esc(d.fecha.slice(5))}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(d.motos * 60 / mx))}%;min-width:26px">${d.motos}</div><span class="muted tiny">${money(d.base)}</span></div>`).join('') : '<p class="small muted">Sin ventas en el mes.</p>'}</div>
+    <div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Vendedor en la factura</th><th class="r">Motos</th><th class="r">Base sin impuestos</th></tr></thead><tbody>${p.vendedores.map(v => `<tr><td>${esc(v.vendedor)}</td><td class="r num">${v.motos}</td><td class="r num">${money(v.base)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted small">Sin ventas.</td></tr>'}</tbody></table></div></div>`;
+}
+async function exportarComisiones() {
+  const D = S.comi && S.comi.data; if (!D) return;
+  const XL = await cargarXlsx(), wb = XL.utils.book_new();
+  XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(D.asesores.filter(f => !f.vacante).map(f => ({ Asesor: f.persona, Rol: f.rol, Punto: f.sede, Meta: f.meta, Motos: f.motos, 'Cumplimiento %': f.pct, 'Tasa %': f.tasa * 100, 'Base sin impuestos': f.base, 'Valor por moto': f.ticket, 'Comisión': f.comision, 'Comisión al 100%': f.escenarios[1].comision, 'Comisión al 120%': f.escenarios[3].comision }))), 'Comisiones');
+  if (D.puntos.length) XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(D.puntos.map(p => ({ Punto: p.sede, Meta: p.meta, Motos: p.motos, 'Cumplimiento %': p.pct, 'Ventas sin impuestos': p.base, 'Facturado con IVA': p.valor, 'Valor por moto': p.ticket }))), 'Ventas por punto');
+  XL.writeFile(wb, 'comisiones_' + D.mes + '.xlsx'); toast('Informe exportado', 'ok');
+}
+function vComisionesSb() {
+  const u = S.data.user, mes = mesComi(), C = S.comi || (S.comi = {});
+  if ((C.mes !== mes || (!C.data && !C.err)) && !C.busy) cargarComi(mes);
+  else if (C.mes === mes && Date.now() - (C.t || 0) > 120e3 && !C.busy) cargarComi(mes);
+  const cab = `<div class="page-h"><div><h2>Comisiones</h2><p class="muted small">${u.rol === 'asesor' ? 'Lo que llevas ganado este mes y qué hacer para ganar más.' : 'Por asesor y mes, con el informe de ventas de cada punto.'}</p></div>
+    <div class="row" style="gap:6px"><select class="sel" data-ch="mes">${opts(mesesRecientes(12).map(m => ({ v: m, t: fmtMes(m) })), mes)}</select>${u.rol !== 'asesor' && C.data ? '<button class="btn btn-sm" data-act="com-exp"><i class="ti ti-download"></i> Exportar</button>' : ''}</div></div>`;
+  if (C.err && !C.data) return cab + `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(C.err)}</div></div>`;
+  if (!C.data || C.mes !== mes) return cab + '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Calculando comisiones…</div></div>';
+  const D = C.data, ase = D.asesores || [];
+  return cab + `<div class="notice" style="margin-bottom:12px"><i class="ti ti-coin"></i><div><b>Cómo se calcula</b><br><span class="small">Se paga desde el <b>90 %</b> de la meta de motos: 90 % → 0,6 % · 100 % → 1 % · 110 % → 1,2 % · 120 % → 1,4 %. El porcentaje se aplica sobre el <b>precio de cada moto vendida sin impuestos</b>, neto de notas crédito, y vale para todas las motos del mes. Comisión = motos × valor por moto × tasa. Estimada: la liquidación oficial la define el Jefe.</span></div></div>
+    ${ase.length ? ase.map(tarjetaComi).join('') : '<div class="notice"><i class="ti ti-target-off"></i><div>No hay metas cargadas para este mes.</div></div>'}
+    ${(D.sinMeta || []).length ? `<div class="notice" style="margin-bottom:12px"><i class="ti ti-user-question"></i><div><b>Ventas sin meta este mes:</b> ${D.sinMeta.map(s => `${esc(s.vendedor)} (${s.motos} moto${s.motos === 1 ? '' : 's'}, ${money(s.base)})`).join(' · ')}</div></div>` : ''}
+    ${(D.puntos || []).length ? `<div class="section-title"><i class="ti ti-building-store"></i>Informe de ventas del punto</div>${D.puntos.map(tarjetaPunto).join('')}` : ''}`;
+}
 function vComisiones() {
   const u = S.data.user, M = S.M;
   S.mes = S.mes || mesesRecientes(1)[0];
@@ -3071,6 +3130,7 @@ document.addEventListener('click', async e => {
     return;
   }
   if (act === 'panel-f') { S.panF = S.panF === a.dataset.k ? '' : a.dataset.k; render(); return; }
+  if (act === 'com-exp') { try { await exportarComisiones(); } catch (e) { toast(e.message || 'No se pudo exportar.', 'bad'); } return; }
   if (act === 'gl-fechas-q') { S.glDesde = ''; S.glHasta = ''; render(); return; }
   if (act === 'hoy-fechas-q') { S.hoyDesde = ''; S.hoyHasta = ''; render(); return; }
   if (act === 'f-fechas-q') { S.f.desde = ''; S.f.hasta = ''; render(); return; }
