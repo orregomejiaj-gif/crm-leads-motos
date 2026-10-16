@@ -437,7 +437,7 @@ async function cargar(silencioso) {
   $('#btn-refresh i').classList.add('spin');
   try {
     if (!DEMO && S.token && !tokenVigente(S.token)) { salir('Tu sesión venció. Vuelve a entrar.'); return false; }
-    S.data = await api('bootstrap', { fresco: !silencioso }); // la actualización automática puede venir de la memoria de Supabase; el botón de refrescar siempre pide datos nuevos
+    S.data = await api('bootstrap', { fresco: !silencioso && !!S.data }); // la actualización automática puede venir de la memoria de Supabase; el botón de refrescar siempre pide datos nuevos
     construirModelo();
     S.lastLoad = new Date();
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
