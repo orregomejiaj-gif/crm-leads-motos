@@ -293,7 +293,7 @@ function puntoDeTexto(t) { const n = kn(t); if (n.includes('itag')) return 'Itag
 function normalizarVentaX(f) {
   const v = (...n) => { for (const k in f) if (n.includes(kn(k))) return f[k]; return ''; };
   const cat = String(v('categoriaproducto', 'categoria')).trim().toUpperCase();
-  if (cat && cat !== 'MOTOCICLETA') return null;
+  if (cat && cat !== 'MOTOCICLETA') return normalizarPosventaX(f, cat);   // repuestos, mano de obra, lubricantes… van a la tabla de posventa
   const fecha = fechaExcel(v('fechadocumento', 'fecha'));
   const bodega = lim(v('bodega')), cc = lim(v('centrocosto')), base = bodega || cc;
   const cant = numX(v('cantidad')), total = numX(v('total')) || numX(v('totalarticulo')) || numX(v('valor')) || 0;   // «total» lleva el signo (notas crédito en negativo)
@@ -309,6 +309,20 @@ function normalizarVentaX(f) {
   o.precio_unit = numX(v('precio')); o.descuento_unit = numX(v('descuentounidad')); o.iva_unit = iva; o.base_sin_iva = Math.round((total - iva) * 100) / 100;
   o.sede = o.punto === 'Itagüí' ? 'itagui' : (o.punto === 'Los Colores' ? 'los_colores' : null); // código de la tabla sedes
   o.llave = [o.nro_factura, o.consecutivo, o.referencia, o.cantidad].join('|'); // misma clave que las ventas ya cargadas
+  return o;
+}
+/** Línea del exporte de ventas que no es moto (posventa) de Medellín o Itagüí → fila de ventas_posventa (sin cliente, serie ni costo). */
+function normalizarPosventaX(f, cat) {
+  if (cat === 'CONTABLE') return null;
+  const v = (...n) => { for (const k in f) if (n.includes(kn(k))) return f[k]; return ''; };
+  const fecha = fechaExcel(v('fechadocumento', 'fecha')), bodega = lim(v('bodega')), cc = lim(v('centrocosto')), base = bodega || cc;
+  const cant = numX(v('cantidad')), total = numX(v('total')) || numX(v('totalarticulo')) || 0;
+  if (!fecha || cant === null || zonaDeTexto(base) !== 'Antioquia') return null;
+  const iva = (numX(v('iva')) || 0) + (numX(v('inc')) || 0), punto = puntoDeTexto(base);
+  const o = { tabla: 'posventa', fecha, mes: fecha.slice(0, 7), nro_factura: lim(v('nrofactura')), tipo: lim(v('tipo')), centro_costo: cc, bodega, punto, sede: punto === 'Itagüí' ? 'itagui' : 'los_colores',
+    vendedor: lim(v('vendedor')), categoria: cat, codproducto: lim(v('codproducto')), producto: lim(v('producto')).slice(0, 120), cantidad: cant, valor: Math.round(total * 100) / 100,
+    base_sin_iva: Math.round((total - iva) * 100) / 100, forma_pago: lim(v('formapago')) };
+  o.llave = [o.nro_factura, lim(v('consecutivointerno', 'consecutivo')), o.codproducto, Math.round(cant), Math.round(total)].join('|');
   return o;
 }
 /** Una fila del exporte «motoracing_cotizaciones» del CRM → fila de crm_cotizaciones (sin correo ni dirección). */
@@ -328,7 +342,7 @@ function normalizarCotizacionX(f) {
     observacion: String(g('cotizacion_observacion') || '').slice(0, 300).trim() };
 }
 const CARGAS_X = { cot: { tipo: 'cotizaciones', titulo: 'Cotizaciones del CRM', ayuda: 'Archivo «motoracing_cotizaciones…xlsx» exportado del CRM.', hojaDatos: /cotizacion/i, clave: 'cotizacion_id', norm: normalizarCotizacionX },
-  ven: { tipo: 'ventas', titulo: 'Ventas facturadas de Síntesis', ayuda: 'Archivo «Ventas síntesis.xlsx» (hoja «Table»). Solo entran motos de Medellín e Itagüí.', hojaDatos: /table|datos|ventas/i, clave: 'llave', norm: normalizarVentaX } };
+  ven: { tipo: 'ventas', titulo: 'Ventas facturadas de Síntesis', ayuda: 'Archivo «Ventas síntesis.xlsx» o «Ventas Detalladas….xlsx» (hoja «Table»). Entran las motos y la posventa de Medellín e Itagüí.', hojaDatos: /table|datos|ventas/i, clave: 'llave', norm: normalizarVentaX } };
 function vCargaDatos() {
   const u = S.data.user;
   if (!['jefe', 'admin'].includes(u.rol)) return empty('ti-lock', 'Solo el Jefe Comercial o un Administrador puede cargar datos.');
@@ -337,9 +351,9 @@ function vCargaDatos() {
   const fila = (c, k) => {
     const x = S.carga[k], e = est && est[c.tipo];
     return `<div class="card"><h3 style="margin:0 0 4px">${c.titulo}</h3><p class="small muted" style="margin:0 0 8px">${c.ayuda}</p>
-      <p class="small" style="margin:0 0 8px">${e ? `En Supabase: <b>${e.total}</b> registros · último: <b>${esc(e.ultima_fecha || '—')}</b>` : 'Consultando lo cargado…'}</p>
+      <p class="small" style="margin:0 0 8px">${e ? `En Supabase: <b>${e.total}</b> registros · último: <b>${esc(e.ultima_fecha || '—')}</b>` : 'Consultando lo cargado…'}${c.tipo === 'ventas' && est && est.posventa ? `<br>Posventa: <b>${est.posventa.total}</b> líneas · última: <b>${esc(est.posventa.ultima_fecha || '—')}</b>` : ''}</p>
       <input type="file" accept=".xlsx,.xls,.csv" data-carga="${k}">
-      ${x ? `<div class="notice ${x.error ? 'bad' : ''}" style="margin-top:8px"><i class="ti ti-info-circle"></i><div>${x.error ? esc(x.error) : `<b>${x.filas.length}</b> filas listas (de ${x.leidas} leídas${x.descartadas ? ', ' + x.descartadas + ' descartadas: no son motos de Antioquia o no tienen datos' : ''}). Fechas: ${esc(x.desde)} a ${esc(x.hasta)}.`}</div></div>
+      ${x ? `<div class="notice ${x.error ? 'bad' : ''}" style="margin-top:8px"><i class="ti ti-info-circle"></i><div>${x.error ? esc(x.error) : `<b>${x.filas.length}</b> filas listas${x.pos ? ` (${x.filas.length - x.pos} motos y ${x.pos} de posventa)` : ''} (de ${x.leidas} leídas${x.descartadas ? ', ' + x.descartadas + ' descartadas: no son de Medellín o Itagüí o no tienen datos' : ''}). Fechas: ${esc(x.desde)} a ${esc(x.hasta)}.`}</div></div>
         ${x.error ? '' : `<button class="btn btn-primary" style="margin-top:8px" data-act="carga-enviar" data-k="${k}" ${S.carga.enviando ? 'disabled' : ''}><i class="ti ti-cloud-upload"></i> Cargar a Supabase</button>`}` : ''}
       <div class="small muted" id="carga-prog-${k}" style="margin-top:6px"></div></div>`;
   };
@@ -358,10 +372,11 @@ async function leerArchivoCarga(inp) {
     // Hoja de datos: la que tiene más filas (en el archivo de ventas la primera es un resumen)
     const hojas = wb.SheetNames.map(n => ({ n, rows: X.utils.sheet_to_json(wb.Sheets[n], { defval: '', raw: true }) })).sort((a, b) => b.rows.length - a.rows.length);
     const rows = hojas[0].rows, norm = rows.map(r => c.norm(r)).filter(Boolean), vistos = {};
-    const filas = norm.filter(r => { const key = r[c.clave]; if (vistos[key]) return false; vistos[key] = 1; return true; });
+    // Una factura puede traer dos líneas idénticas de posventa: no se descartan, se numeran (#2, #3…) para no perder ventas.
+    const filas = norm.filter(r => { const key = r[c.clave]; if (vistos[key]) { if (r.tabla !== 'posventa') return false; vistos[key]++; r.llave = key + '#' + vistos[key]; return true; } vistos[key] = 1; return true; });
     if (!filas.length) { S.carga[k] = { error: 'No encontré filas válidas. Revisa que sea el archivo correcto (' + c.ayuda + ')' }; render(); return; }
     const fechas = filas.map(r => r.fecha || r.fecha_cotizacion).filter(Boolean).sort();
-    S.carga[k] = { filas, leidas: rows.length, descartadas: rows.length - norm.length, desde: fechas[0], hasta: fechas[fechas.length - 1] };
+    S.carga[k] = { filas, leidas: rows.length, descartadas: rows.length - norm.length, desde: fechas[0], hasta: fechas[fechas.length - 1], pos: filas.filter(r => r.tabla === 'posventa').length };
   } catch (e) { S.carga[k] = { error: 'No se pudo leer el archivo: ' + e.message }; }
   render();
 }
@@ -371,8 +386,10 @@ async function enviarCarga(k) {
   const prog = () => $('#carga-prog-' + k), TAM = 300; let hechas = 0;
   try {
     for (let i = 0; i < x.filas.length; i += TAM) {
-      const lote = x.filas.slice(i, i + TAM);
-      await api('cargar', { tipo: c.tipo, filas: lote }); hechas += lote.length;
+      const lote = x.filas.slice(i, i + TAM), pos = lote.filter(r => r.tabla === 'posventa'), mot = lote.filter(r => r.tabla !== 'posventa');
+      if (mot.length) await api('cargar', { tipo: c.tipo, filas: mot });
+      if (pos.length) await api('cargar', { tipo: 'posventa', filas: pos });
+      hechas += lote.length;
       if (prog()) prog().textContent = 'Cargadas ' + hechas + ' de ' + x.filas.length + '…';
     }
     toast('Carga lista: ' + hechas + ' registros en Supabase', 'ok'); S.carga[k] = null; await cargarEstadoCarga();
@@ -2476,6 +2493,16 @@ function tarjetaPunto(p) {
     <div class="grid g2" style="margin-top:10px"><div><b class="small">Modelos más vendidos</b>${p.modelos.length ? p.modelos.slice(0, 6).map(m => `<div class="row between small" style="margin:4px 0"><span>${esc(m.ref)}</span><b>${m.n}</b></div>`).join('') : '<p class="small muted">Sin ventas.</p>'}</div>
       <div><b class="small">Cómo pagan</b>${p.formaPago.length ? p.formaPago.map(m => `<div class="row between small" style="margin:4px 0"><span>${esc(m.forma)}</span><b>${m.n}</b></div>`).join('') : '<p class="small muted">Sin ventas.</p>'}</div></div>
     <div style="margin-top:10px"><b class="small">Ventas por día</b>${p.dias.length ? p.dias.map(d => `<div class="row small" style="gap:8px;margin:3px 0;align-items:center"><span style="width:62px">${esc(d.fecha.slice(5))}</span><div class="fn-bar" style="width:${Math.max(6, Math.round(d.motos * 60 / mx))}%;min-width:26px">${d.motos}</div><span class="muted tiny">${money(d.base)}</span></div>`).join('') : '<p class="small muted">Sin ventas en el mes.</p>'}</div>
+    ${(() => {
+      const pv = p.posventa || { lineas: 0, base: 0, categorias: [], vendedores: [] }, iv = p.inventario || [];
+      const alerta = m => m.disponibles === 0 && m.vendidasMes > 0 ? '<span class="pill pill-bad">Sin stock</span>' : m.diasMax >= 90 ? '<span class="pill pill-warn">Parada ' + m.diasMax + ' d</span>' : (m.disponibles > 0 && m.vendidasMes === 0 ? '<span class="pill">Sin ventas</span>' : '');
+      return `<div style="margin-top:14px"><b class="small">Posventa facturada: ${money(pv.base)} sin impuestos · ${pv.lineas} líneas</b>
+        ${pv.categorias.length ? `<div class="tbl-wrap" style="margin-top:6px"><table class="tbl"><thead><tr><th>Categoría</th><th class="r">Líneas</th><th class="r">Sin impuestos</th></tr></thead><tbody>${pv.categorias.map(c => `<tr><td>${esc(cap(String(c.categoria).toLowerCase()))}</td><td class="r num">${c.lineas}</td><td class="r num">${money(c.base)}</td></tr>`).join('')}</tbody></table></div>
+        <p class="tiny muted" style="margin:6px 0 0">Quién más factura: ${pv.vendedores.map(v => esc(cap(String(v.vendedor).toLowerCase())) + ' (' + money(v.base) + ')').join(' · ')}</p>` : '<p class="small muted">Sin posventa cargada este mes: sube el archivo «Ventas Detalladas» en Cargar datos.</p>'}</div>
+        <div style="margin-top:14px"><b class="small">Inventario de motos frente a lo vendido</b>
+        ${iv.length ? `<div class="tbl-wrap" style="margin-top:6px"><table class="tbl"><thead><tr><th>Modelo</th><th class="r">Disponibles</th><th class="r">Días en el punto (prom. / máx.)</th><th class="r">Vendidas en el mes</th><th></th></tr></thead><tbody>${iv.map(m => `<tr><td><b>${esc(m.modelo)}</b></td><td class="r num">${m.disponibles}</td><td class="r num">${m.disponibles ? m.diasProm + ' / ' + m.diasMax : '—'}</td><td class="r num">${m.vendidasMes}</td><td>${alerta(m)}</td></tr>`).join('')}</tbody></table></div>
+        <p class="tiny muted" style="margin:6px 0 0">Cada moto facturada se cruza con una unidad del inventario del punto (la más antigua del mismo modelo y color). «Sin stock» = se vendió y no queda ninguna; «Parada» = lleva 90 días o más.</p>` : '<p class="small muted">Sin inventario cargado para este punto.</p>'}</div>`;
+    })()}
     <div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Vendedor en la factura</th><th class="r">Motos</th><th class="r">Base sin impuestos</th></tr></thead><tbody>${p.vendedores.map(v => `<tr><td>${esc(v.vendedor)}</td><td class="r num">${v.motos}</td><td class="r num">${money(v.base)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted small">Sin ventas.</td></tr>'}</tbody></table></div></div>`;
 }
 async function exportarComisiones() {
