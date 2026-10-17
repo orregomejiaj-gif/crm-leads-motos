@@ -10,9 +10,9 @@ window.AKT_CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbznBSzZc1E3Kd85y8jkN2o09L_WMLOIC2SEpwnciZglV7VX4qi8WcgnE6MiWCen91O7TA/exec',
   // Migración fuera de Google (Fase 1): rutas atendidas por la función «api» de Supabase; con respaldo automático a Apps Script.
   API_EDGE: 'https://nqrmpunlgdbicwhpinmq.supabase.co/functions/v1/api',
-  EDGE_RUTAS: ['login', 'bandeja', 'chats', 'cargar', 'cargaEstado', 'bootstrap', 'comisiones', 'mateoPendientes', 'mateoReactivar', 'mateoGuardar', 'enviarMensaje'],
+  EDGE_RUTAS: ['login', 'bandeja', 'chats', 'cargar', 'cargaEstado', 'bootstrap', 'comisiones', 'mateoPendientes', 'mateoReactivar', 'mateoGuardar', 'enviarMensaje', 'update', 'etapa', 'contacto', 'cierre', 'detener'],
   // Acciones en prueba: solo el Jefe las usa en Supabase; los asesores siguen por Apps Script hasta confirmar que funcionan.
-  EDGE_SOLO_JEFE: ['enviarMensaje'],
+  EDGE_SOLO_JEFE: ['enviarMensaje', 'update', 'etapa', 'contacto', 'cierre', 'detener'],
   // Refresco automático (ms). Brief: cada 1–2 minutos.
   REFRESH_MS: 90000
 };
