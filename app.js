@@ -171,7 +171,8 @@ async function api(action, payload = {}) {
   // Migración fuera de Google: estas rutas se atienden en Supabase (CFG.API_EDGE). Si la función nueva falla o no valida la sesión, se usa Apps Script.
   // Vuelta atrás inmediata: localStorage.akt_sin_edge = '1' o quitar API_EDGE de config.js.
   let j;
-  const usaEdge = CFG.API_EDGE && (CFG.EDGE_RUTAS || []).includes(action) && localStorage.getItem('akt_sin_edge') !== '1';
+  const soloJefe = (CFG.EDGE_SOLO_JEFE || []).includes(action) && !(S.data && S.data.user && S.data.user.rol === 'jefe'); // acciones que se están probando: solo las atiende Supabase para el Jefe, el resto sigue en Apps Script
+  const usaEdge = CFG.API_EDGE && (CFG.EDGE_RUTAS || []).includes(action) && !soloJefe && localStorage.getItem('akt_sin_edge') !== '1';
   if (usaEdge) {
     try { j = await llamar(CFG.API_EDGE); } catch (e) { j = null; }
     if (!j || (!j.ok && (['AUTH', 'UPSTREAM', 'INVALID'].includes(j.code) || (action === 'login' && j.code === 'LOGIN')))) j = await llamar(CFG.API_URL);
