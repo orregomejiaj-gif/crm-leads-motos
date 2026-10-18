@@ -692,32 +692,85 @@ function vICVentas() {
     <div class="card"><div class="card-h"><h3>Asesores del mes</h3></div>${tabla(['Asesor', 'Leads', 'Contactados', 'Ventas'], A.map(x => `<tr><td><b>${esc(x.asesor)}</b></td><td>${x.leads}</td><td>${x.contactados}</td><td>${x.ventas}</td></tr>`).join(''))}</div>`;
 }
 
-/** Pauta de Facebook e Instagram (exporte de Ads Manager pegado en la hoja Pauta_Meta). */
-function cargarPauta() {
+/** Panel gerencial de la pauta de Facebook e Instagram: datos que Supabase trae solo de la API de Meta cada 30 minutos. */
+function cargarPauta(forzar) {
   if (S.pauBusy) return; S.pauBusy = true;
-  api('pauta').then(r => { S.pau = r; S.pauErr = ''; S.pauT = Date.now(); }).catch(e => { S.pauErr = e.message; S.pauT = Date.now(); })
+  api('pautaPanel', { dias: S.pauDias || 30, punto: S.pauPunto || '', actualizar: !!forzar }).then(r => { S.pau = r; S.pauErr = ''; S.pauT = Date.now(); S.pauK = (S.pauDias || 30) + '|' + (S.pauPunto || ''); }).catch(e => { S.pauErr = e.message; S.pauT = Date.now(); })
     .finally(() => { S.pauBusy = false; if (S.view === 'pauta') render(); });
 }
-function vPauta() {
-  if (!S.pau || Date.now() - (S.pauT || 0) > 120e3) cargarPauta();
-  if (!S.pau) return S.pauErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pauErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la pauta…</div></div>';
-  const r = S.pau, t = r.totales || {}, A = r.anuncios || [], cls = S.data.user.rol === 'jefe' ? 'jefe' : 'admin';
-  const cpc = t.resultados ? Math.round(t.gasto / t.resultados) : null, ctr = t.impresiones ? (t.clics * 100 / t.impresiones).toFixed(1).replace('.', ',') : '—';
-  const conv = A.filter(a => a.costoConversacion !== null).sort((a, b) => a.costoConversacion - b.costoConversacion);
-  const ia = [];
-  if (conv.length > 1) ia.push(`✅ «${conv[0].anuncio}» es el más barato: ${money(conv[0].costoConversacion)} por conversación (${conv[0].resultados} conversaciones).`, `⚠️ «${conv[conv.length - 1].anuncio}» cuesta ${money(conv[conv.length - 1].costoConversacion)} por conversación.`);
-  const sinEntrega = A.filter(a => /not_delivering|inactive|paused/i.test(a.estado) && a.gasto === 0).length; if (sinEntrega) ia.push(`⏸️ ${sinEntrega} anuncio${sinEntrega === 1 ? '' : 's'} sin entrega y sin gasto en el período.`);
-  if (A.length && A.every(a => a.leads === null)) ia.push('🔗 Para saber leads, cotizaciones y ventas por anuncio, el lead debe guardar el nombre del anuncio de origen (campo «anuncio_origen»): hoy ninguno coincide con la pauta.');
-  if (r.sinPunto) ia.push(`📍 ${r.sinPunto} fila${r.sinPunto === 1 ? '' : 's'} sin punto: agrega la columna «punto» (Itagüí o Los Colores) en la hoja.`);
-  const fm = x => x === null || x === undefined ? '—' : money(x), n0 = x => x === null || x === undefined ? '—' : x;
-  return `${hero(cls, 'ti-brand-meta', 'Pauta en Facebook e Instagram', `${r.filas} fila${r.filas === 1 ? '' : 's'} leídas de Ads Manager`)}
-    ${!r.hoja ? `<div class="pn-card"><h3>Cómo cargar la pauta</h3><ol class="small"><li>En Ads Manager exporta el reporte de <b>Anuncios</b> (CSV) del período que quieras.</li><li>Pega las filas en la hoja <b>Pauta_Meta</b> del libro de Leads (con los mismos encabezados).</li><li>Agrega al final la columna <b>punto</b> con «Itagüí» o «Los Colores».</li><li>Para cruzar con leads, completa en la hoja <b>Pauta_Mapeo</b> el asesor y el «alias_en_lead» (el texto que el bot guarda en anuncio_origen).</li><li>Vuelve aquí: se actualiza solo.</li></ol></div>` : `
-    ${kpiRow([['Inversión', money(t.gasto), 'COP en el período'], ['Conversaciones iniciadas', t.resultados || 0, 'por mensaje en WhatsApp/Messenger'], ['Costo por conversación', fm(cpc), 'promedio'], ['Impresiones', num(t.impresiones) ?? 0, `alcance ${num(t.alcance) ?? 0}`], ['Clics en el enlace', t.clics || 0, `CTR ${ctr} %`]])}
-    ${ia.length ? `<div class="lectura"><b>🤖 Lectura de la pauta</b>${ia.map(x => `<div class="small" style="margin-top:4px">${esc(x)}</div>`).join('')}</div>` : ''}
-    <div class="pn-card"><h3>📍 Por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Inversión</th><th class="r">Conversaciones</th><th class="r">Costo/conv.</th><th class="r">Impresiones</th><th class="r">Clics</th></tr></thead><tbody>${(r.puntos || []).map(p => `<tr><td><b>${esc(p.punto)}</b></td><td class="r">${money(p.gasto)}</td><td class="r">${p.resultados}</td><td class="r">${fm(p.costoConversacion)}</td><td class="r">${num(p.impresiones)}</td><td class="r">${p.clics}</td></tr>`).join('')}</tbody></table></div></div>
-    <div class="pn-card" style="margin-top:14px"><h3>📣 Por anuncio</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Anuncio</th><th>Punto</th><th>Estado</th><th class="r">Inversión</th><th class="r">Conv.</th><th class="r">Costo/conv.</th><th class="r">CTR</th><th class="r">Leads</th><th class="r">Ventas</th><th class="r">Costo/venta</th></tr></thead><tbody>${A.map(a => `<tr><td><b>${esc(a.anuncio)}</b><div class="tiny muted">${esc(a.desde)} → ${esc(a.hasta)}${a.asesor ? ' · ' + esc(a.asesor) : ''}</div></td><td>${esc(a.punto)}</td><td class="small">${esc(a.estado)}</td><td class="r">${money(a.gasto)}</td><td class="r">${a.resultados}</td><td class="r">${fm(a.costoConversacion)}</td><td class="r">${a.ctr === null ? '—' : String(a.ctr).replace('.', ',') + ' %'}</td><td class="r">${n0(a.leads)}</td><td class="r">${n0(a.ventas)}</td><td class="r">${fm(a.costoVenta)}</td></tr>`).join('')}</tbody></table></div></div>`}`;
+const pauN = x => Number(x || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+const pauCorto = (t, n) => { t = String(t || '—'); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+function pauSerie(data, key, color, fmtv) {
+  const W = 560, H = 160, pl = 46, pr = 10, pt = 10, pb = 22, vals = data.map(d => Number(d[key]) || 0), mx = Math.max(1, ...vals), n = data.length;
+  const x = i => pl + (n <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / mx);
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' '), dd = f => f ? f.slice(8, 10) + '/' + f.slice(5, 7) : '';
+  const grid = [0, .5, 1].map(g => `<line x1="${pl}" x2="${W - pr}" y1="${y(mx * g).toFixed(1)}" y2="${y(mx * g).toFixed(1)}" stroke="currentColor" stroke-opacity=".12"/><text x="${pl - 6}" y="${(y(mx * g) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".6">${esc(fmtv(mx * g))}</text>`).join('');
+  const marcas = [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, ar) => n && ar.indexOf(v) === i).map(i => `<text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".6">${dd(data[i].fecha)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img">${grid}${n > 1 ? `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${pts} ${x(n - 1).toFixed(1)},${y(0).toFixed(1)}" fill="${color}" fill-opacity=".15"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/>` : `<circle cx="${x(0)}" cy="${y(vals[0] || 0)}" r="4" fill="${color}"/>`}${marcas}</svg>`;
 }
-function filtrosPanel(p) {
+function pauBarras(rows, lab, val, fmtv, color, sub) {
+  const mx = Math.max(1, ...rows.map(r => Number(r[val]) || 0));
+  return rows.length ? rows.map(r => `<div style="margin:7px 0"><div class="row between small" style="gap:8px"><span title="${esc(r[lab])}">${esc(pauCorto(r[lab], 42))}</span><b>${esc(fmtv(r[val]))}</b></div><div style="background:rgba(100,116,139,.18);border-radius:6px;height:10px"><div style="width:${Math.max(2, (Number(r[val]) || 0) * 100 / mx)}%;background:${color};height:10px;border-radius:6px"></div></div>${sub ? `<div class="tiny muted">${esc(sub(r))}</div>` : ''}</div>`).join('') : '<p class="small muted">Sin datos en el período.</p>';
+}
+function pauDonut(parts) {
+  const tot = parts.reduce((s, p) => s + p.v, 0); if (!tot) return '<p class="small muted">Sin interacciones en el período.</p>';
+  let acc = 0;
+  const seg = parts.map(p => { const pc = p.v * 100 / tot, d = `<circle r="15.9155" cx="21" cy="21" fill="none" stroke="${p.c}" stroke-width="7" stroke-dasharray="${pc.toFixed(2)} ${(100 - pc).toFixed(2)}" stroke-dashoffset="${(25 - acc).toFixed(2)}"/>`; acc += pc; return d; }).join('');
+  return `<div class="row" style="gap:16px;align-items:center;flex-wrap:wrap"><svg viewBox="0 0 42 42" style="width:150px;height:150px"><circle r="15.9155" cx="21" cy="21" fill="none" stroke="currentColor" stroke-opacity=".1" stroke-width="7"/>${seg}<text x="21" y="22.5" text-anchor="middle" font-size="5.5" font-weight="700" fill="currentColor">${pauN(tot)}</text></svg>
+    <div>${parts.map(p => `<div class="small" style="margin:4px 0"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${p.c};margin-right:6px"></span>${esc(p.t)}: <b>${pauN(p.v)}</b> <span class="muted">(${(p.v * 100 / tot).toFixed(0)} %)</span></div>`).join('')}</div></div>`;
+}
+function vPauta() {
+  if (!S.pauBusy && ((!S.pau && !S.pauErr) || Date.now() - (S.pauT || 0) > 180e3)) cargarPauta();
+  if (!S.pau) return S.pauErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pauErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la pauta de Meta…</div></div>';
+  const r = S.pau, t = r.totales || {}, cls = S.data.user.rol === 'jefe' ? 'jefe' : 'admin', C = r.crm || {}, A = r.porAnuncio || [], CP = r.porCampana || [], SR = r.serie || [];
+  const dias = S.pauDias || 30, pto = S.pauPunto || '', esJefe = S.data.user.rol === 'jefe';
+  const b = (kk, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pau-f" data-k="${kk}" data-v="${v}">${txt}</button>`;
+  const conv = t.conversaciones || 0, resultados = conv || t.leads_meta || 0, cpr = resultados ? t.gasto / resultados : null, ctr = t.impresiones ? t.clics_enlace * 100 / t.impresiones : null, cpm = t.impresiones ? t.gasto * 1000 / t.impresiones : null;
+  const costoLeadCrm = C.leads ? t.gasto / C.leads : null, costoVenta = C.ventas ? t.gasto / C.ventas : null, inter = (t.reacciones || 0) + (t.comentarios || 0) + (t.compartidos || 0) + (t.guardados || 0);
+  const fm = x => x === null || x === undefined || !isFinite(x) ? '—' : money(Math.round(x)), sync = r.ultimaSync ? new Date(r.ultimaSync).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'nunca';
+  const conCosto = A.filter(a => a.conversaciones > 0 && a.gasto > 0).map(a => ({ ...a, cpc: a.gasto / a.conversaciones })).sort((x, y) => x.cpc - y.cpc);
+  const sinRes = A.filter(a => a.gasto >= 20000 && !a.conversaciones && !a.leads_meta).sort((x, y) => y.gasto - x.gasto);
+  const topDia = SR.slice().sort((x, y) => y.gasto - x.gasto)[0], mejorDia = SR.slice().sort((x, y) => y.conversaciones - x.conversaciones)[0];
+  const ia = [];
+  if (conCosto.length > 1) ia.push(`✅ «${pauCorto(conCosto[0].anuncio, 60)}» es el anuncio más barato: ${fm(conCosto[0].cpc)} por conversación (${conCosto[0].conversaciones} conversaciones).`, `⚠️ «${pauCorto(conCosto[conCosto.length - 1].anuncio, 60)}» es el más caro: ${fm(conCosto[conCosto.length - 1].cpc)} por conversación.`);
+  if (sinRes.length) ia.push(`🛑 ${sinRes.length} anuncio${sinRes.length === 1 ? '' : 's'} gastó ${fm(sinRes.reduce((s, a) => s + a.gasto, 0))} sin traer conversaciones: «${pauCorto(sinRes[0].anuncio, 50)}»${sinRes.length > 1 ? ' y otros' : ''}. Evalúa pausarlos.`);
+  if (mejorDia && mejorDia.conversaciones) ia.push(`📈 El mejor día fue el ${mejorDia.fecha.slice(8, 10)}/${mejorDia.fecha.slice(5, 7)} con ${mejorDia.conversaciones} conversaciones.`);
+  if (conv && C.leads !== undefined && C.leads < conv * 0.5) ia.push(`🔎 Meta reporta ${pauN(conv)} conversaciones pero el CRM registra ${C.leads} leads de pauta: hay conversaciones que no llegan a ser lead (o falta el dato del anuncio de origen).`);
+  const cuerpo = r.sinDatos ? `<div class="pn-card"><b>Todavía no hay datos de pauta en este período.</b><p class="small muted">La sincronización con Meta corre sola cada 30 minutos${r.estado ? ` (último resultado: ${esc(r.estado)})` : ''}. Pulsa «Actualizar ahora» para traerla en este momento.</p></div>` : `
+    <div class="grid g-kpi">
+      ${kpi('💸 Inversión', money(Math.round(t.gasto || 0)), `${dias} días · CPM ${fm(cpm)}`)}
+      ${kpi('💬 Conversaciones', pauN(conv), t.leads_meta ? `${pauN(t.leads_meta)} formularios de lead` : 'iniciadas por WhatsApp/Messenger')}
+      ${kpi('🎯 Costo por conversación', fm(cpr), 'inversión ÷ conversaciones')}
+      ${kpi('📥 Leads en el CRM', pauN(C.leads || 0), `costo por lead ${fm(costoLeadCrm)}`)}
+      ${kpi('📝 Cotizados', pauN(C.cotizados || 0), `${C.leads ? (C.cotizados * 100 / C.leads).toFixed(0) : 0} % de los leads de pauta`)}
+      ${kpi('💰 Vendidos', pauN(C.ventas || 0), `costo por venta ${fm(costoVenta)}`, C.ventas ? 'ok' : '')}
+      ${kpi('👍 Me gusta (reacciones)', pauN(t.reacciones), `${fm(t.reacciones ? t.gasto / t.reacciones : null)} por reacción`)}
+      ${kpi('💭 Comentarios', pauN(t.comentarios), `${fm(t.comentarios ? t.gasto / t.comentarios : null)} por comentario`)}
+      ${kpi('🔁 Compartidos', pauN(t.compartidos), `${pauN(t.guardados)} guardados`)}
+      ${kpi('👁️ Impresiones', pauN(t.impresiones), `alcance diario sumado ${pauN(t.alcance)}`)}
+      ${kpi('🖱️ Clics en el enlace', pauN(t.clics_enlace), `CTR ${ctr === null ? '—' : ctr.toFixed(2).replace('.', ',')} %`)}
+    </div>
+    ${ia.length ? `<div class="lectura"><b>🤖 Lectura de la pauta</b>${ia.map(x => `<div class="small" style="margin-top:4px">${esc(x)}</div>`).join('')}</div>` : ''}
+    <div class="grid g-2" style="margin-top:14px;gap:14px">
+      <div class="pn-card"><h3>💸 Inversión diaria</h3>${pauSerie(SR, 'gasto', '#2563eb', v => money(Math.round(v)))}<p class="tiny muted" style="margin:4px 0 0">Mayor día: ${topDia ? `${topDia.fecha.slice(8, 10)}/${topDia.fecha.slice(5, 7)} · ${money(Math.round(topDia.gasto))}` : '—'}</p></div>
+      <div class="pn-card"><h3>💬 Conversaciones por día</h3>${pauSerie(SR, 'conversaciones', '#16a34a', v => pauN(v))}</div>
+      <div class="pn-card"><h3>👍 Reacciones por día</h3>${pauSerie(SR, 'reacciones', '#f97316', v => pauN(v))}</div>
+      <div class="pn-card"><h3>💭 Comentarios por día</h3>${pauSerie(SR, 'comentarios', '#9333ea', v => pauN(v))}</div>
+      <div class="pn-card"><h3>🔻 Del anuncio a la venta</h3>${pauBarras([{ t: 'Conversaciones (Meta)', v: conv }, { t: 'Leads en el CRM', v: C.leads || 0 }, { t: 'Cotizados', v: C.cotizados || 0 }, { t: 'Vendidos', v: C.ventas || 0 }], 't', 'v', x => pauN(x), '#2563eb')}</div>
+      <div class="pn-card"><h3>❤️ Interacciones</h3>${pauDonut([{ t: 'Reacciones', v: t.reacciones || 0, c: '#f97316' }, { t: 'Comentarios', v: t.comentarios || 0, c: '#9333ea' }, { t: 'Compartidos', v: t.compartidos || 0, c: '#16a34a' }, { t: 'Guardados', v: t.guardados || 0, c: '#2563eb' }])}</div>
+      <div class="pn-card"><h3>📣 Inversión por campaña</h3>${pauBarras(CP.slice(0, 8), 'campana', 'gasto', x => money(Math.round(x)), '#2563eb', x => `${pauN(x.conversaciones)} conv. · ${x.conversaciones ? money(Math.round(x.gasto / x.conversaciones)) : '—'} por conversación`)}</div>
+      <div class="pn-card"><h3>🏆 Costo por conversación (menor es mejor)</h3>${pauBarras(conCosto.slice(0, 8), 'anuncio', 'cpc', x => money(Math.round(x)), '#16a34a', x => `${x.conversaciones} conversaciones · ${money(Math.round(x.gasto))} invertidos`)}</div>
+    </div>
+    <div class="pn-card" style="margin-top:14px"><h3>📍 Por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Inversión</th><th class="r">Conversaciones</th><th class="r">Costo/conv.</th><th class="r">Reacciones</th><th class="r">Comentarios</th><th class="r">Leads CRM</th><th class="r">Ventas</th></tr></thead><tbody>${(r.porPunto || []).map(p => { const c = (C.porPunto || []).find(x => x.punto === p.punto) || {}; return `<tr><td><b>${esc(p.punto)}</b></td><td class="r">${money(Math.round(p.gasto))}</td><td class="r">${pauN(p.conversaciones)}</td><td class="r">${fm(p.conversaciones ? p.gasto / p.conversaciones : null)}</td><td class="r">${pauN(p.reacciones)}</td><td class="r">${pauN(p.comentarios)}</td><td class="r">${pauN(c.leads)}</td><td class="r">${pauN(c.ventas)}</td></tr>`; }).join('')}</tbody></table></div></div>
+    <div class="pn-card" style="margin-top:14px"><h3>📣 Por anuncio</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Anuncio</th><th>Punto</th><th class="r">Inversión</th><th class="r">Impresiones</th><th class="r">Clics</th><th class="r">Conv.</th><th class="r">Costo/conv.</th><th class="r">👍</th><th class="r">💭</th><th class="r">🔁</th></tr></thead><tbody>${A.map(a => `<tr><td><b title="${esc(a.anuncio)}">${esc(pauCorto(a.anuncio, 46))}</b><div class="tiny muted">${esc(pauCorto(a.campana, 46))}</div></td><td>${esc(a.punto || '—')}</td><td class="r">${money(Math.round(a.gasto))}</td><td class="r">${pauN(a.impresiones)}</td><td class="r">${pauN(a.clics_enlace)}</td><td class="r">${pauN(a.conversaciones)}</td><td class="r">${fm(a.conversaciones ? a.gasto / a.conversaciones : null)}</td><td class="r">${pauN(a.reacciones)}</td><td class="r">${pauN(a.comentarios)}</td><td class="r">${pauN(a.compartidos)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `${hero(cls, 'ti-brand-meta', 'Pauta en Facebook e Instagram', `Panel gerencial · ${esc(r.desde)} → ${esc(r.hasta)} · actualizado ${esc(sync)}`)}
+    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center">
+      ${esJefe ? `<div class="seg">${b('punto', '', 'Antioquia', !pto)}${b('punto', 'Itagüí', 'Itagüí', pto === 'Itagüí')}${b('punto', 'Los Colores', 'Los Colores', pto === 'Los Colores')}</div>` : ''}
+      <div class="seg">${b('dias', 7, '7 días', dias === 7)}${b('dias', 30, '30 días', dias === 30)}${b('dias', 90, '90 días', dias === 90)}</div>
+      <button class="btn btn-sm" data-act="pau-sync"${S.pauBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pauBusy ? ' spin' : ''}"></i> Actualizar ahora</button>
+      <span class="tiny muted">Se sincroniza solo con Meta cada 30 minutos.</span>
+    </div>${cuerpo}`;
+}function filtrosPanel(p) {
   const f = p.filtro || {}, sedeSel = f.sede || '', diasSel = f.dias || 30, b = (k, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pan-filtro" data-k="${k}" data-v="${v}">${txt}</button>`;
   return `<div class="row wrap" style="gap:10px;margin:0 0 12px"><div class="seg">${b('sede', '', 'Antioquia', !sedeSel)}${b('sede', 'Itagüí', 'Itagüí', sedeSel === 'Itagüí')}${b('sede', 'Los Colores', 'Los Colores', sedeSel === 'Los Colores')}</div><div class="seg">${b('dias', 1, 'Hoy', diasSel === 1)}${b('dias', 7, 'Semana', diasSel === 7)}${b('dias', 30, 'Mes', diasSel === 30)}</div></div>`;
 }
@@ -3264,6 +3317,8 @@ document.addEventListener('click', async e => {
     if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; S.gDia = ''; S.gScore = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia', score: 'gScore' }[t]] = '';
     render(); return;
   }
+  if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
+  if (act === 'pau-sync') { S.pau = S.pau; cargarPauta(true); render(); return; }
   if (act === 'gl-exp') {
     a.disabled = true;
     try { await exportarLeads(a.dataset.m); } catch (e) { toast(e.message || 'No se pudo exportar.', 'bad'); }
