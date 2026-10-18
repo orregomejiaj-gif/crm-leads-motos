@@ -12,7 +12,7 @@ window.AKT_CONFIG = {
   API_EDGE: 'https://nqrmpunlgdbicwhpinmq.supabase.co/functions/v1/api',
   EDGE_RUTAS: ['login', 'bandeja', 'chats', 'cargar', 'cargaEstado', 'bootstrap', 'comisiones', 'mateoPendientes', 'mateoReactivar', 'mateoGuardar', 'enviarMensaje', 'update', 'etapa', 'contacto', 'cierre', 'detener', 'pautaPanel'],
   // Acciones en prueba: solo el Jefe las usa en Supabase; los asesores siguen por Apps Script hasta confirmar que funcionan.
-  EDGE_SOLO_JEFE: ['enviarMensaje', 'update', 'etapa', 'contacto', 'cierre', 'detener', 'pautaPanel'],
+  EDGE_SOLO_JEFE: [],   // acciones en prueba solo para el Jefe (vacío = todos los roles)
   // Refresco automático (ms). Brief: cada 1–2 minutos.
   REFRESH_MS: 90000
 };
