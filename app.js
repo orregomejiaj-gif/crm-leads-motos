@@ -3556,48 +3556,66 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.edit) { e.preventDefault(); e.target.blur(); }
 });
 $('#btn-refresh').onclick = () => cargar();
-/** Botón del Jefe: oculta o muestra los leads viejos que el servidor esconde (config LEADS_DESDE). */
+/** Botón del Jefe: oculta o muestra los leads viejos que el servidor esconde (config LEADS_DESDE) para todo el equipo o solo para algunas personas (LEADS_PARA). */
+function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find(x => String(x.clave) === (clave || 'LEADS_DESDE')); return r ? String(r.valor || '').trim() : ''; }
+function leadsParaTxt() { const v = cfgLeadsDesde('LEADS_PARA'); return !v || /^todos$/i.test(v) ? 'todo el equipo' : v.split('|').filter(Boolean).join(', '); }
 function pintarBtnViejos() {
   const b = $('#btn-viejos'); if (!b) return;
-  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe'), ver = !cfgLeadsDesde();
-  b.hidden = !jefe; b.classList.toggle('on', ver);
-  b.title = ver ? 'Todos ven también los leads viejos · clic para ocultarlos para todos' : 'Leads viejos ocultos para todos (anteriores al ' + cfgLeadsDesde() + ')' + (cfgLeadsDesde('LEADS_MOTIVO') ? ' · Motivo: ' + cfgLeadsDesde('LEADS_MOTIVO') : '') + ' · clic para mostrarlos';
-  b.querySelector('i').className = 'ti ' + (ver ? 'ti-eye' : 'ti-eye-off');
+  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe'), oculto = !!cfgLeadsDesde();
+  b.hidden = !jefe; b.classList.toggle('on', !oculto);
+  b.title = !oculto ? 'Todos ven también los leads viejos · clic para ocultarlos' : 'Leads viejos ocultos (anteriores al ' + cfgLeadsDesde() + ') para: ' + leadsParaTxt() + (cfgLeadsDesde('LEADS_MOTIVO') ? ' · Motivo: ' + cfgLeadsDesde('LEADS_MOTIVO') : '') + ' · clic para cambiar o mostrar';
+  b.querySelector('i').className = 'ti ' + (oculto ? 'ti-eye-off' : 'ti-eye');
 }
-/** Pregunta desde qué fecha ocultar los leads viejos y el porqué (obligatorio). Devuelve { fecha, motivo } o null si se cancela. */
-function pedirOcultarLeads(fechaIni) {
+/** Pregunta desde qué fecha, para quiénes y por qué ocultar los leads viejos. Devuelve { fecha, motivo, para } (para = 'todos' o nombres con «|») o null. */
+function pedirOcultarLeads(fechaIni, paraIni, motivoIni) {
   return new Promise(res => {
-    const hoy = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
+    const hoy = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10), sel = (!paraIni || /^todos$/i.test(paraIni)) ? [] : paraIni.split('|').map(norm);
+    const gente = (S.data.personal || []).filter(p => p.nombre && !/vacante/i.test(p.nombre) && !(p.activo && norm(p.activo).startsWith('no'))).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+    const lista = gente.map((p, i) => `<label class="small" style="display:flex;gap:8px;align-items:center;margin:3px 0"><input type="checkbox" class="ol-p" value="${esc(String(p.nombre).trim())}"${sel.includes(norm(p.nombre)) ? ' checked' : ''}> <span><b>${esc(String(p.nombre).trim())}</b> <span class="tiny muted">${esc(p.cargo || '')}${p.sedeCanon ? ' · ' + esc(p.sedeCanon) : ''}</span></span></label>`).join('');
     abrirSheet(`<div class="sheet-b"><h3>Ocultar leads viejos</h3>
-      <div class="small">Todo el equipo (asesores, administradores y jefe) dejará de ver los leads que llegaron <b>antes</b> de la fecha que elijas y no están cotizados ni vendidos. No se borra nada y puedes volver a mostrarlos con el mismo botón.</div>
+      <div class="small">Se ocultan los leads que llegaron <b>antes</b> de la fecha elegida y no están cotizados ni vendidos. No se borra nada y se pueden volver a mostrar con este mismo botón.</div>
       <label class="small">Ocultar los leads anteriores al<input type="date" id="ol-fecha" class="inp" value="${esc(fechaIni)}" max="${hoy}"></label>
-      <label class="small">Justificación (obligatoria)<textarea id="ol-motivo" class="inp" rows="3" maxlength="300" placeholder="Ej.: leads vencidos de días anteriores; se limpia la bandeja mientras se ponen al día los nuevos"></textarea></label>
-      <div class="row" style="justify-content:flex-end"><button class="btn" id="ol-no">Cancelar</button><button class="btn btn-dark" id="ol-si">Ocultar para todos</button></div></div>`, true);
+      <div class="small" style="margin-top:8px"><b>¿Para quién se ocultan?</b>
+        <label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="radio" name="ol-q" value="todos"${sel.length ? '' : ' checked'}> Para todo el equipo (asesores, administradores y jefe)</label>
+        <label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="radio" name="ol-q" value="algunos"${sel.length ? ' checked' : ''}> Solo para las personas que elija</label>
+        <div id="ol-lista" style="max-height:170px;overflow:auto;padding:6px 10px;border:1px solid rgba(100,116,139,.3);border-radius:8px;${sel.length ? '' : 'display:none'}">${lista || '<span class="muted">Sin personas en el equipo.</span>'}</div></div>
+      <label class="small">Justificación (obligatoria)<textarea id="ol-motivo" class="inp" rows="3" maxlength="300" placeholder="Ej.: leads vencidos de días anteriores; se limpia la bandeja mientras se ponen al día los nuevos">${esc(motivoIni || '')}</textarea></label>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="ol-no">Cancelar</button><button class="btn btn-dark" id="ol-si">Aplicar</button></div></div>`, true);
+    document.querySelectorAll('input[name="ol-q"]').forEach(r => { r.onchange = () => { $('#ol-lista').style.display = document.querySelector('input[name="ol-q"]:checked').value === 'algunos' ? '' : 'none'; }; });
     $('#ol-no').onclick = () => { cerrarModal(); res(null); };
     $('#ol-si').onclick = () => {
-      const f = $('#ol-fecha').value, m = $('#ol-motivo').value.replace(/[\r\n\t]+/g, ' ').trim();
+      const f = $('#ol-fecha').value, m = $('#ol-motivo').value.replace(/[\r\n\t]+/g, ' ').trim(), alg = document.querySelector('input[name="ol-q"]:checked').value === 'algunos', quienes = [...document.querySelectorAll('.ol-p:checked')].map(x => x.value);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || f > hoy) return toast('Elige una fecha válida (no futura).', 'bad');
+      if (alg && !quienes.length) return toast('Elige al menos una persona o marca «todo el equipo».', 'bad');
       if (m.length < 8) return toast('Escribe la justificación (mínimo unas palabras).', 'bad');
-      cerrarModal(); res({ fecha: f, motivo: m });
+      cerrarModal(); res({ fecha: f, motivo: m, para: alg ? quienes.join('|') : 'todos' });
     };
     S._modalCancel = () => res(null);
   });
 }
-function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find(x => String(x.clave) === (clave || 'LEADS_DESDE')); return r ? String(r.valor || '').trim() : ''; }
+/** Con los leads ya ocultos: elegir entre mostrarlos de nuevo o cambiar la configuración. */
+function elegirAccionOcultos() {
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>Leads viejos ocultos</h3><div class="small">Ocultos desde el <b>${esc(cfgLeadsDesde())}</b> para: <b>${esc(leadsParaTxt())}</b>.${cfgLeadsDesde('LEADS_MOTIVO') ? '<br>Motivo: ' + esc(cfgLeadsDesde('LEADS_MOTIVO')) : ''}</div>
+      <div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap"><button class="btn" id="oa-no">Cancelar</button><button class="btn" id="oa-cam">Cambiar fecha o personas</button><button class="btn btn-dark" id="oa-mos">Mostrar a todos</button></div></div>`, true);
+    $('#oa-no').onclick = () => { cerrarModal(); res(''); };
+    $('#oa-cam').onclick = () => { cerrarModal(); res('cambiar'); };
+    $('#oa-mos').onclick = () => { cerrarModal(); res('mostrar'); };
+    S._modalCancel = () => res('');
+  });
+}
 $('#btn-viejos').onclick = async (ev) => {
   const b = ev.currentTarget, oculto = !!cfgLeadsDesde();
-  let datos = null;
-  if (oculto) { if (!await confirmar('Mostrar leads viejos', 'Todo el equipo (asesores, administradores y jefe) volverá a ver los leads viejos.', 'Sí, continuar')) return; }
-  else { datos = await pedirOcultarLeads(cfgLeadsDesde('LEADS_CORTE') || '2026-10-15'); if (!datos) return; }
+  let datos = null, mostrar = false;
+  if (oculto) { const a = await elegirAccionOcultos(); if (!a) return; mostrar = a === 'mostrar'; }
+  if (!mostrar) { datos = await pedirOcultarLeads(cfgLeadsDesde('LEADS_CORTE') || '2026-10-15', cfgLeadsDesde('LEADS_PARA'), cfgLeadsDesde('LEADS_MOTIVO')); if (!datos) return; }
   b.disabled = true;
   try {
-    const corte = cfgLeadsDesde('LEADS_CORTE') || '2026-10-15';
-    await api('config', { valores: oculto ? { LEADS_DESDE: '' } : { LEADS_CORTE: datos.fecha, LEADS_DESDE: datos.fecha, LEADS_MOTIVO: datos.motivo } });
+    await api('config', { valores: mostrar ? { LEADS_DESDE: '' } : { LEADS_CORTE: datos.fecha, LEADS_DESDE: datos.fecha, LEADS_MOTIVO: datos.motivo, LEADS_PARA: datos.para } });
     await new Promise(r => setTimeout(r, 1200)); S.bandejaIni = false; await cargar();
-    toast(oculto ? 'Todos ven ahora los leads viejos' : 'Leads viejos ocultos para todo el equipo', 'ok');
+    toast(mostrar ? 'Todos ven ahora los leads viejos' : 'Leads viejos ocultos para: ' + (datos.para === 'todos' ? 'todo el equipo' : datos.para.split('|').join(', ')), 'ok');
   } catch (e) { toast(e.message, 'bad'); } finally { b.disabled = false; }
-};
-$('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
+};$('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
 $('#demo-role').onchange = e => { S.demoRole = e.target.value; S.hoyAsesor = ''; S.f.asesor = ''; S.f.punto = ''; cargar(); };
 
 // ── Módulos de la etapa 2 (modulos.js) ────────────────────────────────────
