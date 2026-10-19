@@ -771,7 +771,109 @@ function vPauta() {
       <button class="btn btn-sm" data-act="pau-sync"${S.pauBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pauBusy ? ' spin' : ''}"></i> Actualizar ahora</button>
       <span class="tiny muted">Se sincroniza solo con Meta cada 30 minutos.</span>
     </div>${cuerpo}`;
-}function filtrosPanel(p) {
+}
+// ── Páginas de Facebook: panel de rendimiento y panel de gestión (comentarios, me gusta, mensajes) ──
+const fbAviso = (r, cls) => r && r.sinToken ? `${hero(cls, 'ti-brand-facebook', 'Páginas de Facebook', 'Falta conectar el token de Meta')}<div class="notice"><i class="ti ti-plug-connected"></i><div><b>Todavía no está conectado el token de las páginas.</b><br>Cuando se guarde el secreto <code>META_PAGES_TOKEN</code> en Supabase (usuario del sistema con acceso a las páginas y permisos de páginas y mensajes), este panel se llena solo.</div></div>` : (r && r.paginas && !r.paginas.length ? `${hero(cls, 'ti-brand-facebook', 'Páginas de Facebook', 'Sin páginas')}<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>Meta no devolvió páginas con este token${r.error ? ': ' + esc(r.error) : ''}. Revisa que el usuario del sistema tenga las páginas asignadas.</div></div>` : '');
+function cargarFbRend(forzar) {
+  if (S.fbBusy) return; S.fbBusy = true;
+  api('fbRendimiento', { dias: S.fbDias || 30, pagina: S.fbPag || '', forzar: !!forzar }).then(r => { S.fbR = r; S.fbErr = ''; S.fbT = Date.now(); }).catch(e => { S.fbErr = e.message; S.fbT = Date.now(); })
+    .finally(() => { S.fbBusy = false; if (S.view === 'fbrend') render(); });
+}
+function vFbRend() {
+  if (!S.fbBusy && ((!S.fbR && !S.fbErr) || Date.now() - (S.fbT || 0) > 300e3)) cargarFbRend();
+  if (!S.fbR) return S.fbErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.fbErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo las páginas de Facebook…</div></div>';
+  const r = S.fbR, aviso = fbAviso(r, 'jefe'); if (aviso) return aviso;
+  const dias = S.fbDias || 30, b = (k, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="fb-f" data-k="${k}" data-v="${v}">${txt}</button>`, R = r.resultado || [];
+  const sum = k => R.reduce((s, x) => s + (Number((x.totales || {})[k]) || 0), 0), serieAll = {};
+  R.forEach(x => (x.serie || []).forEach(d => { const o = serieAll[d.fecha] || (serieAll[d.fecha] = { fecha: d.fecha }); ['alcance', 'visualizaciones', 'interacciones', 'nuevos_seguidores'].forEach(k => { o[k] = (o[k] || 0) + (d[k] || 0); }); }));
+  const SR = Object.values(serieAll).sort((x, y) => x.fecha.localeCompare(y.fecha)), fans = R.reduce((s, x) => s + (Number(x.pagina.seguidores ?? x.pagina.fans) || 0), 0);
+  const posts = R.flatMap(x => (x.posts || []).map(p => ({ ...p, pag: x.pagina.nombre }))).sort((x, y) => (y.reacciones + y.comentarios * 2 + y.compartidos * 3) - (x.reacciones + x.comentarios * 2 + x.compartidos * 3));
+  const fallos = R.flatMap(x => (x.fallos || []).map(f => x.pagina.nombre + ' · ' + f));
+  const nd = k => R.some(x => (x.totales || {})[k] !== undefined) ? pauN(sum(k)) : '—';
+  const ia = [];
+  if (posts[0]) ia.push(`🏆 La publicación con más interacción: «${pauCorto(posts[0].texto || 'sin texto', 70)}» (${pauN(posts[0].reacciones)} reacciones, ${pauN(posts[0].comentarios)} comentarios).`);
+  const sinResp = posts.filter(p => p.comentarios > 0).length; if (sinResp) ia.push(`💭 ${sinResp} publicaci${sinResp === 1 ? 'ón tiene' : 'ones tienen'} comentarios: revísalos en «Páginas · Gestión».`);
+  return `${hero('jefe', 'ti-brand-facebook', 'Páginas de Facebook · Rendimiento', `${R.length} página${R.length === 1 ? '' : 's'} · últimos ${dias} días · estado real de Meta`)}
+    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center">
+      <div class="seg">${b('pag', '', 'Todas', !S.fbPag)}${(r.paginas || []).map(p => b('pag', p.id, esc(pauCorto(p.nombre, 24)), S.fbPag === p.id)).join('')}</div>
+      <div class="seg">${b('dias', 7, '7 días', dias === 7)}${b('dias', 30, '30 días', dias === 30)}${b('dias', 90, '90 días', dias === 90)}</div>
+      <button class="btn btn-sm" data-act="fb-sync"${S.fbBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.fbBusy ? ' spin' : ''}"></i> Actualizar</button></div>
+    <div class="grid g-kpi">
+      ${kpi('👥 Seguidores', pauN(fans), 'total de las páginas')}
+      ${kpi('🆕 Nuevos seguidores', nd('nuevos_seguidores'), `${nd('dejaron_seguir')} dejaron de seguir`)}
+      ${kpi('👁️ Visualizaciones', nd('visualizaciones'), 'del contenido de la página')}
+      ${kpi('📣 Alcance', nd('alcance'), 'personas únicas')}
+      ${kpi('❤️ Interacciones', nd('interacciones'), 'reacciones, comentarios, clics')}
+      ${kpi('🔎 Visitas al perfil', nd('visitas_perfil'), 'veces que abrieron la página')}
+      ${kpi('👍 Reacciones', pauN(sum('reacciones')), `en ${pauN(sum('publicaciones'))} publicaciones`)}
+      ${kpi('💭 Comentarios', pauN(sum('comentarios')), `${pauN(sum('compartidos'))} compartidos`)}
+    </div>
+    ${ia.length ? `<div class="lectura"><b>🤖 Lectura de las páginas</b>${ia.map(x => `<div class="small" style="margin-top:4px">${esc(x)}</div>`).join('')}</div>` : ''}
+    <div class="grid g-2" style="margin-top:14px;gap:14px">
+      <div class="pn-card"><h3>👁️ Visualizaciones por día</h3>${pauSerie(SR, 'visualizaciones', '#2563eb', v => pauN(v))}</div>
+      <div class="pn-card"><h3>📣 Alcance por día</h3>${pauSerie(SR, 'alcance', '#16a34a', v => pauN(v))}</div>
+      <div class="pn-card"><h3>❤️ Interacciones por día</h3>${pauSerie(SR, 'interacciones', '#f97316', v => pauN(v))}</div>
+      <div class="pn-card"><h3>🆕 Nuevos seguidores por día</h3>${pauSerie(SR, 'nuevos_seguidores', '#9333ea', v => pauN(v))}</div>
+    </div>
+    <div class="pn-card" style="margin-top:14px"><h3>📄 Páginas</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Página</th><th class="r">Seguidores</th><th class="r">Visualiz.</th><th class="r">Alcance</th><th class="r">Interacc.</th><th class="r">Nuevos</th><th class="r">Publicaciones</th><th class="r">👍</th><th class="r">💭</th></tr></thead><tbody>${R.map(x => { const t = x.totales || {}; return `<tr><td><b>${x.pagina.enlace ? `<a href="${esc(x.pagina.enlace)}" target="_blank" rel="noopener">${esc(x.pagina.nombre)}</a>` : esc(x.pagina.nombre)}</b></td><td class="r">${pauN(x.pagina.seguidores ?? x.pagina.fans)}</td><td class="r">${t.visualizaciones === undefined ? '—' : pauN(t.visualizaciones)}</td><td class="r">${t.alcance === undefined ? '—' : pauN(t.alcance)}</td><td class="r">${t.interacciones === undefined ? '—' : pauN(t.interacciones)}</td><td class="r">${t.nuevos_seguidores === undefined ? '—' : pauN(t.nuevos_seguidores)}</td><td class="r">${pauN(t.publicaciones)}</td><td class="r">${pauN(t.reacciones)}</td><td class="r">${pauN(t.comentarios)}</td></tr>`; }).join('')}</tbody></table></div></div>
+    <div class="pn-card" style="margin-top:14px"><h3>🏆 Publicaciones con más interacción</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Publicación</th><th>Fecha</th><th class="r">Vistas</th><th class="r">👍</th><th class="r">💭</th><th class="r">🔁</th></tr></thead><tbody>${posts.slice(0, 15).map(p => `<tr><td><b title="${esc(p.texto)}">${p.enlace ? `<a href="${esc(p.enlace)}" target="_blank" rel="noopener">${esc(pauCorto(p.texto || 'Sin texto', 60))}</a>` : esc(pauCorto(p.texto || 'Sin texto', 60))}</b><div class="tiny muted">${esc(p.pag)}</div></td><td>${esc(String(p.fecha || '').slice(0, 10))}</td><td class="r">${p.vistas === null ? '—' : pauN(p.vistas)}</td><td class="r">${pauN(p.reacciones)}</td><td class="r">${pauN(p.comentarios)}</td><td class="r">${pauN(p.compartidos)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted small">Sin publicaciones en el período.</td></tr>'}</tbody></table></div></div>
+    ${fallos.length ? `<div class="notice"><i class="ti ti-info-circle"></i><div><b>Algunas métricas no las entregó Meta</b> (permiso o métrica no disponible para esa página):<br>${fallos.slice(0, 8).map(esc).join('<br>')}</div></div>` : '<p class="tiny muted">Datos en vivo desde la API de Meta · estado: conectado.</p>'}`;
+}
+function cargarFbGest(forzar) {
+  if (S.fbGBusy) return; S.fbGBusy = true;
+  api('fbComentarios', { pagina: S.fbGPag || '' }).then(r => { S.fbG = r; S.fbGErr = ''; S.fbGT = Date.now(); }).catch(e => { S.fbGErr = e.message; S.fbGT = Date.now(); })
+    .finally(() => { S.fbGBusy = false; if (S.view === 'fbgest') render(); });
+}
+function cargarFbRea(post) {
+  S.fbPost = post; S.fbRea = null; S.fbReaErr = ''; render();
+  api('fbReacciones', { pagina: S.fbGPag || (S.fbG && S.fbG.paginas[0] && S.fbG.paginas[0].id) || '', post }).then(r => { S.fbRea = r; }).catch(e => { S.fbReaErr = e.message; }).finally(() => { if (S.view === 'fbgest') render(); });
+}
+const fbFecha = f => { try { return new Date(f).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+const FB_MSG = nom => `¡Hola${nom ? ' ' + String(nom).split(' ')[0] : ''}! Gracias por escribirnos a Moto Racing AKT 🏍️ ¿Qué moto te gustaría conocer? Cuéntame y te comparto precio, bono vigente y cómo financiarla.`;
+function vFbGest() {
+  const jefe = 'jefe';
+  if (!S.fbGBusy && ((!S.fbG && !S.fbGErr) || Date.now() - (S.fbGT || 0) > 120e3)) cargarFbGest();
+  if (!S.fbG) return S.fbGErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.fbGErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo los comentarios de Facebook…</div></div>';
+  const r = S.fbG, aviso = fbAviso(r, jefe); if (aviso) return aviso;
+  const tab = S.fbTab || 'com', b = (k, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="fb-g" data-k="${k}" data-v="${v}">${txt}</button>`, filtro = S.fbFiltro || 'pend';
+  let C = r.comentarios || []; const pend = C.filter(c => !c.respondido && !c.oculto).length;
+  if (filtro === 'pend') C = C.filter(c => !c.respondido && !c.oculto); else if (filtro === 'ocultos') C = C.filter(c => c.oculto);
+  const tarjeta = c => `<div class="pn-card" style="margin:10px 0">
+      <div class="row between" style="gap:8px;flex-wrap:wrap"><div><b>${esc(c.autor)}</b> <span class="tiny muted">${esc(fbFecha(c.fecha))} · ${esc(c.paginaNombre)}</span></div><div class="tiny">${c.respondido ? '<span class="pill" style="background:#dcfce7;color:#166534">Respondido</span>' : '<span class="pill pill-warn">Sin responder</span>'} ${c.oculto ? '<span class="pill">Oculto</span>' : ''} ${c.contactado ? '<span class="pill" style="background:#dbeafe;color:#1e40af">Contactado</span>' : ''}</div></div>
+      <div style="margin:6px 0">${esc(c.texto) || '<i class="muted">(sin texto)</i>'}</div>
+      <div class="tiny muted">En: ${c.postEnlace ? `<a href="${esc(c.postEnlace)}" target="_blank" rel="noopener">${esc(pauCorto(c.postTexto || 'publicación', 70))}</a>` : esc(pauCorto(c.postTexto || 'publicación', 70))} · 👍 ${c.likes}</div>
+      ${c.miRespuesta ? `<div class="small" style="margin-top:6px;padding:6px 10px;border-left:3px solid #16a34a;background:rgba(22,163,74,.08)">Tú: ${esc(c.miRespuesta)}</div>` : ''}
+      <div class="row wrap" style="gap:6px;margin-top:8px">
+        <button class="btn btn-sm" data-act="fb-resp" data-id="${esc(c.id)}" data-pag="${esc(c.pagina)}"><i class="ti ti-message-reply"></i> Responder</button>
+        <button class="btn btn-sm" data-act="fb-like" data-id="${esc(c.id)}" data-pag="${esc(c.pagina)}"${c.megusta ? ' disabled' : ''}><i class="ti ti-thumb-up"></i> ${c.megusta ? 'Te gusta' : 'Me gusta'}</button>
+        <button class="btn btn-sm" data-act="fb-ocultar" data-id="${esc(c.id)}" data-pag="${esc(c.pagina)}" data-oc="${c.oculto ? 0 : 1}"><i class="ti ti-eye${c.oculto ? '' : '-off'}"></i> ${c.oculto ? 'Mostrar' : 'Ocultar'}</button>
+        ${c.privado ? `<button class="btn btn-sm btn-dark" data-act="fb-priv" data-id="${esc(c.id)}" data-pag="${esc(c.pagina)}" data-nom="${esc(c.autor)}" data-aid="${esc(c.autorId)}"><i class="ti ti-brand-messenger"></i> Escribirle por mensaje</button>` : ''}</div></div>`;
+  const personas = ((S.fbRea || {}).personas || []);
+  const cuerpoRea = !S.fbPost ? `<div class="pn-card"><h3>Elige una publicación</h3>${(S.fbPosts || []).length ? (S.fbPosts || []).map(p => `<div class="row between" style="padding:6px 0;border-bottom:1px solid rgba(100,116,139,.15)"><span class="small">${esc(pauCorto(p.texto || 'Sin texto', 80))} <span class="tiny muted">${esc(String(p.fecha || '').slice(0, 10))}</span></span><button class="btn btn-sm" data-act="fb-rea" data-id="${esc(p.id)}">👍 ${pauN(p.reacciones)} · Ver quién</button></div>`).join('') : '<p class="small muted">Cargando publicaciones…</p>'}</div>`
+    : `<div class="pn-card"><div class="row between"><h3>Personas que reaccionaron</h3><button class="btn btn-sm" data-act="fb-rea" data-id="">← Otra publicación</button></div>${S.fbReaErr ? `<div class="notice bad small">${esc(S.fbReaErr)}</div>` : !S.fbRea ? '<div class="loading"><i class="ti ti-loader-2 spin"></i> Leyendo…</div>' : `<p class="tiny muted">${esc(S.fbRea.nota || '')}</p>` + (personas.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Persona</th><th>Reacción</th><th></th></tr></thead><tbody>${personas.map(x => `<tr><td><b>${esc(x.nombre)}</b></td><td>${esc(x.tipo)}</td><td>${x.contactado ? '<span class="pill" style="background:#dbeafe;color:#1e40af">Contactado</span>' : `<button class="btn btn-sm btn-dark" data-act="fb-msg" data-id="${esc(x.id)}" data-nom="${esc(x.nombre)}"><i class="ti ti-brand-messenger"></i> Preguntar qué moto le gusta</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">Nadie reaccionó o Meta no entregó la lista.</p>')}</div>`;
+  return `${hero('jefe', 'ti-brand-facebook', 'Páginas de Facebook · Gestión', `${pend} comentario${pend === 1 ? '' : 's'} sin responder · responde, oculta, da me gusta y escríbeles por mensaje`)}
+    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center">
+      <div class="seg">${b('tab', 'com', '💭 Comentarios', tab === 'com')}${b('tab', 'rea', '👍 Me gusta y reacciones', tab === 'rea')}</div>
+      ${tab === 'com' ? `<div class="seg">${b('filtro', 'pend', 'Sin responder', filtro === 'pend')}${b('filtro', 'todos', 'Todos', filtro === 'todos')}${b('filtro', 'ocultos', 'Ocultos', filtro === 'ocultos')}</div>` : ''}
+      <div class="seg">${b('pag', '', 'Todas', !S.fbGPag)}${(r.paginas || []).map(p => b('pag', p.id, esc(pauCorto(p.nombre, 24)), S.fbGPag === p.id)).join('')}</div>
+      <button class="btn btn-sm" data-act="fb-gsync"${S.fbGBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.fbGBusy ? ' spin' : ''}"></i> Actualizar</button></div>
+    ${(r.fallos || []).length ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${r.fallos.map(esc).join('<br>')}</div></div>` : ''}
+    ${tab === 'com' ? (C.length ? C.map(tarjeta).join('') : '<div class="pn-card"><b>Nada pendiente 🎉</b><p class="small muted">No hay comentarios en este filtro.</p></div>') : cuerpoRea}`;
+}
+/** Ventana para escribir/enviar un texto (responder, mensaje privado). Devuelve el texto o null. */
+function pedirTextoFb(titulo, ayuda, ini) {
+  return new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>${esc(titulo)}</h3><div class="small">${esc(ayuda)}</div><textarea id="fb-txt" class="inp" rows="5" maxlength="900">${esc(ini || '')}</textarea>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="fb-no">Cancelar</button><button class="btn btn-dark" id="fb-si">Enviar</button></div></div>`, true);
+    $('#fb-no').onclick = () => { cerrarModal(); res(null); };
+    $('#fb-si').onclick = () => { const t = $('#fb-txt').value.trim(); if (t.length < 2) return toast('Escribe el mensaje.', 'bad'); cerrarModal(); res(t); };
+    S._modalCancel = () => res(null);
+  });
+}
+async function fbHacer(payload, okMsg) {
+  try { await api('fbAccion', payload); toast(okMsg, 'ok'); S.fbGT = 0; cargarFbGest(); } catch (e) { toast(e.message, 'bad'); }
+}
+function filtrosPanel(p) {
   const f = p.filtro || {}, sedeSel = f.sede || '', diasSel = f.dias || 30, b = (k, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pan-filtro" data-k="${k}" data-v="${v}">${txt}</button>`;
   return `<div class="row wrap" style="gap:10px;margin:0 0 12px"><div class="seg">${b('sede', '', 'Antioquia', !sedeSel)}${b('sede', 'Itagüí', 'Itagüí', sedeSel === 'Itagüí')}${b('sede', 'Los Colores', 'Los Colores', sedeSel === 'Los Colores')}</div><div class="seg">${b('dias', 1, 'Hoy', diasSel === 1)}${b('dias', 7, 'Semana', diasSel === 7)}${b('dias', 30, 'Mes', diasSel === 30)}</div></div>`;
 }
@@ -1014,7 +1116,7 @@ function vistasDeRolBase() {
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('alertas', 'ti-bell-ringing', 'Alertas')];
   return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('mateo', 'ti-robot', 'Reactivar Mateo'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
-    it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'),
+    it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('fbrend', 'ti-chart-bar', 'Páginas · Rendimiento'), it('fbgest', 'ti-brand-facebook', 'Páginas · Gestión'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
 }
 function homeDeRol() { return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
@@ -1055,7 +1157,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
+  const base = { fbrend: vFbRend, fbgest: vFbGest, pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
     alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, mateo: vMateo, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
@@ -3320,6 +3422,21 @@ document.addEventListener('click', async e => {
   }
   if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
   if (act === 'pau-sync') { S.pau = S.pau; cargarPauta(true); render(); return; }
+  if (act === 'fb-f') { if (a.dataset.k === 'dias') S.fbDias = Number(a.dataset.v); else S.fbPag = a.dataset.v; S.fbR = null; S.fbErr = ''; S.fbT = 0; render(); return; }
+  if (act === 'fb-sync') { cargarFbRend(true); render(); return; }
+  if (act === 'fb-gsync') { S.fbGT = 0; cargarFbGest(true); render(); return; }
+  if (act === 'fb-g') {
+    const k = a.dataset.k, v = a.dataset.v;
+    if (k === 'tab') { S.fbTab = v; S.fbPost = ''; S.fbRea = null; if (v === 'rea') { S.fbPosts = null; api('fbReacciones', { pagina: S.fbGPag || (S.fbG && S.fbG.paginas[0] && S.fbG.paginas[0].id) || '' }).then(r => { S.fbPosts = r.posts || []; }).catch(e => { S.fbPosts = []; toast(e.message, 'bad'); }).finally(() => { if (S.view === 'fbgest') render(); }); } }
+    else if (k === 'filtro') S.fbFiltro = v; else { S.fbGPag = v; S.fbG = null; S.fbGErr = ''; S.fbGT = 0; S.fbPosts = null; S.fbPost = ''; }
+    render(); return;
+  }
+  if (act === 'fb-rea') { if (!a.dataset.id) { S.fbPost = ''; S.fbRea = null; render(); return; } cargarFbRea(a.dataset.id); return; }
+  if (act === 'fb-resp') { const t = await pedirTextoFb('Responder el comentario', 'Se publica como respuesta pública desde la página.'); if (t) await fbHacer({ pagina: a.dataset.pag, tipo: 'responder', id: a.dataset.id, texto: t }, 'Respuesta publicada'); return; }
+  if (act === 'fb-like') { await fbHacer({ pagina: a.dataset.pag, tipo: 'megusta', id: a.dataset.id }, 'Me gusta dado desde la página'); return; }
+  if (act === 'fb-ocultar') { const oc = a.dataset.oc === '1'; if (oc && !await confirmar('Ocultar comentario', 'Solo lo ves tú y quien lo escribió; no se borra.', 'Ocultar')) return; await fbHacer({ pagina: a.dataset.pag, tipo: oc ? 'ocultar' : 'mostrar', id: a.dataset.id }, oc ? 'Comentario oculto' : 'Comentario visible'); return; }
+  if (act === 'fb-priv') { const t = await pedirTextoFb('Escribirle por mensaje a ' + a.dataset.nom, 'Respuesta privada por Messenger al comentario (Meta permite una por comentario, dentro de 7 días).', FB_MSG(a.dataset.nom)); if (t) await fbHacer({ pagina: a.dataset.pag, tipo: 'privado', id: a.dataset.id, texto: t, nombre: a.dataset.nom, autorId: a.dataset.aid }, 'Mensaje enviado por Messenger'); return; }
+  if (act === 'fb-msg') { const t = await pedirTextoFb('Escribirle a ' + a.dataset.nom, 'Mensaje directo por Messenger. Si la persona nunca le escribió a la página, Meta puede rechazarlo.', FB_MSG(a.dataset.nom)); if (t) { try { await api('fbAccion', { pagina: S.fbGPag || (S.fbG && S.fbG.paginas[0] && S.fbG.paginas[0].id) || '', tipo: 'mensaje', id: a.dataset.id, texto: t, nombre: a.dataset.nom }); toast('Mensaje enviado', 'ok'); cargarFbRea(S.fbPost); } catch (e) { toast(e.message, 'bad'); } } return; }
   if (act === 'gl-exp') {
     a.disabled = true;
     try { await exportarLeads(a.dataset.m); } catch (e) { toast(e.message || 'No se pudo exportar.', 'bad'); }
