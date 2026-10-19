@@ -108,7 +108,7 @@
 <script>
 (function () {
   'use strict';
-  var API = (window.AKT_CONFIG || {}).API_URL, T = new URLSearchParams(location.search).get('t') || '';
+  var API = ((window.AKT_CONFIG || {}).API_EDGE || (window.AKT_CONFIG || {}).API_URL), T = new URLSearchParams(location.search).get('t') || '';
   var $ = function (id) { return document.getElementById(id); };
   var nota = null, atencion = null, motivo = null;
   var MOTIVOS = [['precio', 'El precio'], ['credito', 'No me aprobaron el crédito'], ['otro_lado', 'Compré en otro lado'], ['atencion', 'La atención que recibí'], ['no_decide', 'Aún no me decido'], ['otro', 'Otra razón']];

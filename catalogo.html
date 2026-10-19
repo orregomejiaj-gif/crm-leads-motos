@@ -116,7 +116,7 @@
 <script>
 (function () {
   'use strict';
-  var API = (window.AKT_CONFIG || {}).API_URL;
+  var API = ((window.AKT_CONFIG || {}).API_EDGE || (window.AKT_CONFIG || {}).API_URL);
   var WA = '573502683788';
   var IMG = 'https://motoracing.7-24.co/userfiles/productos/thumbnails/600_';
   var cop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });

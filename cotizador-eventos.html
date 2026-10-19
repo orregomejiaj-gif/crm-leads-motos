@@ -159,7 +159,7 @@
 <script>
 (function () {
   'use strict';
-  var API = (window.AKT_CONFIG || {}).API_URL;
+  var API = ((window.AKT_CONFIG || {}).API_EDGE || (window.AKT_CONFIG || {}).API_URL);
   var qs = new URLSearchParams(location.search);
   var REF = { contacto: (qs.get('c') || '').replace(/\D/g, ''), nombre: qs.get('n') || '', modelo: qs.get('m') || '', zona: qs.get('z') || '', evento: (qs.get('e') || '').slice(0, 40) };
 
