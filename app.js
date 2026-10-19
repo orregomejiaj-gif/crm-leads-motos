@@ -3444,17 +3444,38 @@ function pintarBtnViejos() {
   const b = $('#btn-viejos'); if (!b) return;
   const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe'), ver = !cfgLeadsDesde();
   b.hidden = !jefe; b.classList.toggle('on', ver);
-  b.title = ver ? 'Todos ven también los leads viejos · clic para ocultarlos para todos' : 'Leads viejos ocultos para todos (desde ' + cfgLeadsDesde() + ') · clic para mostrarlos';
+  b.title = ver ? 'Todos ven también los leads viejos · clic para ocultarlos para todos' : 'Leads viejos ocultos para todos (anteriores al ' + cfgLeadsDesde() + ')' + (cfgLeadsDesde('LEADS_MOTIVO') ? ' · Motivo: ' + cfgLeadsDesde('LEADS_MOTIVO') : '') + ' · clic para mostrarlos';
   b.querySelector('i').className = 'ti ' + (ver ? 'ti-eye' : 'ti-eye-off');
+}
+/** Pregunta desde qué fecha ocultar los leads viejos y el porqué (obligatorio). Devuelve { fecha, motivo } o null si se cancela. */
+function pedirOcultarLeads(fechaIni) {
+  return new Promise(res => {
+    const hoy = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
+    abrirSheet(`<div class="sheet-b"><h3>Ocultar leads viejos</h3>
+      <div class="small">Todo el equipo (asesores, administradores y jefe) dejará de ver los leads que llegaron <b>antes</b> de la fecha que elijas y no están cotizados ni vendidos. No se borra nada y puedes volver a mostrarlos con el mismo botón.</div>
+      <label class="small">Ocultar los leads anteriores al<input type="date" id="ol-fecha" class="inp" value="${esc(fechaIni)}" max="${hoy}"></label>
+      <label class="small">Justificación (obligatoria)<textarea id="ol-motivo" class="inp" rows="3" maxlength="300" placeholder="Ej.: leads vencidos de días anteriores; se limpia la bandeja mientras se ponen al día los nuevos"></textarea></label>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="ol-no">Cancelar</button><button class="btn btn-dark" id="ol-si">Ocultar para todos</button></div></div>`, true);
+    $('#ol-no').onclick = () => { cerrarModal(); res(null); };
+    $('#ol-si').onclick = () => {
+      const f = $('#ol-fecha').value, m = $('#ol-motivo').value.replace(/[\r\n\t]+/g, ' ').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || f > hoy) return toast('Elige una fecha válida (no futura).', 'bad');
+      if (m.length < 8) return toast('Escribe la justificación (mínimo unas palabras).', 'bad');
+      cerrarModal(); res({ fecha: f, motivo: m });
+    };
+    S._modalCancel = () => res(null);
+  });
 }
 function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find(x => String(x.clave) === (clave || 'LEADS_DESDE')); return r ? String(r.valor || '').trim() : ''; }
 $('#btn-viejos').onclick = async (ev) => {
   const b = ev.currentTarget, oculto = !!cfgLeadsDesde();
-  if (!await confirmar(oculto ? 'Mostrar leads viejos' : 'Ocultar leads viejos', oculto ? 'Todo el equipo (asesores, administradores y jefe) volverá a ver los leads viejos.' : 'Todo el equipo (asesores, administradores y jefe) dejará de ver los leads que llegaron antes del ' + (cfgLeadsDesde('LEADS_CORTE') || '2026-10-15') + ' y no están cotizados ni vendidos.', 'Sí, continuar')) return;
+  let datos = null;
+  if (oculto) { if (!await confirmar('Mostrar leads viejos', 'Todo el equipo (asesores, administradores y jefe) volverá a ver los leads viejos.', 'Sí, continuar')) return; }
+  else { datos = await pedirOcultarLeads(cfgLeadsDesde('LEADS_CORTE') || '2026-10-15'); if (!datos) return; }
   b.disabled = true;
   try {
     const corte = cfgLeadsDesde('LEADS_CORTE') || '2026-10-15';
-    await api('config', { valores: { LEADS_CORTE: corte, LEADS_DESDE: oculto ? '' : corte } });
+    await api('config', { valores: oculto ? { LEADS_DESDE: '' } : { LEADS_CORTE: datos.fecha, LEADS_DESDE: datos.fecha, LEADS_MOTIVO: datos.motivo } });
     await new Promise(r => setTimeout(r, 1200)); S.bandejaIni = false; await cargar();
     toast(oculto ? 'Todos ven ahora los leads viejos' : 'Leads viejos ocultos para todo el equipo', 'ok');
   } catch (e) { toast(e.message, 'bad'); } finally { b.disabled = false; }
