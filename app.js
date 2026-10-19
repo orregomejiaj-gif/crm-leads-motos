@@ -444,6 +444,7 @@ async function cargar(silencioso) {
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
     $('#tb-sub').textContent = `${S.data.user.nombre} · ${({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
     $('#tb-ver').textContent = `v${window.AKT_VERSION || '?'}${S.data.version ? ' · API ' + S.data.version : ''}`;
+    pintarBtnViejos();
     if (!S.bandejaIni) { S.bandejaIni = true; cargarBandeja(); }
     const vistas = vistasDeRol();
     if (!S._home) { S._home = 1; S.view = homeDeRol(); }
@@ -3438,6 +3439,26 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.edit) { e.preventDefault(); e.target.blur(); }
 });
 $('#btn-refresh').onclick = () => cargar();
+/** Botón del Jefe: oculta o muestra los leads viejos que el servidor esconde (config LEADS_DESDE). */
+function pintarBtnViejos() {
+  const b = $('#btn-viejos'); if (!b) return;
+  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe'), ver = !cfgLeadsDesde();
+  b.hidden = !jefe; b.classList.toggle('on', ver);
+  b.title = ver ? 'Todos ven también los leads viejos · clic para ocultarlos para todos' : 'Leads viejos ocultos para todos (desde ' + cfgLeadsDesde() + ') · clic para mostrarlos';
+  b.querySelector('i').className = 'ti ' + (ver ? 'ti-eye' : 'ti-eye-off');
+}
+function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find(x => String(x.clave) === (clave || 'LEADS_DESDE')); return r ? String(r.valor || '').trim() : ''; }
+$('#btn-viejos').onclick = async (ev) => {
+  const b = ev.currentTarget, oculto = !!cfgLeadsDesde();
+  if (!await confirmar(oculto ? 'Mostrar leads viejos' : 'Ocultar leads viejos', oculto ? 'Todo el equipo (asesores, administradores y jefe) volverá a ver los leads viejos.' : 'Todo el equipo (asesores, administradores y jefe) dejará de ver los leads que llegaron antes del ' + (cfgLeadsDesde('LEADS_CORTE') || '2026-10-15') + ' y no están cotizados ni vendidos.', 'Sí, continuar')) return;
+  b.disabled = true;
+  try {
+    const corte = cfgLeadsDesde('LEADS_CORTE') || '2026-10-15';
+    await api('config', { valores: { LEADS_CORTE: corte, LEADS_DESDE: oculto ? '' : corte } });
+    await new Promise(r => setTimeout(r, 1200)); S.bandejaIni = false; await cargar();
+    toast(oculto ? 'Todos ven ahora los leads viejos' : 'Leads viejos ocultos para todo el equipo', 'ok');
+  } catch (e) { toast(e.message, 'bad'); } finally { b.disabled = false; }
+};
 $('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
 $('#demo-role').onchange = e => { S.demoRole = e.target.value; S.hoyAsesor = ''; S.f.asesor = ''; S.f.punto = ''; cargar(); };
 
