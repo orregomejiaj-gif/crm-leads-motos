@@ -356,10 +356,11 @@ function vCargaDatos() {
       <input type="file" accept=".xlsx,.xls,.csv" data-carga="${k}">
       ${x ? `<div class="notice ${x.error ? 'bad' : ''}" style="margin-top:8px"><i class="ti ti-info-circle"></i><div>${x.error ? esc(x.error) : `<b>${x.filas.length}</b> filas listas${x.pos ? ` (${x.filas.length - x.pos} motos y ${x.pos} de posventa)` : ''} (de ${x.leidas} leídas${x.descartadas ? ', ' + x.descartadas + ' descartadas: no son de Medellín o Itagüí o no tienen datos' : ''}). Fechas: ${esc(x.desde)} a ${esc(x.hasta)}.`}</div></div>
         ${x.error ? '' : `<button class="btn btn-primary" style="margin-top:8px" data-act="carga-enviar" data-k="${k}" ${S.carga.enviando ? 'disabled' : ''}><i class="ti ti-cloud-upload"></i> Cargar a Supabase</button>`}` : ''}
-      <div class="small muted" id="carga-prog-${k}" style="margin-top:6px"></div></div>`;
+      <div class="small muted" id="carga-prog-${k}" style="margin-top:6px"></div>
+      ${u.rol === 'jefe' ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(100,116,139,.25)"><button class="btn btn-sm" data-act="carga-limpiar" data-t="${c.tipo}"><i class="ti ti-trash"></i> Limpiar ${c.tipo === 'ventas' ? 'ventas de motos' : 'cotizaciones'}</button>${c.tipo === 'ventas' ? ' <button class="btn btn-sm" data-act="carga-limpiar" data-t="posventa"><i class="ti ti-trash"></i> Limpiar posventa</button>' : ''}</div>` : ''}</div>`;
   };
   return `<div class="grid g2">${fila(CARGAS_X.cot, 'cot')}${fila(CARGAS_X.ven, 'ven')}</div>
-    <p class="small muted" style="margin-top:10px">Cada carga actualiza lo que ya existe y agrega lo nuevo, sin duplicar. No borra nada. Mientras la migración no termine, sigue pegando los mismos archivos en las hojas de Google.</p>`;
+    <p class="small muted" style="margin-top:10px">Cada carga actualiza lo que ya existe y agrega lo nuevo, sin duplicar. Si cargaste algo mal, el Jefe puede limpiar la base (todo, el último cargue o un cargue elegido) y volver a cargarla. Mientras la migración no termine, sigue pegando los mismos archivos en las hojas de Google.</p>`;
 }
 async function cargarEstadoCarga() {
   try { S.carga.estado = await api('cargaEstado'); if (S.view === 'carga') render(); } catch (e) { toast('No se pudo consultar las cargas: ' + e.message, 'bad'); }
@@ -384,12 +385,12 @@ async function leerArchivoCarga(inp) {
 async function enviarCarga(k) {
   const c = CARGAS_X[k], x = S.carga[k]; if (!x || !x.filas || S.carga.enviando) return;
   S.carga.enviando = true; render();
-  const prog = () => $('#carga-prog-' + k), TAM = 300; let hechas = 0;
+  const prog = () => $('#carga-prog-' + k), TAM = 300, lote = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 19); let hechas = 0;   // mismo lote en todos los tramos: así se puede borrar este cargue completo
   try {
     for (let i = 0; i < x.filas.length; i += TAM) {
       const lote = x.filas.slice(i, i + TAM), pos = lote.filter(r => r.tabla === 'posventa'), mot = lote.filter(r => r.tabla !== 'posventa');
-      if (mot.length) await api('cargar', { tipo: c.tipo, filas: mot });
-      if (pos.length) await api('cargar', { tipo: 'posventa', filas: pos });
+      if (mot.length) await api('cargar', { tipo: c.tipo, filas: mot, lote });
+      if (pos.length) await api('cargar', { tipo: 'posventa', filas: pos, lote });
       hechas += lote.length;
       if (prog()) prog().textContent = 'Cargadas ' + hechas + ' de ' + x.filas.length + '…';
     }
@@ -398,6 +399,39 @@ async function enviarCarga(k) {
   S.carga.enviando = false; render();
 }
 document.addEventListener('change', e => { const i = e.target && e.target.closest && e.target.closest('[data-carga]'); if (i) leerArchivoCarga(i); });
+/** Limpiar una base cargada (solo Jefe): borrar todo, el último cargue o un cargue elegido. Pide confirmación y deja registro en la bitácora. */
+async function limpiarCarga(tipo) {
+  let d; try { d = await api('cargaLotes', { tipo }); } catch (e) { return toast(e.message, 'bad'); }
+  const hora = f => f ? new Date(f + '-05:00').toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'cargue anterior (sin fecha)';
+  const L = d.lotes || [], ult = L.find(x => x.fecha);
+  if (!d.total) return toast('«' + d.nombre + '» ya está vacía.', 'ok');
+  const res = await new Promise(ok => {
+    abrirSheet(`<div class="sheet-b"><h3>Limpiar: ${esc(d.nombre)}</h3>
+      <div class="small">Hay <b>${d.total}</b> registros en esta base. Lo que borres sale de toda la app (comisiones, paneles, cruces) hasta que lo vuelvas a cargar.</div>
+      <div class="small" style="margin-top:8px"><b>¿Qué quieres borrar?</b>
+        <label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="lc-m" value="ultimo"${ult ? ' checked' : ' disabled'}> Solo el último cargue${ult ? ' <span class="tiny muted">(' + esc(hora(ult.fecha)) + ' · ' + ult.n + ' registros · ' + esc(ult.quien) + ')</span>' : ' <span class="tiny muted">(no hay cargues con fecha registrada)</span>'}</label>
+        <label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="lc-m" value="lote"${ult ? '' : ' checked'}> Elegir un cargue</label>
+        <select id="lc-lote" class="inp" style="${ult ? 'display:none' : ''}">${L.map(x => `<option value="${esc(x.lote)}">${esc(hora(x.fecha))} · ${x.n} registros${x.quien ? ' · ' + esc(x.quien) : ''}</option>`).join('')}</select>
+        <label style="display:flex;gap:8px;align-items:center;margin:5px 0"><input type="radio" name="lc-m" value="todo"> Borrar <b>todo</b> (${d.total} registros)</label>
+        <div id="lc-todo" style="display:none"><label class="small">Para confirmar escribe <b>BORRAR</b><input id="lc-txt" class="inp" autocomplete="off"></label></div></div>
+      <div class="tiny muted" style="margin-top:6px">Un cargue incluye los registros que agregó o actualizó ese archivo; los que ya existían y se actualizaron también se borran con él. Si falta algo, vuelve a cargar el archivo.</div>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="lc-no">Cancelar</button><button class="btn btn-primary" id="lc-si"><i class="ti ti-trash"></i> Borrar</button></div></div>`, true);
+    const modo = () => document.querySelector('input[name="lc-m"]:checked').value;
+    document.querySelectorAll('input[name="lc-m"]').forEach(r => { r.onchange = () => { $('#lc-lote').style.display = modo() === 'lote' ? '' : 'none'; $('#lc-todo').style.display = modo() === 'todo' ? '' : 'none'; }; });
+    $('#lc-no').onclick = () => { cerrarModal(); ok(null); };
+    $('#lc-si').onclick = () => {
+      const m = modo();
+      if (m === 'todo' && $('#lc-txt').value.trim().toUpperCase() !== 'BORRAR') return toast('Escribe BORRAR para confirmar.', 'bad');
+      const lote = m === 'lote' ? $('#lc-lote').value : '', x = m === 'lote' ? L.find(y => y.lote === lote) : m === 'ultimo' ? ult : null;
+      cerrarModal(); ok({ modo: m, lote, n: m === 'todo' ? d.total : (x ? x.n : 0), txt: m === 'todo' ? 'toda la base' : 'el cargue de ' + hora(x && x.fecha) });
+    };
+    S._modalCancel = () => ok(null);
+  });
+  if (!res) return;
+  if (!(await confirmar('¿Seguro?', `Se borrarán <b>${res.n}</b> registros de <b>${esc(d.nombre)}</b> (${esc(res.txt)}). Esta acción no se puede deshacer, pero puedes volver a cargar el archivo.`, 'Sí, borrar', true))) return;
+  try { const r = await api('cargaLimpiar', { tipo, modo: res.modo, lote: res.lote }); toast('Se borraron ' + r.borrados + ' registros' + (r.restan !== null && r.restan !== undefined ? ' · quedan ' + r.restan : ''), 'ok'); cargarEstadoCarga(); cargar(true); }
+  catch (e) { toast(e.message, 'bad'); }
+}
 
 // Verificación de la migración (solo Jefe, una vez por ingreso): compara la lista de chats y un chat de Supabase contra Google.
 async function verificarEdge() {
@@ -3502,6 +3536,7 @@ document.addEventListener('click', async e => {
       toast(n + ' chat' + (n === 1 ? '' : 's') + ' pasado' + (n === 1 ? '' : 's') + ' a Chats como urgente' + (n === 1 ? '' : 's') + ' (sin IA)', 'ok'); await cargar(true); } catch (e) { toast(e.message, 'bad'); }
     M.go = false; M.msg = ''; M.t = 0; cargarMateo(); return;
   }
+  if (act === 'carga-limpiar') return limpiarCarga(a.dataset.t);
   if (act === 'mateo-go') {
     const M = S.mat; if (!M || M.go) return; M.go = true; M.msg = 'Reactivando…'; render();
     let hechos = 0, fallidos = 0;
