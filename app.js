@@ -2332,6 +2332,7 @@ function barraMasiva() {
   return `<div class="notice" id="emb-barra" style="position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><i class="ti ti-checkbox"></i><b><span id="emb-n">${S.embSel.size}</span> seleccionado(s)</b>
     <select class="sel" id="emb-dest"><option value="">Mover a…</option>${dest.map(x => `<option value="${x}"${S.embDest === x ? ' selected' : ''}>${lblEstado(x)}</option>`).join('')}</select>
     <button class="btn btn-sm btn-dark" data-act="emb-mover"><i class="ti ti-arrows-right"></i> Mover seleccionados</button>
+    ${S.data.user.rol !== 'asesor' ? `<button class="btn btn-sm btn-dark" data-act="emb-reasignar"><i class="ti ti-arrows-exchange"></i> ${S.data.user.rol === 'jefe' ? 'Reasignar asesor' : 'Solicitar reasignación'}</button>` : ''}
     <button class="btn btn-sm" data-act="emb-limpiar">Limpiar selección</button><span class="tiny muted">Marca tarjetas o «todos» en una columna.</span></div>`;
 }
 /** Qué se hace con un lead al llevarlo a «destino»: normal, reabrir (devolver, solo el Jefe autorizado) o bloqueado. */
@@ -2382,6 +2383,41 @@ async function moverMasivo() {
   }
   S.embSel = new Set(); S.embDest = '';
   toast(`${ok} lead(s) movidos a ${lblEstado(destino)}` + (fallos ? ` · ${fallos} con error` : ''), fallos ? 'bad' : 'ok');
+  await cargar(true);
+}
+/** Reasigna de una vez los leads marcados en el Embudo: el Jefe cambia el asesor (y el punto); el administrador solicita la reasignación al Jefe. */
+async function reasignarMasivo() {
+  const u = S.data.user, jefe = u.rol === 'jefe', ls = [...S.embSel].map(id => S.M.byId[id]).filter(Boolean);
+  if (!ls.length) return toast('Marca al menos un lead.', 'bad');
+  if (ls.length > 40) return toast('Máximo 40 leads por vez: quita algunos.', 'bad');
+  const eq = (S.M.asesores || []).filter(p => p.nombre && (jefe || p.sedeCanon === u.sede)), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
+  const optsAs = punto => opts(eq.filter(p => !jefe || p.sedeCanon === punto).map(p => p.nombre), '', jefe ? 'Elige el nuevo asesor…' : 'Asesor sugerido…');
+  const r = await new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3><i class="ti ti-arrows-exchange"></i> ${jefe ? 'Reasignar asesor' : 'Solicitar reasignación'} · ${ls.length} lead(s)</h3>
+      <p class="small muted" style="margin:0">${jefe ? 'El asesor nuevo recibe un aviso por WhatsApp por cada lead y el cambio queda auditado.' : 'La solicitud llega al Jefe Comercial, que decide.'}<br>Hoy: ${esc(uniq(ls.map(l => l.asesor || 'Sin asesor')).slice(0, 6).join(', '))}</p>
+      ${jefe ? `<label class="f" for="rm-punto">Punto de venta</label><select class="sel w100" id="rm-punto">${puntos.map(p => `<option>${esc(p)}</option>`).join('')}</select>` : ''}
+      <label class="f" for="rm-as">Asesor</label><select class="sel w100" id="rm-as">${optsAs(puntos[0] || '')}</select>
+      <label class="f" for="rm-mot">Motivo (obligatorio)</label><input class="inp w100" id="rm-mot" maxlength="200" placeholder="Ej.: reparto de leads / el asesor está de vacaciones">
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" id="rm-no">Cancelar</button><button class="btn btn-dark" id="rm-si">${jefe ? 'Reasignar' : 'Solicitar'}</button></div></div>`, true);
+    if (jefe) $('#rm-punto').onchange = () => { $('#rm-as').innerHTML = optsAs($('#rm-punto').value); };
+    $('#rm-no').onclick = () => { cerrarModal(); res(null); };
+    $('#rm-si').onclick = () => {
+      const as = $('#rm-as').value, mot = $('#rm-mot').value.trim();
+      if (jefe && !as) return toast('Elige el nuevo asesor.', 'bad'); if (mot.length < 5) return toast('Cuenta el motivo.', 'bad');
+      cerrarModal(); res({ as, mot, punto: jefe ? $('#rm-punto').value : '' });
+    };
+    S._modalCancel = () => res(null);
+  });
+  if (!r) return;
+  let ok = 0; const fallos = [];
+  for (let i = 0; i < ls.length; i++) {
+    const l = ls[i]; toast(`${jefe ? 'Reasignando' : 'Solicitando'}… ${i + 1}/${ls.length}`);
+    if (jefe && norm(l.asesor) === norm(r.as) && (!r.punto || l.sede === r.punto)) { fallos.push(l.nombre + ': ya es de ese asesor'); continue; }
+    try { await api(jefe ? 'reasignar' : 'solicitarReasignacion', jefe ? { id_lead: l.id, asesor: r.as, punto: r.punto, motivo: r.mot } : { id_lead: l.id, asesor: r.as, motivo: r.mot }); ok++; }
+    catch (e) { fallos.push(l.nombre + ': ' + e.message); }
+  }
+  S.embSel = new Set();
+  toast(`${ok} lead(s) ${jefe ? 'reasignados' : 'solicitados'}` + (fallos.length ? ` · ${fallos.length} sin cambio (${fallos[0]})` : ''), fallos.length && !ok ? 'bad' : 'ok');
   await cargar(true);
 }
 function vEmbudo() {
@@ -3483,6 +3519,7 @@ document.addEventListener('click', async e => {
     render(); return;
   }
   if (act === 'emb-masivo') { S.embMasivo = !S.embMasivo; S.embSel = new Set(); S.embDest = ''; render(); return; }
+  if (act === 'emb-reasignar') { a.disabled = true; try { await reasignarMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
