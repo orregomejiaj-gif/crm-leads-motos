@@ -473,6 +473,7 @@ async function cargar(silencioso) {
   try {
     if (!DEMO && S.token && !tokenVigente(S.token)) { salir('Tu sesión venció. Vuelve a entrar.'); return false; }
     S.data = await api('bootstrap', { fresco: !silencioso && !!S.data }); // la actualización automática puede venir de la memoria de Supabase; el botón de refrescar siempre pide datos nuevos
+    if (S.data) { S.data.hojas = S.data.hojas || {}; S.data.user = S.data.user || {}; }   // algunos perfiles (asesor) llegan sin estas partes: la ficha y el chat las leen sin comprobar
     construirModelo();
     S.lastLoad = new Date();
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
