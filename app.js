@@ -2308,7 +2308,7 @@ function periodoDesde(p) {
 function filtrar(ls, f) {
   const rango = !!(f.desde || f.hasta);   // con fechas elegidas a mano manda ese rango (por fecha de llegada) y no el período
   const [desde, hasta] = rango ? [null, null] : periodoDesde(f.periodo);
-  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.moto || motoLead(l) === f.moto) &&
+  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.estado || l.estado === f.estado) && (!f.moto || motoLead(l) === f.moto) &&
     (!desde || (l.asign && l.asign >= desde)) && (!hasta || (l.asign && l.asign < hasta)));
 }
 function filtrosHTML(conOrigen = true) {
@@ -2318,19 +2318,80 @@ function filtrosHTML(conOrigen = true) {
     ${u.rol === 'jefe' ? `<select class="sel" data-f="punto">${opts(sedes, f.punto, 'Todos los puntos')}</select>` : ''}
     ${u.rol !== 'asesor' ? `<select class="sel" data-f="asesor">${opts([OPC_SIN_ASESOR].concat(uniq(M.asesores.filter(p => !f.punto || p.sedeCanon === f.punto).map(p => p.nombre).concat(M.leads.map(l => l.asesor))).filter(Boolean).sort()), f.asesor, 'Todos los asesores')}</select>` : ''}
     ${conOrigen ? `<select class="sel" data-f="origen">${opts(uniq(M.leads.map(l => l.origen)).sort(), f.origen, 'Todos los orígenes')}</select>` : ''}
+    <select class="sel" data-f="estado" title="Filtrar por etapa del embudo">${opts(ESTADOS.concat(['Otra ciudad']).map(x => ({ v: x, t: x === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(x) })), f.estado, 'Todas las etapas')}</select>
     <select class="sel" data-f="moto" title="Filtrar por moto de interés">${opts(motosOpts(M.leads), f.moto, 'Todas las motos')}</select>
     <select class="sel" data-f="periodo" ${f.desde || f.hasta ? 'disabled title="Hay fechas elegidas: manda ese rango"' : ''}>${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
     <span class="row" style="gap:4px;align-items:center" title="Leads que llegaron entre estas fechas"><input type="date" class="inp" data-f="desde" value="${esc(f.desde || '')}" aria-label="Desde"> <span class="small muted">a</span> <input type="date" class="inp" data-f="hasta" value="${esc(f.hasta || '')}" aria-label="Hasta">${f.desde || f.hasta ? ' <button class="btn btn-sm" data-act="f-fechas-q" title="Quitar fechas"><i class="ti ti-x"></i></button>' : ''}</span>
   </div>`;
 }
+/** Barra de la selección múltiple del Embudo: cuántos hay marcados, a qué estado moverlos y el botón. */
+function barraMasiva() {
+  if (!S.embMasivo) return '';
+  const dest = ESTADOS.filter(x => x !== 'Nuevo' || puedeReabrir());
+  return `<div class="notice" id="emb-barra" style="position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><i class="ti ti-checkbox"></i><b><span id="emb-n">${S.embSel.size}</span> seleccionado(s)</b>
+    <select class="sel" id="emb-dest"><option value="">Mover a…</option>${dest.map(x => `<option value="${x}"${S.embDest === x ? ' selected' : ''}>${lblEstado(x)}</option>`).join('')}</select>
+    <button class="btn btn-sm btn-dark" data-act="emb-mover"><i class="ti ti-arrows-right"></i> Mover seleccionados</button>
+    <button class="btn btn-sm" data-act="emb-limpiar">Limpiar selección</button><span class="tiny muted">Marca tarjetas o «todos» en una columna.</span></div>`;
+}
+/** Qué se hace con un lead al llevarlo a «destino»: normal, reabrir (devolver, solo el Jefe autorizado) o bloqueado. */
+function claseMovimiento(l, destino) {
+  const orden = ESTADOS.indexOf.bind(ESTADOS), retro = ['Nuevo', 'Contactado', 'Cotizado'].includes(destino) && (destino === 'Nuevo' || orden(destino) < orden(l.estado) || ['Facturado', 'Perdido', 'Retenido'].includes(l.estado));
+  if (retro && puedeReabrir()) return l.cerrado ? 'bloqueado' : 'reabrir';
+  if (destino === 'Nuevo' || (orden(destino) < orden(l.estado) && ['Contactado', 'Cotizado'].includes(destino)) || (['Facturado', 'Perdido'].includes(l.estado) && destino !== 'Retenido')) {
+    if (!(l.estado === 'Retenido' && ['Cotizado', 'Facturado', 'Perdido'].includes(destino))) return 'bloqueado';
+  }
+  return 'normal';
+}
+/** Mueve de una vez todos los leads marcados al estado elegido. Lo que exige datos (contacto, motivo de pérdida o de detención) se pide UNA vez y se aplica a todos. */
+async function moverMasivo() {
+  const destino = S.embDest; if (!destino) return toast('Elige el estado de destino.', 'bad');
+  const sel = [...S.embSel].map(id => S.M.byId[id]).filter(Boolean); if (!sel.length) return toast('Marca al menos un lead.', 'bad');
+  const mismos = sel.filter(l => l.estado === destino).length, editables = sel.filter(l => l.estado !== destino && puedeEditar(l)), sinPermiso = sel.length - mismos - editables.length;
+  const reab = editables.filter(l => claseMovimiento(l, destino) === 'reabrir'), norm_ = editables.filter(l => claseMovimiento(l, destino) === 'normal'), bloq = editables.length - reab.length - norm_.length;
+  if (!reab.length && !norm_.length) return toast('Ninguno de los marcados se puede mover a ese estado' + (bloq ? ' (solo el Jefe autorizado devuelve etapas)' : '') + '.', 'bad');
+  const resumen = `Se moverán <b>${reab.length + norm_.length}</b> lead(s) a <b>${esc(lblEstado(destino))}</b>.` + (mismos ? `<br>${mismos} ya están en ese estado.` : '') + (bloq ? `<br>${bloq} no se pueden mover (cerrados o etapa anterior sin permiso).` : '') + (sinPermiso ? `<br>${sinPermiso} no son tuyos.` : '');
+  if (!(await confirmar('Mover en masa', resumen, 'Mover'))) return;
+  const falsos = { nombre: (norm_.length + reab.length) + ' leads seleccionados', raw: { modelo_interes: '' } };
+  let datos = null;
+  try {
+    if (norm_.length) {
+      if (destino === 'Contactado') { datos = await pedirContacto(falsos, false); if (!datos) return; }
+      else if (destino === 'Cotizado') {
+        if (norm_.some(l => !l.cot.length) && !(await confirmar('Sin cotización en el CRM', 'Algunos no tienen una cotización cargada. Si continúas, quedan marcados como <b>Inconsistencia</b> y el Jefe Comercial los verá en Conciliación.', 'Marcar igual'))) return;
+        if (norm_.some(l => !l.contactado)) { datos = await pedirContacto(falsos, false); if (!datos) return; }
+      }
+      else if (destino === 'Facturado') { if (!(await confirmar('Pasa a facturar', 'Los leads quedan en <b>Pasa a facturar</b>. Cuando la venta aparezca en Síntesis pasan solos a <b>Cerrado ganado</b>.', 'Pasa a facturar'))) return; }
+      else if (destino === 'Perdido') { datos = await pedirMotivo(falsos); if (!datos) return; }
+      else if (destino === 'Retenido') { datos = await pedirDetenido(falsos); if (!datos) return; }
+    }
+    if (reab.length && !(await confirmar('Devolver leads', `¿Devolver ${reab.length} lead(s) a <b>${esc(destino)}</b>? Se limpia el resultado y se reinicia su seguimiento.`, 'Devolver'))) return;
+  } catch (e) { return toast(e.message, 'bad'); }
+  let ok = 0, fallos = 0; const total = reab.length + norm_.length;
+  for (const l of reab) { try { await api('reabrir', { id_lead: l.id, estado: destino }); ok++; } catch (e) { fallos++; } toast(`Moviendo… ${ok + fallos}/${total}`); }
+  for (const l of norm_) {
+    try {
+      if (destino === 'Contactado') await api('contacto', Object.assign({ id_lead: l.id }, datos));
+      else if (destino === 'Cotizado') { if (!l.contactado && datos) await api('contacto', Object.assign({ id_lead: l.id }, datos)); if (!(await setCampo(l, 'Gestion_Asesor', 'cotizado', 'Sí'))) throw new Error('no se pudo marcar'); }
+      else if (destino === 'Facturado') { if (!(await cerrarLead(l, 'por facturar'))) throw new Error('no se pudo cerrar'); }
+      else if (destino === 'Perdido') { if (!(await cerrarLead(l, 'perdido', datos))) throw new Error('no se pudo cerrar'); }
+      else if (destino === 'Retenido') await api('detener', Object.assign({ id_lead: l.id }, datos.motivo === 'falta de inventario' ? datos : { motivo: datos.motivo, nota: datos.nota }));
+      ok++;
+    } catch (e) { fallos++; }
+    toast(`Moviendo… ${ok + fallos}/${total}`);
+  }
+  S.embSel = new Set(); S.embDest = '';
+  toast(`${ok} lead(s) movidos a ${lblEstado(destino)}` + (fallos ? ` · ${fallos} con error` : ''), fallos ? 'bad' : 'ok');
+  await cargar(true);
+}
 function vEmbudo() {
+  if (!S.embSel) S.embSel = new Set();
   const ls = filtrar(S.M.leads, S.f);
-  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div></div>
+  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div><div class="row" style="gap:8px"><button class="btn btn-sm ${S.embMasivo ? 'btn-dark' : ''}" data-act="emb-masivo"><i class="ti ti-checkbox"></i> ${S.embMasivo ? 'Salir de la selección' : 'Selección múltiple'}</button></div></div>${barraMasiva()}
     ${filtrosHTML()}
-    <div class="kanban">${ESTADOS.map(e => {
+    <div class="kanban">${(S.f.estado ? ESTADOS.filter(x => x === S.f.estado) : ESTADOS).map(e => {
       const items = ls.filter(l => l.estado === e);
-      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(e)} <small>${items.length}</small></div>
-        ${items.slice(0, 150).map(l => `<div class="kcard ${l.incons.length ? 'incons' : ''}" draggable="${puedeEditar(l)}" data-drag="${esc(l.id)}">
+      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(e)} <small>${items.length}</small>${S.embMasivo ? `<label class="tiny" style="margin-left:6px;font-weight:400"><input type="checkbox" data-selcol="${e}"> todos</label>` : ''}</div>
+        ${items.slice(0, 150).map(l => `<div class="kcard ${l.incons.length ? 'incons' : ''}" draggable="${puedeEditar(l) && !S.embMasivo}" data-drag="${esc(l.id)}">${S.embMasivo && puedeEditar(l) ? `<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-sel="${esc(l.id)}"${S.embSel.has(l.id) ? ' checked' : ''}> seleccionar</label>` : ''}
           <b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b>
           <div class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')}</div>
           <div class="row wrap" style="margin-top:4px;gap:4px">${pillTemp(l.temp || l.tempIA)}${l.incons.length ? '<span class="pill pill-bad">Inconsistencia</span>' : ''}${l.sla === 'bad' ? '<span class="pill pill-bad">SLA vencido</span>' : ''}</div>
@@ -3420,6 +3481,9 @@ document.addEventListener('click', async e => {
     if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; S.gDia = ''; S.gScore = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia', score: 'gScore' }[t]] = '';
     render(); return;
   }
+  if (act === 'emb-masivo') { S.embMasivo = !S.embMasivo; S.embSel = new Set(); S.embDest = ''; render(); return; }
+  if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
+  if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
   if (act === 'pau-sync') { S.pau = S.pau; cargarPauta(true); render(); return; }
   if (act === 'fb-f') { if (a.dataset.k === 'dias') S.fbDias = Number(a.dataset.v); else S.fbPag = a.dataset.v; S.fbR = null; S.fbErr = ''; S.fbT = 0; render(); return; }
@@ -3522,6 +3586,12 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if (MOD && t.dataset.mch !== undefined) return MOD.onChange(t, e);
+  if (t.id === 'emb-dest') { S.embDest = t.value; return; }
+  if (t.dataset.sel !== undefined) { if (t.checked) S.embSel.add(t.dataset.sel); else S.embSel.delete(t.dataset.sel); const n = $('#emb-n'); if (n) n.textContent = S.embSel.size; return; }
+  if (t.dataset.selcol !== undefined) {
+    $$(`.col[data-col="${t.dataset.selcol}"] [data-sel]`).forEach(c => { c.checked = t.checked; if (t.checked) S.embSel.add(c.dataset.sel); else S.embSel.delete(c.dataset.sel); });
+    const n = $('#emb-n'); if (n) n.textContent = S.embSel.size; return;
+  }
   if (t.id === 'pil-dias') { S.pilDias = Number(t.value); S.pil = null; S.pilT = 0; const c = $('#ctl-cuerpo'); if (c) c.innerHTML = cuerpoControl(); return; }
   if (t.id === 'ctl-dias') { S.ctlDias = Number(t.value); S.ctl = null; S.ctlT = 0; render(); return; }
   if (t.dataset.f !== undefined) { S.f[t.dataset.f] = t.value; if (t.dataset.f === 'punto') S.f.asesor = ''; render(); return; }
