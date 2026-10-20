@@ -2308,7 +2308,7 @@ function periodoDesde(p) {
 function filtrar(ls, f) {
   const rango = !!(f.desde || f.hasta);   // con fechas elegidas a mano manda ese rango (por fecha de llegada) y no el período
   const [desde, hasta] = rango ? [null, null] : periodoDesde(f.periodo);
-  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.estado || l.estado === f.estado) && (!f.moto || motoLead(l) === f.moto) &&
+  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.estado || l.estado === f.estado) && (!f.temp || (f.temp === 'sin' ? !canonTemp(l.temp || l.tempIA) : canonTemp(l.temp || l.tempIA) === f.temp)) && (!f.moto || motoLead(l) === f.moto) &&
     (!desde || (l.asign && l.asign >= desde)) && (!hasta || (l.asign && l.asign < hasta)));
 }
 function filtrosHTML(conOrigen = true) {
@@ -2319,6 +2319,7 @@ function filtrosHTML(conOrigen = true) {
     ${u.rol !== 'asesor' ? `<select class="sel" data-f="asesor">${opts([OPC_SIN_ASESOR].concat(uniq(M.asesores.filter(p => !f.punto || p.sedeCanon === f.punto).map(p => p.nombre).concat(M.leads.map(l => l.asesor))).filter(Boolean).sort()), f.asesor, 'Todos los asesores')}</select>` : ''}
     ${conOrigen ? `<select class="sel" data-f="origen">${opts(uniq(M.leads.map(l => l.origen)).sort(), f.origen, 'Todos los orígenes')}</select>` : ''}
     <select class="sel" data-f="estado" title="Filtrar por etapa del embudo">${opts(ESTADOS.concat(['Otra ciudad']).map(x => ({ v: x, t: x === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(x) })), f.estado, 'Todas las etapas')}</select>
+    <select class="sel" data-f="temp" title="Filtrar por temperatura del lead">${opts([{ v: 'caliente', t: '🔥 Caliente' }, { v: 'tibio', t: '🌤️ Tibio' }, { v: 'frío', t: '❄️ Frío' }, { v: 'sin', t: 'Sin temperatura' }], f.temp, 'Todas las temperaturas')}</select>
     <select class="sel" data-f="moto" title="Filtrar por moto de interés">${opts(motosOpts(M.leads), f.moto, 'Todas las motos')}</select>
     <select class="sel" data-f="periodo" ${f.desde || f.hasta ? 'disabled title="Hay fechas elegidas: manda ese rango"' : ''}>${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
     <span class="row" style="gap:4px;align-items:center" title="Leads que llegaron entre estas fechas"><input type="date" class="inp" data-f="desde" value="${esc(f.desde || '')}" aria-label="Desde"> <span class="small muted">a</span> <input type="date" class="inp" data-f="hasta" value="${esc(f.hasta || '')}" aria-label="Hasta">${f.desde || f.hasta ? ' <button class="btn btn-sm" data-act="f-fechas-q" title="Quitar fechas"><i class="ti ti-x"></i></button>' : ''}</span>
