@@ -2756,7 +2756,18 @@ function vMateo() {
     <div class="card" style="margin-top:12px;padding:16px"><h3 style="margin:0 0 4px">🔴 Ventana de WhatsApp cerrada (${C.length})</h3>
       <p class="small muted" style="margin:0 0 8px">Pasaron más de ${D.ventanaHoras} h: WhatsApp ya no deja escribirles libremente. Entran a <b>Chats</b> con su mensaje, como lead sin clasificar y marcado <b>URGENTE · sin agente IA</b>; el asesor los retoma con «Reactivar chat» (plantilla aprobada).</p>
       <button class="btn" data-act="mateo-guardar" ${M.go || !C.length ? 'disabled' : ''}><i class="ti ti-inbox"></i> ${C.length ? 'Pasar ' + C.length + ' a Chats como urgentes' : 'No hay chats con ventana cerrada'}</button>
-      ${C.length ? filasMateo(C, false, D) : ''}</div>`;
+      ${C.length ? filasMateo(C, false, D) : ''}</div>
+    ${histMateo(D.historial || [])}`;
+}
+/** Historial de lo ya gestionado: los chats reactivados con Mateo y los pasados a Chats salen de las listas de pendientes y quedan aquí. */
+function histMateo(H) {
+  const hora = x => x ? new Date(x).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  return `<div class="card" style="margin-top:12px;padding:16px"><h3 style="margin:0 0 4px">📋 Historial de gestionados (${H.length})</h3>
+    <p class="small muted" style="margin:0 0 8px">Chats que ya se reactivaron con Mateo o se pasaron a Chats. Aquí solo queda el registro; lo pendiente está arriba.</p>
+    ${H.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gestionado</th><th>Quién escribió</th><th>Mensaje</th><th>Origen</th><th>Resultado</th></tr></thead><tbody>${H.map(x => `<tr><td>${esc(hora(x.actualizado || x.llegada))}<div class="tiny muted">Llegó ${esc(hora(x.llegada))}</div></td>
+      <td><b>${esc(x.nombre || 'Sin nombre')}</b><div class="tiny muted">${esc(x.telefono || x.id_contacto || 'sin número')}</div></td><td style="max-width:360px">${esc(x.mensaje || '—')}</td>
+      <td><span class="pill ${x.origen === 'Pauta' ? 'pill-info' : ''}">${esc(x.origen || '—')}</span></td>
+      <td><span class="pill ${x.estado === 'reactivado' ? 'pill-ok' : 'pill-warn'}">${x.estado === 'reactivado' ? 'Reactivado con Mateo' : 'Pasado a Chats'}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">Aún no hay chats gestionados.</p>'}</div>`;
 }/** Mes que se está viendo en Comisiones (yyyy-mm): el elegido en el selector o, si no hay, el actual. */
 function mesComi() { return /^\d{4}-\d{2}$/.test(String(S.mes || '')) ? S.mes : mesesRecientes(1)[0]; }
 function cargarComi(mes, forzar) {

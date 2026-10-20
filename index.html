@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!--
-  IC Leads — puntos Itagüí y Los Colores
-  Versión: ver window.AKT_VERSION al final del archivo (se muestra en el encabezado y en el login).
-  App estática (GitHub Pages) + API en Google Apps Script (backend/Code.gs).
-  Configuración en config.js. Modo demo con datos ficticios: ?demo=1
+  IC Leads â€” puntos ItagÃ¼Ã­ y Los Colores
+  VersiÃ³n: ver window.AKT_VERSION al final del archivo (se muestra en el encabezado y en el login).
+  App estÃ¡tica (GitHub Pages) + API en Google Apps Script (backend/Code.gs).
+  ConfiguraciÃ³n en config.js. Modo demo con datos ficticios: ?demo=1
 -->
 <html lang="es-CO">
 <head>
@@ -28,13 +28,13 @@
   <div class="login-card">
     <div class="emblem"><i class="ti ti-motorbike"></i></div>
     <h1>IC <span>Leads</span></h1>
-    <p class="muted">Puntos de venta Itagüí y Los Colores</p>
+    <p class="muted">Puntos de venta ItagÃ¼Ã­ y Los Colores</p>
     <form id="login-form" class="login-form" autocomplete="on" hidden>
       <label class="f" for="login-ced">Usuario (tu correo antes del @)</label>
       <div class="inp-ico"><i class="ti ti-user"></i><input id="login-ced" class="inp" name="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" placeholder="Ej. larias" required></div>
-      <label class="f" for="login-pass">Contraseña</label>
+      <label class="f" for="login-pass">ContraseÃ±a</label>
       <div class="inp-ico"><i class="ti ti-lock"></i><input id="login-pass" class="inp" name="password" type="password" autocomplete="current-password" required>
-        <button type="button" class="eye" id="login-eye" title="Mostrar contraseña"><i class="ti ti-eye"></i></button></div>
+        <button type="button" class="eye" id="login-eye" title="Mostrar contraseÃ±a"><i class="ti ti-eye"></i></button></div>
       <button id="login-btn" class="btn btn-primary" type="submit"><i class="ti ti-login-2"></i> Entrar</button>
     </form>
     <p id="login-msg" class="login-msg" hidden></p>
@@ -46,14 +46,14 @@
 <!-- APP -->
 <div id="app" class="app" hidden>
   <header class="topbar">
-    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>IC <span>Leads</span> <em class="ver-badge" id="tb-ver" title="Versión de la app · versión del servidor (API)"></em></b><small id="tb-sub"></small></div></div>
+    <div class="brand"><div class="emblem sm"><i class="ti ti-motorbike"></i></div><div><b>IC <span>Leads</span> <em class="ver-badge" id="tb-ver" title="VersiÃ³n de la app Â· versiÃ³n del servidor (API)"></em></b><small id="tb-sub"></small></div></div>
     <div class="topbar-actions">
-      <span id="demo-badge" class="pill pill-warn" hidden>MODO DEMO · datos ficticios</span>
+      <span id="demo-badge" class="pill pill-warn" hidden>MODO DEMO Â· datos ficticios</span>
       <select id="demo-role" class="sel sel-dark" hidden title="Ver como"></select>
-      <span id="sync-state" class="sync" title="Última actualización"></span>
+      <span id="sync-state" class="sync" title="Ãšltima actualizaciÃ³n"></span>
       <button id="btn-viejos" class="icon-btn" title="Leads viejos ocultos" hidden><i class="ti ti-eye-off"></i></button>
       <button id="btn-refresh" class="icon-btn" title="Actualizar"><i class="ti ti-refresh"></i></button>
-      <button id="btn-logout" class="icon-btn" title="Cerrar sesión"><i class="ti ti-logout"></i></button>
+      <button id="btn-logout" class="icon-btn" title="Cerrar sesiÃ³n"><i class="ti ti-logout"></i></button>
     </div>
   </header>
   <nav id="nav" class="nav"></nav>
@@ -63,12 +63,12 @@
 <div id="sheet" class="sheet" hidden><div class="sheet-backdrop" data-close></div><div class="sheet-panel" id="sheet-panel"></div></div>
 <div id="toasts" class="toasts"></div>
 
-<!-- Versión de la app: súbela en cada cambio (también los ?v=) para confirmar que GitHub sirve la versión correcta. -->
-<script>window.AKT_VERSION = '2.70.0';</script>
+<!-- VersiÃ³n de la app: sÃºbela en cada cambio (tambiÃ©n los ?v=) para confirmar que GitHub sirve la versiÃ³n correcta. -->
+<script>window.AKT_VERSION = '2.71.0';</script>
 <script src="config.js?v=2.65.0"></script>
 <script>if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) document.write('<script src="demo.js?v=2.39.0"><\/script>');</script>
 <script src="modulos.js?v=2.39.0"></script>
-<script src="app.js?v=2.70.0"></script>
+<script src="app.js?v=2.71.0"></script>
 </body>
 </html>
 
