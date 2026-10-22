@@ -1284,6 +1284,7 @@ function leadCard(l) {
       <div class="lead-sub">${esc(l.asesor || 'Sin asesor')} · ${esc(l.sede || 'Sin punto')}</div></div></div>
       <div class="row" style="flex-direction:column;align-items:flex-end;gap:4px">${pillEstado(l.estado, l.cerrado)}${timer}</div></div>
     <div class="lead-facts">${contactoTxt(l)}
+      ${r.documento ? `<span class="pill pill-ok" title="Documento del cliente (${esc(r.documento_fuente || '')}): listo para cotizar"><i class="ti ti-id"></i> ${esc(r.documento)}</span>` : ''}${r.correo_cliente ? `<span class="small"><i class="ti ti-mail"></i>${esc(r.correo_cliente)}</span>` : ''}
       ${r.modelo_interes ? `<span><i class="ti ti-motorbike"></i>${esc(r.modelo_interes)}</span>` : ''}
       ${r.zona ? `<span><i class="ti ti-map-pin"></i>${esc(r.zona)}</span>` : ''}
       ${/venta en sala/i.test(r.origen || '') ? '<span class="pill pill-dark"><i class="ti ti-building-store"></i> Venta en sala</span>' : ''}
@@ -1507,6 +1508,7 @@ function abrirLead(id) {
           ${ed && !refPor ? `<div class="row" style="margin-top:8px;gap:6px"><input class="inp grow" id="ref-por" maxlength="60" placeholder="¿Quién lo recomendó? (nombre)"><button class="btn btn-sm" data-act="referido" data-id="${esc(l.id)}"><i class="ti ti-users-plus"></i> Marcar como referido</button></div>` : ''}</div>`;
       })()}
       <div class="card"><div class="row wrap">${contactoTxt(l)}<span class="grow"></span>${S.view !== 'chats' ? `<button class="btn btn-sm btn-wa" data-act="ir-chat" data-id="${esc(l.id)}"><i class="ti ti-messages"></i> Chat</button>` : ''}</div>
+        <p class="small" style="margin:8px 0 0"><i class="ti ti-id"></i> Documento: ${r.documento ? `<b>${esc(r.documento)}</b> <span class="muted">(${esc(r.documento_fuente || '')})</span> <button class="btn btn-sm" data-act="copiar-acceso" data-url="${esc(r.documento)}" title="Copiar">Copiar</button>` : '<span class="muted">aún no lo tenemos: pídeselo en el chat</span>'}${r.correo_cliente ? ` · <i class="ti ti-mail"></i> <b>${esc(r.correo_cliente)}</b>` : ''}</p>
         ${l.cita ? `<p class="small" style="margin:8px 0 0"><i class="ti ti-calendar-event"></i> Cita: <b>${fmtFecha(l.cita, !!r.cita_hora)}</b></p>` : ''}</div>
 
       ${ed ? `<div class="card"><div class="card-h"><h3>Gestión</h3>${l.g ? `<span class="tiny muted">Últ. act. ${fmtFecha(l.ultimaAct)}</span>` : ''}</div>
@@ -2343,7 +2345,7 @@ function periodoDesde(p) {
 function filtrar(ls, f) {
   const rango = !!(f.desde || f.hasta);   // con fechas elegidas a mano manda ese rango (por fecha de llegada) y no el período
   const [desde, hasta] = rango ? [null, null] : periodoDesde(f.periodo);
-  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.estado || l.estado === f.estado) && (!f.temp || (f.temp === 'sin' ? !canonTemp(l.temp || l.tempIA) : canonTemp(l.temp || l.tempIA) === f.temp)) && (!f.moto || motoLead(l) === f.moto) &&
+  return ls.filter(l => (!rango || enRangoFecha(l, f.desde, f.hasta)) &&(!f.punto || l.sede === f.punto) && (!f.asesor || (f.asesor === SIN_ASESOR ? !String(l.asesor || '').trim() : norm(l.asesor) === norm(f.asesor))) && (!f.origen || l.origen === f.origen) && (!f.estado || l.estado === f.estado) && (!f.temp || (f.temp === 'sin' ? !canonTemp(l.temp || l.tempIA) : canonTemp(l.temp || l.tempIA) === f.temp)) && (!f.moto || motoLead(l) === f.moto) && (!f.doc || (f.doc === 'con' ? !!l.raw.documento : f.doc === 'completo' ? !!(l.raw.documento && l.raw.correo_cliente) : !l.raw.documento)) &&
     (!desde || (l.asign && l.asign >= desde)) && (!hasta || (l.asign && l.asign < hasta)));
 }
 function filtrosHTML(conOrigen = true) {
@@ -2355,6 +2357,7 @@ function filtrosHTML(conOrigen = true) {
     ${conOrigen ? `<select class="sel" data-f="origen">${opts(uniq(M.leads.map(l => l.origen)).sort(), f.origen, 'Todos los orígenes')}</select>` : ''}
     <select class="sel" data-f="estado" title="Filtrar por etapa del embudo">${opts(ESTADOS.concat(['Otra ciudad']).map(x => ({ v: x, t: x === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(x) })), f.estado, 'Todas las etapas')}</select>
     <select class="sel" data-f="temp" title="Filtrar por temperatura del lead">${opts([{ v: 'caliente', t: '🔥 Caliente' }, { v: 'tibio', t: '🌤️ Tibio' }, { v: 'frío', t: '❄️ Frío' }, { v: 'sin', t: 'Sin temperatura' }], f.temp, 'Todas las temperaturas')}</select>
+    <select class="sel" data-f="doc" title="Leads con el número de documento del cliente: listos para generar la cotización">${opts([{ v: 'con', t: '🪪 Con documento (para cotizar)' }, { v: 'completo', t: '✅ Documento + correo' }, { v: 'sin', t: 'Sin documento' }], f.doc, 'Documento: todos')}</select>
     <select class="sel" data-f="moto" title="Filtrar por moto de interés">${opts(motosOpts(M.leads), f.moto, 'Todas las motos')}</select>
     <select class="sel" data-f="periodo" ${f.desde || f.hasta ? 'disabled title="Hay fechas elegidas: manda ese rango"' : ''}>${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '90', t: 'Últimos 90 días' }, { v: 'mes', t: 'Este mes' }, { v: 'mesant', t: 'Mes anterior' }, { v: 'todo', t: 'Todo' }], f.periodo)}</select>
     <span class="row" style="gap:4px;align-items:center" title="Leads que llegaron entre estas fechas"><input type="date" class="inp" data-f="desde" value="${esc(f.desde || '')}" aria-label="Desde"> <span class="small muted">a</span> <input type="date" class="inp" data-f="hasta" value="${esc(f.hasta || '')}" aria-label="Hasta">${f.desde || f.hasta ? ' <button class="btn btn-sm" data-act="f-fechas-q" title="Quitar fechas"><i class="ti ti-x"></i></button>' : ''}</span>
