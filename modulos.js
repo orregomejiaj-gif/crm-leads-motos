@@ -688,13 +688,18 @@ function vSimulador(d) {
   const deWa = lista.filter(r => /whatsapp/i.test(r.fuente || ''));
   const top = (k) => { const m = {}; lista.forEach(r => { const v = String(r[k] || '—'); m[v] = (m[v] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
   const ticket = lista.length ? lista.reduce((s, r) => s + (num(r.valor_moto) || 0), 0) / lista.length : null;
-  const fila = r => `<tr><td>${esc(fechaTxt(r.fecha))}</td><td><b>${esc(r.nombre || '—')}</b>${r.email ? `<div class="small muted">${esc(r.email)}</div>` : ''}</td>
+  const RIESGO = { no_reportado: 'No reportado', reportado: 'REPORTADO', paz_y_salvo: 'Paz y salvo' };
+  const fila = r => `<tr><td>${esc(fechaTxt(r.fecha))}</td><td><b>${esc(r.nombre || '—')}</b></td>
+    <td>${r.documento ? `<b>${esc(r.tipo_documento || 'CC')} ${esc(r.documento)}</b>` : '<span class="muted small">pendiente</span>'}</td>
+    <td class="small">${r.correo ? esc(r.correo) : '<span class="muted">—</span>'}</td>
     <td>${r.celular ? `<a href="https://wa.me/${esc(digits(r.celular))}" target="_blank" rel="noopener">${esc(r.celular)}</a>` : '—'}</td>
     <td>${esc(r.modelo || '—')}</td><td class="r num">${money(num(r.valor_moto))}</td><td class="r num">${money(num(r.cuota_inicial))}</td>
     <td class="r num">${num(r.cuota_mensual_estim) ? money(num(r.cuota_mensual_estim)) + ` <span class="small muted">× ${esc(r.plazo_meses)}</span>` : '—'}</td>
     <td>${esc(r.financiador || '—')}</td><td>${esc(r.ciudad || '—')}<div class="small muted">${esc(r.punto_sugerido || '')}</div></td>
     <td>${si(r.completado) ? '<span class="pill pill-ok">Pidió contacto</span>' : '<span class="pill">Solo simuló</span>'}${r.id_lead ? `<div class="small muted">${esc(r.id_lead)}</div>` : ''}</td>
-    <td class="small">${/whatsapp/i.test(r.fuente || '') ? 'Enlace WhatsApp' : 'Web / redes'}</td></tr>`;
+    <td class="small">${/whatsapp/i.test(r.fuente || '') ? 'Enlace WhatsApp' : 'Web / redes'}</td>
+    <td class="small">${esc(r.asesor || '—')}</td>
+    <td class="small">${esc(r.actividad || '—')}${r.central_riesgo ? `<div><span class="pill ${r.central_riesgo === 'reportado' ? 'pill-bad' : 'pill-ok'}">${esc(RIESGO[r.central_riesgo] || r.central_riesgo)}</span></div>` : ''}${r.forma_pago ? `<div class="muted">${esc(String(r.forma_pago).replace(/_/g, ' '))}</div>` : ''}</td></tr>`;
   return `<div class="filters"><select class="sel" data-mch="f" data-k="periodoCot">${opts([{ v: '7', t: 'Últimos 7 días' }, { v: '30', t: 'Últimos 30 días' }, { v: '60', t: 'Últimos 60 días' }, { v: 'todo', t: 'Todo' }], F.periodoCot)}</select>
       ${esJefe() ? `<select class="sel" data-mch="f" data-k="punto">${opts(['Itagüí', 'Los Colores'], F.punto, 'Todos los puntos')}</select>` : ''}</div>
     <div class="grid g-kpi">${kpi('Simulaciones', lista.length)}${kpi('Pidieron contacto', completas.length, fmtPct(pct(completas.length, lista.length)) + ' de las simulaciones', 'ok')}
@@ -705,7 +710,7 @@ function vSimulador(d) {
       <div><div class="section-title"><i class="ti ti-building-bank"></i>Financieras elegidas</div>${bars(top('financiador').slice(0, 8).map(([l, v]) => ({ l, v })))}</div>
     </div>
     <div class="section-title"><i class="ti ti-list-details"></i>Simulaciones<span class="count">${lista.length}</span></div>
-    ${lista.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Celular</th><th>Moto</th><th class="r">Valor</th><th class="r">Inicial</th><th class="r">Cuota</th><th>Financiera</th><th>Ciudad / punto</th><th>Estado</th><th>Origen</th></tr></thead>
+    ${lista.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Documento</th><th>Correo</th><th>Celular</th><th>Moto</th><th class="r">Valor</th><th class="r">Inicial</th><th class="r">Cuota</th><th>Financiera</th><th>Ciudad / punto</th><th>Estado</th><th>Origen</th><th>Asesor</th><th>Perfil de crédito</th></tr></thead>
       <tbody>${lista.slice(0, 300).map(fila).join('')}</tbody></table></div>` : empty('ti-calculator', 'Todavía no hay simulaciones en el período.')}`;
 }
 
