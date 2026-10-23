@@ -741,6 +741,47 @@ function vICVentas() {
     <div class="card"><div class="card-h"><h3>Asesores del mes</h3></div>${tabla(['Asesor', 'Leads', 'Contactados', 'Ventas'], A.map(x => `<tr><td><b>${esc(x.asesor)}</b></td><td>${x.leads}</td><td>${x.contactados}</td><td>${x.ventas}</td></tr>`).join(''))}</div>`;
 }
 
+/** Tablero gerencial: inversión de Meta cruzada con leads, perfil del cliente, comportamiento, cotizaciones y facturas. */
+function cargarGer() {
+  if (S.gerBusy) return; S.gerBusy = true;
+  api('pautaGerencial', { dias: S.gerDias || 30 }).then(r => { S.ger = r; S.gerErr = ''; S.gerT = Date.now(); }).catch(e => { S.gerErr = e.message; S.gerT = Date.now(); })
+    .finally(() => { S.gerBusy = false; if (S.view === 'gerencial') render(); });
+}
+function vGerencial() {
+  if (!S.gerBusy && ((!S.ger && !S.gerErr) || Date.now() - (S.gerT || 0) > 180e3)) cargarGer();
+  if (!S.ger) return S.gerErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.gerErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Armando el tablero gerencial…</div></div>';
+  const g = S.ger, K = g.kpis || {}, E = g.embudo || {}, P = g.perfil || {}, C = g.comportamiento || {}, X = g.cruce || {}, dias = S.gerDias || 30;
+  const fm = x => x === null || x === undefined || !isFinite(x) ? '—' : money(Math.round(x)), pc = x => (x === null || x === undefined ? '—' : String(x).replace('.', ',') + '%');
+  const b = (v, txt) => `<button class="${dias === v ? 'on' : ''}" data-act="ger-d" data-v="${v}">${txt}</button>`;
+  const barras = (rows, color) => pauBarras((rows || []).map(r => ({ e: r.etiqueta, v: r.total })), 'e', 'v', x => pauN(x), color || '#6366f1', null);
+  const emb = [['Leads de pauta', E.leads], ['Asignados', E.asignados], ['Contactados', E.contactados], ['Con cita', E.conCita], ['Cotizados', E.cotizados], ['Con crédito', E.credito], ['Vendidos', E.ventas]];
+  const tabla = (cab, filas) => `<div class="tbl-wrap"><table class="tbl"><thead><tr>${cab.map((c, i) => `<th${i ? ' class="r"' : ''}>${c}</th>`).join('')}</tr></thead><tbody>${filas || `<tr><td colspan="${cab.length}" class="muted small">Sin datos.</td></tr>`}</tbody></table></div>`;
+  const filaPunto = p => `<tr><td><b>${esc(p.punto)}</b></td><td class="r">${fm(p.inversion)}</td><td class="r">${pauN(p.conversaciones)}</td><td class="r">${p.leads}</td><td class="r">${p.contactados}</td><td class="r">${p.cotizados}</td><td class="r">${p.ventas}</td><td class="r">${fm(p.costoLead)}</td><td class="r">${fm(p.costoCotizacion)}</td><td class="r">${fm(p.costoVenta)}</td></tr>`;
+  const filaCamp = c => `<tr><td><b title="${esc(c.campana)}">${esc(pauCorto(c.campana, 40))}</b><div class="tiny muted">${esc((c.modelos || []).map(m => m.etiqueta).join(' · '))}</div></td><td class="r">${fm(c.inversion || null)}</td><td class="r">${c.leads}</td><td class="r">${pc(c.pctCalientes)}</td><td class="r">${pc(c.pctCredito)}</td><td class="r">${pc(c.pctCotizados)}</td><td class="r">${c.ventas}</td><td class="r">${fm(c.costoLead)}</td></tr>`;
+  const filaMod = m => `<tr><td><b>${esc(m.modelo)}</b></td><td class="r">${m.leads}</td><td class="r">${m.calientes}</td><td class="r">${m.credito}</td><td class="r">${m.cotizados}</td><td class="r">${m.ventas}</td><td class="r">${m.scoreMedio}</td></tr>`;
+  const filaCan = c => `<tr><td>${esc(pauCorto(c.k, 34))}</td><td class="r">${c.cot}</td><td class="r">${c.ven}</td><td class="r">${pc(c.pct)}</td></tr>`;
+  return `${hero('jefe', 'ti-chart-dots', 'Tablero gerencial de pauta', `Motoracing · ${esc(g.desde)} → ${esc(g.hasta)} · inversión de Meta cruzada con leads, cotizaciones y facturas`)}
+    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center"><div class="seg">${b(7, '7 días')}${b(30, '30 días')}${b(90, '90 días')}</div>
+      <button class="btn btn-sm" data-act="ger-r"${S.gerBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.gerBusy ? ' spin' : ''}"></i> Actualizar</button></div>
+    ${(g.alertas || []).length ? `<div class="notice"><i class="ti ti-bulb"></i><div>${g.alertas.map(esc).join('<br>')}</div></div>` : ''}
+    <div class="grid g-kpi">${kpi('💸 Inversión', fm(K.inversion), pauN(K.impresiones) + ' impresiones')}${kpi('💬 Conversaciones', pauN(K.conversaciones), 'costo ' + fm(K.costoConversacion))}${kpi('📥 Leads en el CRM', K.leadsCrm || 0, 'costo por lead ' + fm(K.costoLead))}${kpi('📝 Cotizados', E.cotizados || 0, 'costo ' + fm(K.costoCotizacion) + ' · ' + pc(E.leads ? Math.round(E.cotizados * 1000 / E.leads) / 10 : 0))}${kpi('💰 Vendidos', E.ventas || 0, 'costo por venta ' + fm(K.costoVenta), E.ventas ? 'ok' : '')}</div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="pn-card"><h3>🔻 Embudo de la pauta</h3>${pauBarras(emb.map(x => ({ e: x[0], v: x[1] || 0 })), 'e', 'v', x => pauN(x), '#6366f1', r => E.leads ? pc(Math.round(r.v * 1000 / E.leads) / 10) + ' de los leads' : '')}</div>
+      <div class="pn-card"><h3>📈 Inversión por día</h3>${pauSerie(g.serie || [], 'gasto', '#0ea5e9', v => money(Math.round(v)))}<div class="tiny muted" style="margin-top:6px">Conversaciones por día</div>${pauSerie(g.serie || [], 'conversaciones', '#16a34a', v => pauN(v))}</div>
+    </div>
+    <div class="pn-card" style="margin-top:14px"><h3>📍 Por punto: inversión → leads → venta</h3>${tabla(['Punto', 'Inversión', 'Conv.', 'Leads', 'Contact.', 'Cotiz.', 'Ventas', 'Costo/lead', 'Costo/cotiz.', 'Costo/venta'], (g.porPunto || []).map(filaPunto).join(''))}</div>
+    <div class="pn-card" style="margin-top:14px"><h3>🧑‍🤝‍🧑 Tipo de cliente que trae la pauta</h3><div class="grid g2">
+      <div><b class="small">Temperatura</b>${barras(P.temperatura, '#f97316')}</div><div><b class="small">Forma de pago</b>${barras(P.formaPago, '#0ea5e9')}</div>
+      <div><b class="small">Qué consultan</b>${barras(P.tipoConsulta, '#8b5cf6')}</div><div><b class="small">Modelos de interés</b>${barras(P.modelos, '#16a34a')}</div>
+      <div><b class="small">Calidad del lead (score)</b>${barras(P.nivelScore, '#ef4444')}</div><div><b class="small">Etapa actual</b>${barras(P.fase, '#6366f1')}</div></div></div>
+    <div class="pn-card" style="margin-top:14px"><h3>🧭 Comportamiento de los leads</h3><div class="grid g-kpi">${kpi('Contactados', pc(C.contactados))}${kpi('Con cita', pc(C.conCita))}${kpi('Cotizados', pc(C.cotizados))}${kpi('Dieron su cédula', pc(C.dieronDocumento))}${kpi('Respondieron en 3 días', pc(C.recientes))}${kpi('Abandonados (+5 días)', pc(C.abandonados), '', C.abandonados > 25 ? 'warn' : '')}${kpi('Perdidos', pc(C.perdidos))}</div></div>
+    <div class="pn-card" style="margin-top:14px"><h3>📣 Por campaña / anuncio de origen</h3>${tabla(['Campaña', 'Inversión', 'Leads', 'Calientes', 'Crédito', 'Cotizados', 'Ventas', 'Costo/lead'], (g.porCampana || []).map(filaCamp).join(''))}</div>
+    <div class="pn-card" style="margin-top:14px"><h3>🏍️ Por modelo</h3>${tabla(['Modelo', 'Leads', 'Calientes', 'Crédito', 'Cotizados', 'Ventas', 'Score'], (g.porModelo || []).map(filaMod).join(''))}</div>
+    <div class="pn-card" style="margin-top:14px"><h3>🔗 Cruce total: lead → cotización del CRM → factura</h3>
+      <div class="grid g-kpi">${kpi('Leads', X.leads || 0, (X.leadsConDoc || 0) + ' con cédula')}${kpi('Con cotización en el CRM', X.leadsConCotizacion || 0)}${kpi('Con factura', X.leadsConVenta || 0, '', X.leadsConVenta ? 'ok' : '')}${kpi('Cotizaciones CRM → venta', X.cotizacionesConVenta || 0, 'de ' + pauN(X.cotizacionesCRM))}</div>
+      <div class="grid g2" style="margin-top:10px"><div><b class="small">Conversión del CRM por canal</b>${tabla(['Canal', 'Cotiz.', 'Ventas', 'Conv.'], (X.porCanalCrm || []).map(filaCan).join(''))}</div><div><b class="small">Conversión del CRM por modelo</b>${tabla(['Modelo', 'Cotiz.', 'Ventas', 'Conv.'], (X.porModeloCrm || []).map(filaCan).join(''))}</div></div></div>`;
+}
+
 /** Panel gerencial de la pauta de Facebook e Instagram: datos que Supabase trae solo de la API de Meta cada 30 minutos. */
 function cargarPauta(forzar) {
   if (S.pauBusy) return; S.pauBusy = true;
@@ -1165,7 +1206,7 @@ function vistasDeRolBase() {
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas'), it('comisiones', 'ti-coin', 'Mis Comisiones')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('alertas', 'ti-bell-ringing', 'Alertas')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('mateo', 'ti-robot', 'Reactivar Mateo'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('gerencial', 'ti-chart-dots', 'Tablero gerencial'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('mateo', 'ti-robot', 'Reactivar Mateo'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('fbrend', 'ti-chart-bar', 'Páginas · Rendimiento'), it('fbgest', 'ti-brand-facebook', 'Páginas · Gestión'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
@@ -1208,7 +1249,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { fbrend: vFbRend, fbgest: vFbGest, pauta: vPauta, icventas: vICVentas, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
+  const base = { fbrend: vFbRend, fbgest: vFbGest, pauta: vPauta, icventas: vICVentas, gerencial: vGerencial, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
     alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, mateo: vMateo, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
@@ -3588,6 +3629,8 @@ document.addEventListener('click', async e => {
   if (act === 'emb-reasignar') { a.disabled = true; try { await reasignarMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
+  if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
+  if (act === 'ger-r') { S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pau-ajuste') {
     const actual = S.pau && S.pau.prueba ? S.pau.prueba.mostrado : '';
     const v = prompt('Inversión que se mostrará para Los Colores en pesos (ej. 150000).\nDeja vacío para volver al gasto real de Meta.', String(actual));
