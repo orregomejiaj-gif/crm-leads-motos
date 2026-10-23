@@ -744,7 +744,7 @@ function vICVentas() {
 /** Panel gerencial de la pauta de Facebook e Instagram: datos que Supabase trae solo de la API de Meta cada 30 minutos. */
 function cargarPauta(forzar) {
   if (S.pauBusy) return; S.pauBusy = true;
-  api('pautaPanel', { dias: S.pauDias || 30, punto: S.pauPunto || '', actualizar: !!forzar }).then(r => { S.pau = r; S.pauErr = ''; S.pauT = Date.now(); S.pauK = (S.pauDias || 30) + '|' + (S.pauPunto || ''); }).catch(e => { S.pauErr = e.message; S.pauT = Date.now(); })
+  api('pautaPanel', { dias: S.pauDias || 30, punto: S.pauEmp === 'motomovil' ? '' : (S.pauPunto || ''), empresa: S.pauEmp || 'motoracing', actualizar: !!forzar }).then(r => { S.pau = r; S.pauErr = ''; S.pauT = Date.now(); S.pauK = (S.pauDias || 30) + '|' + (S.pauPunto || '') + '|' + (S.pauEmp || 'motoracing'); }).catch(e => { S.pauErr = e.message; S.pauT = Date.now(); })
     .finally(() => { S.pauBusy = false; if (S.view === 'pauta') render(); });
 }
 const pauN = x => Number(x || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
@@ -772,7 +772,7 @@ function vPauta() {
   if (!S.pauBusy && ((!S.pau && !S.pauErr) || Date.now() - (S.pauT || 0) > 180e3)) cargarPauta();
   if (!S.pau) return S.pauErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pauErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la pauta de Meta…</div></div>';
   const r = S.pau, t = r.totales || {}, cls = S.data.user.rol === 'jefe' ? 'jefe' : 'admin', C = r.crm || {}, A = r.porAnuncio || [], CP = r.porCampana || [], SR = r.serie || [];
-  const dias = S.pauDias || 30, pto = S.pauPunto || '', esJefe = S.data.user.rol === 'jefe';
+  const dias = S.pauDias || 30, pto = S.pauPunto || '', esJefe = S.data.user.rol === 'jefe', emp = S.pauEmp || 'motoracing', EMP = r.empresas || {};
   const b = (kk, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pau-f" data-k="${kk}" data-v="${v}">${txt}</button>`;
   const conv = t.conversaciones || 0, resultados = conv || t.leads_meta || 0, cpr = resultados ? t.gasto / resultados : null, ctr = t.impresiones ? t.clics_enlace * 100 / t.impresiones : null, cpm = t.impresiones ? t.gasto * 1000 / t.impresiones : null;
   const costoLeadCrm = C.leads ? t.gasto / C.leads : null, costoVenta = C.ventas ? t.gasto / C.ventas : null, inter = (t.reacciones || 0) + (t.comentarios || 0) + (t.compartidos || 0) + (t.guardados || 0);
@@ -814,7 +814,8 @@ function vPauta() {
     <div class="pn-card" style="margin-top:14px"><h3>📣 Por anuncio</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Anuncio</th><th>Punto</th><th class="r">Inversión</th><th class="r">Impresiones</th><th class="r">Clics</th><th class="r">Conv.</th><th class="r">Costo/conv.</th><th class="r">👍</th><th class="r">💭</th><th class="r">🔁</th></tr></thead><tbody>${A.map(a => `<tr><td><b title="${esc(a.anuncio)}">${esc(pauCorto(a.anuncio, 46))}</b><div class="tiny muted">${esc(pauCorto(a.campana, 46))}</div></td><td>${esc(a.punto || '—')}</td><td class="r">${money(Math.round(a.gasto))}</td><td class="r">${pauN(a.impresiones)}</td><td class="r">${pauN(a.clics_enlace)}</td><td class="r">${pauN(a.conversaciones)}</td><td class="r">${fm(a.conversaciones ? a.gasto / a.conversaciones : null)}</td><td class="r">${pauN(a.reacciones)}</td><td class="r">${pauN(a.comentarios)}</td><td class="r">${pauN(a.compartidos)}</td></tr>`).join('')}</tbody></table></div></div>`;
   return `${hero(cls, 'ti-brand-meta', 'Pauta en Facebook e Instagram', `Panel gerencial · ${esc(r.desde)} → ${esc(r.hasta)} · actualizado ${esc(sync)}`)}
     <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center">
-      ${esJefe ? `<div class="seg">${b('punto', '', 'Antioquia', !pto)}${b('punto', 'Itagüí', 'Itagüí', pto === 'Itagüí')}${b('punto', 'Los Colores', 'Los Colores', pto === 'Los Colores')}</div>` : ''}
+      <div class="seg" title="Motomovil es otra empresa: sus cuentas se ven aparte">${b('empresa', 'motoracing', 'Motoracing', emp === 'motoracing')}${b('empresa', 'motomovil', 'Motomovil' + (EMP.motomovil && EMP.motomovil.cuentas.length ? ' (' + EMP.motomovil.cuentas.length + ')' : ''), emp === 'motomovil')}</div>
+      ${esJefe && emp !== 'motomovil' ? `<div class="seg">${b('punto', '', 'Antioquia', !pto)}${b('punto', 'Itagüí', 'Itagüí', pto === 'Itagüí')}${b('punto', 'Los Colores', 'Los Colores', pto === 'Los Colores')}</div>` : ''}
       <div class="seg">${b('dias', 7, '7 días', dias === 7)}${b('dias', 30, '30 días', dias === 30)}${b('dias', 90, '90 días', dias === 90)}</div>
       <button class="btn btn-sm" data-act="pau-sync"${S.pauBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pauBusy ? ' spin' : ''}"></i> Actualizar ahora</button>
       <span class="tiny muted">Se sincroniza solo con Meta cada 30 minutos.</span>
@@ -3585,7 +3586,7 @@ document.addEventListener('click', async e => {
   if (act === 'emb-reasignar') { a.disabled = true; try { await reasignarMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
-  if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
+  if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else if (a.dataset.k === 'empresa') S.pauEmp = a.dataset.v; else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
   if (act === 'pau-sync') { S.pau = S.pau; cargarPauta(true); render(); return; }
   if (act === 'fb-f') { if (a.dataset.k === 'dias') S.fbDias = Number(a.dataset.v); else S.fbPag = a.dataset.v; S.fbR = null; S.fbErr = ''; S.fbT = 0; render(); return; }
   if (act === 'fb-sync') { cargarFbRend(true); render(); return; }
