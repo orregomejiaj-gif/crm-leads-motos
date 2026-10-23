@@ -699,8 +699,20 @@ function kpiRow(items) { return `<div class="grid g-kpi">${items.map(i => kpi(i[
 /** Inteligencia comercial (datos de Supabase): pauta → venta, prioridad de leads, cotizaciones por reactivar y rendimiento de asesores. */
 function cargarIC() {
   if (S.icBusy) return; S.icBusy = true;
+  api('cicloVenta', { dias: S.cvDias || 0 }).then(r => { S.cv = r; S.cvErr = ''; }).catch(e => { S.cvErr = e.message; }).finally(() => { if (S.view === 'icventas') render(); });
   api('inteligenciaIC').then(r => { S.ic = r; S.icErr = ''; S.icT = Date.now(); }).catch(e => { S.icErr = e.message; S.icT = Date.now(); })
     .finally(() => { S.icBusy = false; if (S.view === 'icventas') render(); });
+}
+/** Ciclo lead → cotización del CRM → factura, enlazado por cédula; incluye de qué canal, campaña, asesor y modelo salen las ventas. */
+function cardCiclo() {
+  const C = S.cv; if (!C) return S.cvErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>Ciclo de venta: ${esc(S.cvErr)}</div></div>` : '';
+  const R = C.resumen || {}, pct = (a, b) => b ? (a * 100 / b).toFixed(1).replace('.', ',') + '%' : '—';
+  const tb = (tit, rows) => `<div><b class="small">${tit}</b><div class="table-wrap"><table class="tbl"><thead><tr><th></th><th>Cotiz.</th><th>Ventas</th><th>Conv.</th></tr></thead><tbody>${(rows || []).length ? rows.map(x => `<tr><td>${esc(pauCorto(x.k, 34))}</td><td>${x.cot}</td><td>${x.ven}</td><td>${String(x.pct).replace('.', ',')}%</td></tr>`).join('') : '<tr><td colspan="4" class="muted small">Sin datos.</td></tr>'}</tbody></table></div></div>`;
+  const aviso = R.ventas && !R.ventasConDoc && !R.ventasConTel ? '<div class="notice warn"><i class="ti ti-alert-triangle"></i><div>Las ventas cargadas no traen cédula ni teléfono: sin ese dato no se pueden enlazar con los leads ni con las cotizaciones. Revisa que el exporte de Síntesis incluya la identificación del cliente.</div></div>' : '';
+  return `<div class="card"><div class="card-h"><h3>Ciclo de venta · lead → cotización → factura</h3><span class="tiny muted">Se enlaza por cédula (y teléfono si existe)</span></div>${aviso}
+    <div class="grid g-kpi">${kpi('📥 Leads', R.leads || 0, (R.leadsConDoc || 0) + ' con cédula')}${kpi('📝 Con cotización en el CRM', R.leadsConCotizacion || 0, pct(R.leadsConCotizacion, R.leads) + ' de los leads')}${kpi('💰 Con factura', R.leadsConVenta || 0, pct(R.leadsConVenta, R.leads) + ' de los leads', R.leadsConVenta ? 'ok' : '')}${kpi('🔁 Cotizaciones que terminaron en venta', R.cotizacionesConVenta || 0, pct(R.cotizacionesConVenta, R.cotizacionesCRM) + ' de ' + (R.cotizacionesCRM || 0) + ' en el CRM')}</div>
+    <p class="tiny muted">Ventas cargadas: ${R.ventas || 0} · con cédula ${R.ventasConDoc || 0} · con teléfono ${R.ventasConTel || 0}. Cotizaciones del CRM con cédula o teléfono: ${R.cotizacionesConDato || 0} de ${R.cotizacionesCRM || 0}.</p>
+    <div class="grid g2">${tb('Por canal de origen', C.porCanal)}${tb('Por campaña', C.porCampana)}${tb('Por asesor', C.porAsesor)}${tb('Por punto', C.porPunto)}${tb('Por modelo', C.porModelo)}</div></div>`;
 }
 function vICVentas() {
   if ((!S.ic && Date.now() - (S.icT || 0) > 20e3) || (S.ic && Date.now() - (S.icT || 0) > 120e3)) cargarIC();
@@ -722,6 +734,7 @@ function vICVentas() {
   return `<div class="hero jefe"><div class="hero-ic">🎯</div><div><h2>Pauta → Venta</h2><p>Qué anuncios venden, a quién atender primero y qué cotizaciones recuperar</p></div></div>
     <div class="grid g-kpi">${kpi('📥 Leads', L, 'con o sin anuncio')}${kpi('📝 Cotizados', CZ, pct(CZ, L) + ' de los leads')}${kpi('💰 Vendidos', V, pct(V, L) + ' de los leads', V ? 'ok' : '')}${kpi('🔥 Por atender', Q.length, `${calientes} calientes con espera`, calientes ? 'bad' : 'ok')}</div>
     ${ia.length ? `<div class="notice"><i class="ti ti-bulb"></i><div>${ia.map(esc).join('<br>')}</div></div>` : ''}
+    ${cardCiclo()}
     <div class="card"><div class="card-h"><h3>Rendimiento por anuncio</h3></div>${tabla(['Anuncio', 'Leads', 'Contactados', 'Cotizados', 'Ventas', 'Conversión'], P.map(x => `<tr><td><b>${esc(x.anuncio)}</b></td><td>${x.leads}</td><td>${x.contactados}</td><td>${x.cotizados}</td><td>${x.ventas}</td><td>${x.conversion_pct === null || x.conversion_pct === undefined ? '—' : String(x.conversion_pct).replace('.', ',') + '%'}</td></tr>`).join(''))}</div>
     <div class="card"><div class="card-h"><h3>Leads por atender primero</h3><span class="tiny muted">Calientes arriba · minutos sin respuesta</span></div>${tabla(['Cliente', 'Moto', 'Temperatura', 'Asesor', 'Espera'], Q.map(x => `<tr><td><b data-act="abrir" data-id="${esc(x.id_lead)}" style="cursor:pointer">${esc(x.nombre_completo || 'Sin nombre')}</b></td><td>${esc(x.modelo_interes || '—')}</td><td>${x.temperatura ? pillTemp(canonTemp(x.temperatura)) : '—'}</td><td>${esc(x.nombre_asesor || 'Sin asesor')}</td><td>${x.minutos_sin_respuesta === null || x.minutos_sin_respuesta === undefined ? '—' : fmtHoras(Number(x.minutos_sin_respuesta) / 60)}</td></tr>`).join(''))}</div>
     <div class="card"><div class="card-h"><h3>Cotizaciones por reactivar</h3><span class="tiny muted">Más de 3 días sin cerrar</span></div>${tabla(['Cliente', 'Moto', 'Días', 'Plan', 'Asesor', ''], R.map(x => `<tr><td><b>${esc(x.cliente || '—')}</b></td><td>${esc(x.modelo || '—')}</td><td>${x.dias_sin_cerrar}</td><td>${esc(String(x.plan || '').replace(/_/g, ' '))}</td><td>${esc(x.asesor || '—')}</td><td>${wa(x.telefono) ? `<a class="btn btn-sm" href="${esc(wa(x.telefono))}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i> Escribir</a>` : ''}</td></tr>`).join(''))}</div>
