@@ -773,6 +773,7 @@ function vPauta() {
   if (!S.pau) return S.pauErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pauErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la pauta de Meta…</div></div>';
   const r = S.pau, t = r.totales || {}, cls = S.data.user.rol === 'jefe' ? 'jefe' : 'admin', C = r.crm || {}, A = r.porAnuncio || [], CP = r.porCampana || [], SR = r.serie || [];
   const dias = S.pauDias || 30, pto = S.pauPunto || '', esJefe = S.data.user.rol === 'jefe', emp = S.pauEmp || 'motoracing', EMP = r.empresas || {};
+  const avisoPrueba = r.prueba && !esJefe ? `<p class="tiny muted" style="margin:0 0 10px">* Inversión de ${esc(r.prueba.punto)} ajustada manualmente por el Jefe Comercial.</p>` : '';   // el Jefe ve la cifra sin aviso; quien no es Jefe siempre ve que está ajustada
   const b = (kk, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pau-f" data-k="${kk}" data-v="${v}">${txt}</button>`;
   const conv = t.conversaciones || 0, resultados = conv || t.leads_meta || 0, cpr = resultados ? t.gasto / resultados : null, ctr = t.impresiones ? t.clics_enlace * 100 / t.impresiones : null, cpm = t.impresiones ? t.gasto * 1000 / t.impresiones : null;
   const costoLeadCrm = C.leads ? t.gasto / C.leads : null, costoVenta = C.ventas ? t.gasto / C.ventas : null, inter = (t.reacciones || 0) + (t.comentarios || 0) + (t.compartidos || 0) + (t.guardados || 0);
@@ -818,8 +819,9 @@ function vPauta() {
       ${esJefe && emp !== 'motomovil' ? `<div class="seg">${b('punto', '', 'Antioquia', !pto)}${b('punto', 'Itagüí', 'Itagüí', pto === 'Itagüí')}${b('punto', 'Los Colores', 'Los Colores', pto === 'Los Colores')}</div>` : ''}
       <div class="seg">${b('dias', 7, '7 días', dias === 7)}${b('dias', 30, '30 días', dias === 30)}${b('dias', 90, '90 días', dias === 90)}</div>
       <button class="btn btn-sm" data-act="pau-sync"${S.pauBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pauBusy ? ' spin' : ''}"></i> Actualizar ahora</button>
+      ${esJefe ? `<button class="btn btn-sm" data-act="pau-ajuste" title="Cambia la inversión que se muestra de Los Colores (vacío = valor real de Meta)"><i class="ti ti-adjustments"></i> Ajustar inversión Los Colores</button>` : ''}
       <span class="tiny muted">Se sincroniza solo con Meta cada 30 minutos.</span>
-    </div>${cuerpo}`;
+    </div>${avisoPrueba}${cuerpo}`;
 }
 // ── Páginas de Facebook: panel de rendimiento y panel de gestión (comentarios, me gusta, mensajes) ──
 const fbAviso = (r, cls) => r && r.sinToken ? `${hero(cls, 'ti-brand-facebook', 'Páginas de Facebook', 'Falta conectar el token de Meta')}<div class="notice"><i class="ti ti-plug-connected"></i><div><b>Todavía no está conectado el token de las páginas.</b><br>Cuando se guarde el secreto <code>META_PAGES_TOKEN</code> en Supabase (usuario del sistema con acceso a las páginas y permisos de páginas y mensajes), este panel se llena solo.</div></div>` : (r && r.paginas && !r.paginas.length ? `${hero(cls, 'ti-brand-facebook', 'Páginas de Facebook', 'Sin páginas')}<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>Meta no devolvió páginas con este token${r.error ? ': ' + esc(r.error) : ''}. Revisa que el usuario del sistema tenga las páginas asignadas.</div></div>` : '');
@@ -3586,6 +3588,14 @@ document.addEventListener('click', async e => {
   if (act === 'emb-reasignar') { a.disabled = true; try { await reasignarMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
+  if (act === 'pau-ajuste') {
+    const actual = S.pau && S.pau.prueba ? S.pau.prueba.mostrado : '';
+    const v = prompt('Inversión que se mostrará para Los Colores en pesos (ej. 150000).\nDeja vacío para volver al gasto real de Meta.', String(actual));
+    if (v === null) return;
+    const n = String(v).replace(/\D/g, '');
+    api('pautaPanel', { dias: S.pauDias || 30, empresa: S.pauEmp || 'motoracing', punto: S.pauPunto || '', prueba: n }).then(r => { S.pau = r; S.pauT = Date.now(); toast(n ? 'Inversión de Los Colores ajustada a ' + money(Number(n)) : 'Inversión de Los Colores vuelve al valor real', 'ok'); render(); }).catch(e => toast(e.message, 'bad'));
+    return;
+  }
   if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else if (a.dataset.k === 'empresa') S.pauEmp = a.dataset.v; else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
   if (act === 'pau-sync') { S.pau = S.pau; cargarPauta(true); render(); return; }
   if (act === 'fb-f') { if (a.dataset.k === 'dias') S.fbDias = Number(a.dataset.v); else S.fbPag = a.dataset.v; S.fbR = null; S.fbErr = ''; S.fbT = 0; render(); return; }
