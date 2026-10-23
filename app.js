@@ -770,6 +770,7 @@ function vGerencial() {
       <div class="pn-card"><h3>📈 Inversión por día</h3>${pauSerie(g.serie || [], 'gasto', '#0ea5e9', v => money(Math.round(v)))}<div class="tiny muted" style="margin-top:6px">Conversaciones por día</div>${pauSerie(g.serie || [], 'conversaciones', '#16a34a', v => pauN(v))}</div>
     </div>
     <div class="pn-card" style="margin-top:14px"><h3>📍 Por punto: inversión → leads → venta</h3>${tabla(['Punto', 'Inversión', 'Conv.', 'Leads', 'Contact.', 'Cotiz.', 'Ventas', 'Costo/lead', 'Costo/cotiz.', 'Costo/venta'], (g.porPunto || []).map(filaPunto).join(''))}</div>
+    ${(g.porAsesor || []).length ? `<div class="pn-card" style="margin-top:14px"><h3>🧑‍💼 Por asesor (nombrado en la campaña)</h3>${tabla(['Asesor', 'Inversión', 'Conv.', 'Leads', 'Contact.', 'Cotiz.', 'Ventas', 'Costo/lead', 'Costo/cotiz.', 'Costo/venta'], g.porAsesor.map(p => filaPunto({ ...p, punto: p.asesor })).join(''))}</div>` : ''}
     <div class="pn-card" style="margin-top:14px"><h3>🧑‍🤝‍🧑 Tipo de cliente que trae la pauta</h3><div class="grid g2">
       <div><b class="small">Temperatura</b>${barras(P.temperatura, '#f97316')}</div><div><b class="small">Forma de pago</b>${barras(P.formaPago, '#0ea5e9')}</div>
       <div><b class="small">Qué consultan</b>${barras(P.tipoConsulta, '#8b5cf6')}</div><div><b class="small">Modelos de interés</b>${barras(P.modelos, '#16a34a')}</div>
@@ -857,7 +858,7 @@ function vPauta() {
   return `${hero(cls, 'ti-brand-meta', 'Pauta en Facebook e Instagram', `Panel gerencial · ${esc(r.desde)} → ${esc(r.hasta)} · actualizado ${esc(sync)}`)}
     <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center">
       <div class="seg" title="Motomovil es otra empresa: sus cuentas se ven aparte">${b('empresa', 'motoracing', 'Motoracing', emp === 'motoracing')}${b('empresa', 'motomovil', 'Motomovil' + (EMP.motomovil && EMP.motomovil.cuentas.length ? ' (' + EMP.motomovil.cuentas.length + ')' : ''), emp === 'motomovil')}</div>
-      ${esJefe && emp !== 'motomovil' ? `<div class="seg">${b('punto', '', 'Antioquia', !pto)}${b('punto', 'Itagüí', 'Itagüí', pto === 'Itagüí')}${b('punto', 'Los Colores', 'Los Colores', pto === 'Los Colores')}</div>` : ''}
+      ${esJefe ? `<div class="seg">${b('punto', '', emp === 'motomovil' ? 'Todos' : 'Todos los puntos', !pto)}${(r.puntos || (emp === 'motomovil' ? [] : ['Itagüí', 'Los Colores'])).map(p => b('punto', p, p, pto === p)).join('')}</div>` : ''}
       <div class="seg">${b('dias', 7, '7 días', dias === 7)}${b('dias', 30, '30 días', dias === 30)}${b('dias', 90, '90 días', dias === 90)}</div>
       <button class="btn btn-sm" data-act="pau-sync"${S.pauBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pauBusy ? ' spin' : ''}"></i> Actualizar ahora</button>
       ${esJefe ? `<button class="btn btn-sm" data-act="pau-ajuste" title="Cambia la inversión que se muestra de Los Colores (vacío = valor real de Meta)"><i class="ti ti-adjustments"></i> Ajustar inversión Los Colores</button>` : ''}
@@ -3639,7 +3640,7 @@ document.addEventListener('click', async e => {
     api('pautaPanel', { dias: S.pauDias || 30, empresa: S.pauEmp || 'motoracing', punto: S.pauPunto || '', prueba: n }).then(r => { S.pau = r; S.pauT = Date.now(); toast(n ? 'Inversión de Los Colores ajustada a ' + money(Number(n)) : 'Inversión de Los Colores vuelve al valor real', 'ok'); render(); }).catch(e => toast(e.message, 'bad'));
     return;
   }
-  if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else if (a.dataset.k === 'empresa') S.pauEmp = a.dataset.v; else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
+  if (act === 'pau-f') { if (a.dataset.k === 'dias') S.pauDias = Number(a.dataset.v); else if (a.dataset.k === 'empresa') { S.pauEmp = a.dataset.v; S.pauPunto = ''; } else S.pauPunto = a.dataset.v; S.pau = null; S.pauErr = ''; S.pauT = 0; render(); return; }
   if (act === 'pau-sync') { S.pau = S.pau; cargarPauta(true); render(); return; }
   if (act === 'fb-f') { if (a.dataset.k === 'dias') S.fbDias = Number(a.dataset.v); else S.fbPag = a.dataset.v; S.fbR = null; S.fbErr = ''; S.fbT = 0; render(); return; }
   if (act === 'fb-sync') { cargarFbRend(true); render(); return; }
