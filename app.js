@@ -3545,7 +3545,7 @@ document.addEventListener('click', async e => {
     const M = S.mat; if (!M || M.go) return; M.go = true; M.msg = 'Reactivando…'; render();
     let hechos = 0, fallidos = 0;
     try {
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 200; i++) {   // sin tope: sigue de 5 en 5 hasta que no quede ninguno
         const r = await api('mateoReactivar', { max: 5 }); hechos += r.hechos || 0; fallidos += r.fallidos || 0; M.msg = 'Reactivados ' + hechos + '…'; render();
         if (!r.restantes || (r.hechos + r.fallidos) === 0) break;
       }
