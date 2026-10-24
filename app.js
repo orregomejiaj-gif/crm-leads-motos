@@ -741,6 +741,27 @@ function vICVentas() {
     <div class="card"><div class="card-h"><h3>Asesores del mes</h3></div>${tabla(['Asesor', 'Leads', 'Contactados', 'Ventas'], A.map(x => `<tr><td><b>${esc(x.asesor)}</b></td><td>${x.leads}</td><td>${x.contactados}</td><td>${x.ventas}</td></tr>`).join(''))}</div>`;
 }
 
+/** Pendientes por cotizar: leads con nombre, identificación y correo que aún no cruzan con las cotizaciones del CRM. */
+function cargarPendCot() {
+  if (S.pcBusy) return; S.pcBusy = true;
+  api('pendientesCotizar', { dias: S.pcDias || 0 }).then(r => { S.pc = r; S.pcErr = ''; S.pcT = Date.now(); }).catch(e => { S.pcErr = e.message; S.pcT = Date.now(); })
+    .finally(() => { S.pcBusy = false; if (S.view === 'pendcot') render(); });
+}
+function vPendCot() {
+  if (!S.pcBusy && ((!S.pc && !S.pcErr) || Date.now() - (S.pcT || 0) > 120e3)) cargarPendCot();
+  if (!S.pc) return S.pcErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pcErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Buscando clientes pendientes por cotizar…</div></div>';
+  const p = S.pc, R = p.resumen || {}, dias = S.pcDias || 0, q = String(S.pcQ || '').toLowerCase();
+  const b = (v, txt) => `<button class="${dias === v ? 'on' : ''}" data-act="pc-d" data-v="${v}">${txt}</button>`;
+  const filas = (p.filas || []).filter(f => !q || (f.nombre + ' ' + f.documento + ' ' + f.correo + ' ' + f.telefono + ' ' + f.asesor).toLowerCase().includes(q));
+  const tr = f => `<tr><td><b>${esc(f.nombre)}</b><div class="tiny muted">${esc(f.origen || '')}${f.modelo ? ' · ' + esc(f.modelo) : ''}</div></td><td>${esc(f.documento)}<div class="tiny muted">${esc(f.fuente_doc)}</div></td><td>${esc(f.correo)}</td><td>${f.telefono ? `<a href="https://wa.me/${esc(f.telefono)}" target="_blank" rel="noopener">${esc(f.telefono)}</a>` : '—'}</td><td>${esc(f.asesor || 'Sin asesor')}<div class="tiny muted">${esc(f.punto || '')}</div></td><td>${esc(f.fecha || '')}</td></tr>`;
+  return `${hero('jefe', 'ti-file-invoice', 'Pendientes por cotizar', 'Clientes que ya dieron nombre, identificación y correo y todavía no aparecen en las cotizaciones del CRM')}
+    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center"><div class="seg">${b(7, '7 días')}${b(30, '30 días')}${b(0, 'Todo')}</div>
+      <input class="inp" id="pc-q" placeholder="Buscar nombre, documento, correo…" value="${esc(S.pcQ || '')}" style="max-width:280px">
+      <button class="btn btn-sm" data-act="pc-r"${S.pcBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pcBusy ? ' spin' : ''}"></i> Actualizar</button></div>
+    <div class="grid g-kpi">${kpi('📝 Pendientes por cotizar', R.pendientes || 0, 'datos completos, sin cotización en el CRM')}${kpi('✅ Con los 3 datos', R.conTodosLosDatos || 0, 'nombre + documento + correo')}${kpi('🔗 Ya cotizados', R.yaCotizados || 0, 'cruzan con el CRM')}${kpi('📥 Leads revisados', R.leads || 0, '')}</div>
+    <div class="pn-card" style="margin-top:14px"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Documento</th><th>Correo</th><th>Celular</th><th>Asesor</th><th>Primer contacto</th></tr></thead><tbody>${filas.length ? filas.map(tr).join('') : '<tr><td colspan="6" class="muted small">No hay clientes pendientes por cotizar.</td></tr>'}</tbody></table></div>
+    <p class="tiny muted" style="margin-top:8px">Cruce con el archivo de cotizaciones del CRM por número de documento o por celular. Cuando el asesor cotiza y el archivo se carga, el cliente sale de esta lista.</p></div>`;
+}
 /** Tablero gerencial: inversión de Meta cruzada con leads, perfil del cliente, comportamiento, cotizaciones y facturas. */
 function cargarGer() {
   if (S.gerBusy) return; S.gerBusy = true;
@@ -1207,7 +1228,7 @@ function vistasDeRolBase() {
     it('seguimientos', 'ti-clipboard-check', 'Mis Seguimientos'), it('citas', 'ti-calendar-event', 'Mis Citas'), it('comisiones', 'ti-coin', 'Mis Comisiones')];
   if (r === 'admin') return [it('hoy', 'ti-checklist', 'Hoy'), it('punto', 'ti-building-store', 'Mi Punto'), it('equipo', 'ti-users', 'Equipo'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Leads'), it('chats', 'ti-messages', 'Chats'),
     it('seguimientos', 'ti-clipboard-check', 'Seguimiento'), it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('alertas', 'ti-bell-ringing', 'Alertas')];
-  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('gerencial', 'ti-chart-dots', 'Tablero gerencial'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('mateo', 'ti-robot', 'Reactivar Mateo'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
+  return [it('hoy', 'ti-checklist', 'Hoy'), it('inteligencia', 'ti-brain', 'Gestión de Leads'), it('gerencial', 'ti-chart-dots', 'Tablero gerencial'), it('icventas', 'ti-target-arrow', 'Pauta → Venta'), it('comisiones', 'ti-coin', 'Comisiones'), it('embudo', 'ti-layout-kanban', 'Embudo'), it('chats', 'ti-messages', 'Chats'), it('mateo', 'ti-robot', 'Reactivar Mateo'), it('pendcot', 'ti-file-invoice', 'Pendientes por cotizar'), it('disponibilidad', 'ti-user-check', 'Disponibilidad'), it('zonas', 'ti-map-2', 'Zonas'), it('control', 'ti-radar-2', 'Control'),
     it('indicadores', 'ti-chart-dots', 'Indicadores'), it('analista', 'ti-chart-histogram', 'Tablero'), it('seguimientos', 'ti-clipboard-check', 'Seguimiento'),
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('fbrend', 'ti-chart-bar', 'Páginas · Rendimiento'), it('fbgest', 'ti-brand-facebook', 'Páginas · Gestión'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
@@ -1250,7 +1271,7 @@ function renderNav() {
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
 function render() {
-  const base = { fbrend: vFbRend, fbgest: vFbGest, pauta: vPauta, icventas: vICVentas, gerencial: vGerencial, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
+  const base = { fbrend: vFbRend, fbgest: vFbGest, pauta: vPauta, icventas: vICVentas, gerencial: vGerencial, pendcot: vPendCot, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
     alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, mateo: vMateo, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
@@ -3631,6 +3652,8 @@ document.addEventListener('click', async e => {
   if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
+  if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
+  if (act === 'pc-r') { S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
   if (act === 'ger-r') { S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pau-ajuste') {
     const actual = S.pau && S.pau.prueba ? S.pau.prueba.mostrado : '';
@@ -3743,6 +3766,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (MOD && t.dataset.mch !== undefined) return MOD.onChange(t, e);
   if (t.id === 'emb-dest') { S.embDest = t.value; return; }
+  if (t.id === 'pc-q') { S.pcQ = t.value; render(); return; }
   if (t.dataset.sel !== undefined) { if (t.checked) S.embSel.add(t.dataset.sel); else S.embSel.delete(t.dataset.sel); const n = $('#emb-n'); if (n) n.textContent = S.embSel.size; return; }
   if (t.dataset.selcol !== undefined) {
     $$(`.col[data-col="${t.dataset.selcol}"] [data-sel]`).forEach(c => { c.checked = t.checked; if (t.checked) S.embSel.add(c.dataset.sel); else S.embSel.delete(c.dataset.sel); });
