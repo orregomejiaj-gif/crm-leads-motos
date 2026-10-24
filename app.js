@@ -752,13 +752,15 @@ function vPendCot() {
   if (!S.pc) return S.pcErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pcErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Buscando clientes pendientes por cotizar…</div></div>';
   const p = S.pc, R = p.resumen || {}, dias = S.pcDias || 0, q = String(S.pcQ || '').toLowerCase();
   const b = (v, txt) => `<button class="${dias === v ? 'on' : ''}" data-act="pc-d" data-v="${v}">${txt}</button>`;
-  const filas = (p.filas || []).filter(f => !q || (f.nombre + ' ' + f.documento + ' ' + f.correo + ' ' + f.telefono + ' ' + f.asesor).toLowerCase().includes(q));
-  const tr = f => `<tr><td><b>${esc(f.nombre)}</b><div class="tiny muted">${esc(f.origen || '')}${f.modelo ? ' · ' + esc(f.modelo) : ''}</div></td><td>${esc(f.documento)}<div class="tiny muted">${esc(f.fuente_doc)}</div></td><td>${esc(f.correo)}</td><td>${f.telefono ? `<a href="https://wa.me/${esc(f.telefono)}" target="_blank" rel="noopener">${esc(f.telefono)}</a>` : '—'}</td><td>${esc(f.asesor || 'Sin asesor')}<div class="tiny muted">${esc(f.punto || '')}</div></td><td>${esc(f.fecha || '')}</td></tr>`;
+  const tab = S.pcTab === 'inc' ? 'inc' : 'ok', inc = tab === 'inc';
+  const filas = (inc ? (p.parciales || []) : (p.filas || [])).filter(f => !q || (f.nombre + ' ' + f.documento + ' ' + f.correo + ' ' + f.telefono + ' ' + f.asesor).toLowerCase().includes(q));
+  const bt = (v, txt) => `<button class="${tab === v ? 'on' : ''}" data-act="pc-t" data-v="${v}">${txt}</button>`;
+  const tr = f => `<tr><td><b>${esc(f.nombre || 'Sin nombre')}</b><div class="tiny muted">${esc(f.origen || '')}${f.modelo ? ' · ' + esc(f.modelo) : ''}</div>${inc ? `<div class="tiny" style="color:#b45309">Falta: ${esc((f.faltan || []).join(', '))}</div>` : ''}</td><td>${f.documento ? esc(f.documento) + `<div class="tiny muted">${esc(f.fuente_doc)}</div>` : '<span class="muted">—</span>'}</td><td>${f.correo ? esc(f.correo) : '<span class="muted">—</span>'}</td><td>${f.telefono ? `<a href="https://wa.me/${esc(f.telefono)}" target="_blank" rel="noopener">${esc(f.telefono)}</a>` : '—'}</td><td>${esc(f.asesor || 'Sin asesor')}<div class="tiny muted">${esc(f.punto || '')}</div></td><td>${esc(f.fecha || '')}</td></tr>`;
   return `${hero('jefe', 'ti-file-invoice', 'Pendientes por cotizar', 'Clientes que ya dieron nombre, identificación y correo y todavía no aparecen en las cotizaciones del CRM')}
-    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center"><div class="seg">${b(7, '7 días')}${b(30, '30 días')}${b(0, 'Todo')}</div>
+    <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center"><div class="seg">${bt('ok', '📝 Listos para cotizar (' + (R.pendientes || 0) + ')')}${bt('inc', '🔎 Con datos incompletos (' + (R.incompletos || 0) + ')')}</div><div class="seg">${b(7, '7 días')}${b(30, '30 días')}${b(0, 'Todo')}</div>
       <input class="inp" id="pc-q" placeholder="Buscar nombre, documento, correo…" value="${esc(S.pcQ || '')}" style="max-width:280px">
       <button class="btn btn-sm" data-act="pc-r"${S.pcBusy ? ' disabled' : ''}><i class="ti ti-refresh${S.pcBusy ? ' spin' : ''}"></i> Actualizar</button></div>
-    <div class="grid g-kpi">${kpi('📝 Pendientes por cotizar', R.pendientes || 0, 'datos completos, sin cotización en el CRM')}${kpi('✅ Con los 3 datos', R.conTodosLosDatos || 0, 'nombre + documento + correo')}${kpi('🔗 Ya cotizados', R.yaCotizados || 0, 'cruzan con el CRM')}${kpi('📥 Leads revisados', R.leads || 0, '')}</div>
+    <div class="grid g-kpi">${kpi('📝 Pendientes por cotizar', R.pendientes || 0, 'datos completos, sin cotización en el CRM')}${kpi('🔎 En el radar (incompletos)', R.incompletos || 0, 'tienen documento o correo, falta algo')}${kpi('✅ Con los 3 datos', R.conTodosLosDatos || 0, 'nombre + documento + correo')}${kpi('🔗 Ya cotizados', R.yaCotizados || 0, 'cruzan con el CRM')}${kpi('📥 Leads revisados', R.leads || 0, '')}</div>
     <div class="pn-card" style="margin-top:14px"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente</th><th>Documento</th><th>Correo</th><th>Celular</th><th>Asesor</th><th>Primer contacto</th></tr></thead><tbody>${filas.length ? filas.map(tr).join('') : '<tr><td colspan="6" class="muted small">No hay clientes pendientes por cotizar.</td></tr>'}</tbody></table></div>
     <p class="tiny muted" style="margin-top:8px">Cruce con el archivo de cotizaciones del CRM por número de documento o por celular. Cuando el asesor cotiza y el archivo se carga, el cliente sale de esta lista.</p></div>`;
 }
@@ -3653,6 +3655,7 @@ document.addEventListener('click', async e => {
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
+  if (act === 'pc-t') { S.pcTab = a.dataset.v; render(); return; }
   if (act === 'pc-r') { S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
   if (act === 'ger-r') { S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pau-ajuste') {
