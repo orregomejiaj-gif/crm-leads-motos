@@ -1220,7 +1220,8 @@ function vListaPanel(kind) {
 function vistasDeRol() {
   // Las pantallas que solo calculan sobre leads (Indicadores, Conciliación, Leads/Embudo del Admin) se ocultan mientras haya muy pocos leads: vuelven solas con volumen.
   const pocos = ((S.M && S.M.leads) || []).length < 15, ocultas = pocos ? { indicadores: 1, conciliacion: 1 } : {};
-  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo'));
+  const sinChats = !!S.data.user.sinChats;   // acceso sin chats: tampoco ve Reactivar Mateo (muestra los mensajes de los clientes)
+  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')));
 }
 function vistasDeRolBase() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
