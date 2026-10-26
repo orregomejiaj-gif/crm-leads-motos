@@ -1275,10 +1275,10 @@ function renderNav() {
 }
 // ── Descargar lo que se ve: cada pantalla trae su botón y exporta a Excel las tablas visibles (con los filtros activos) y los indicadores ──
 const VISTAS_SIN_DESCARGA = ['config', 'accesos', 'carga'];
-const VISTAS_LEADS = ['hoy', 'embudo', 'dia', 'chats'];   // pantallas de tarjetas: sin tablas, se descarga la base de leads que ve la persona
+const VISTAS_LEADS = ['hoy', 'embudo', 'dia', 'chats', 'control'];   // pantallas de tarjetas: se descarga la base de leads que ve la persona
 function ponerDescarga() {
   const v = $('#view'); if (!v || v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
-  if (!v.querySelector('table') && !VISTAS_LEADS.includes(S.view)) return;
+  if (!v.querySelector('table, .kpi, .card') && !VISTAS_LEADS.includes(S.view)) return;
   const b = document.createElement('div'); b.id = 'dl-bar'; b.style.cssText = 'display:flex;justify-content:flex-end;margin:0 0 8px';
   b.innerHTML = '<button class="btn btn-sm" data-act="dl-vista" title="Descarga en Excel lo que estás viendo, con los filtros activos"><i class="ti ti-download"></i> Descargar esta vista</button>';
   v.insertBefore(b, v.firstChild);
@@ -1309,7 +1309,12 @@ async function descargarVista() {
     const card = t.closest('.pn-card, .card'), tt = card && card.querySelector('h2, h3, h4');
     XL.utils.book_append_sheet(wb, XL.utils.aoa_to_sheet(rows), hoja(tt ? txt(tt).replace(/[^\p{L}\p{N} ]+/gu, ' ') : '', i));
   });
-  if (!tablas.length && VISTAS_LEADS.includes(S.view)) {   // tarjetas: la base de leads que ve esta persona
+  if (!tablas.length) {   // pantallas de tarjetas: una fila por tarjeta visible (sección + contenido)
+    const hojas = [...v.querySelectorAll('.card')].filter(c => !c.querySelector('.card') && c.offsetParent !== null);
+    const filasC = hojas.map(c => { const sec = c.closest('section, .pn-card') || c.parentElement, h = sec && sec.querySelector('h2, h3, h4'); return [h ? txt(h) : '', txt(c)]; }).filter(r => r[1]);
+    if (filasC.length) { XL.utils.book_append_sheet(wb, XL.utils.aoa_to_sheet([['Sección', 'Contenido']].concat(filasC)), hoja('Contenido de la pantalla', 0)); filasTot += filasC.length; }
+  }
+  if (VISTAS_LEADS.includes(S.view) && !(S.view === 'chats' && S.data.user.sinChats)) {   // la base de leads que ve esta persona
     const src = (S.M && S.M.leads) || [];
     if (!src.length) { toast('No hay datos para descargar en esta vista.', 'bad'); return; }
     XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(src.map(l => Object.assign({ Estado: l.estado || '', Asesor: l.asesor || '', Punto: l.sede || '', Origen: canalLead(l) }, l.raw || {}))), hoja('Leads', 0)); filasTot = src.length;
