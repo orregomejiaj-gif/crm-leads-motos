@@ -1273,12 +1273,56 @@ function renderNav() {
   $('#nav').innerHTML = vistasDeRol().map(v =>
     `<button data-nav="${v.id}" class="${S.view === v.id ? 'on' : ''}"><i class="ti ${v.icon}"></i><span>${v.label}</span>${badges[v.id] ? `<span class="dot">${badges[v.id]}</span>` : ''}</button>`).join('');
 }
+// ── Descargar lo que se ve: cada pantalla trae su botón y exporta a Excel las tablas visibles (con los filtros activos) y los indicadores ──
+const VISTAS_SIN_DESCARGA = ['config', 'accesos', 'carga'];
+const VISTAS_LEADS = ['hoy', 'embudo', 'dia', 'chats'];   // pantallas de tarjetas: sin tablas, se descarga la base de leads que ve la persona
+function ponerDescarga() {
+  const v = $('#view'); if (!v || v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
+  if (!v.querySelector('table') && !VISTAS_LEADS.includes(S.view)) return;
+  const b = document.createElement('div'); b.id = 'dl-bar'; b.style.cssText = 'display:flex;justify-content:flex-end;margin:0 0 8px';
+  b.innerHTML = '<button class="btn btn-sm" data-act="dl-vista" title="Descarga en Excel lo que estás viendo, con los filtros activos"><i class="ti ti-download"></i> Descargar esta vista</button>';
+  v.insertBefore(b, v.firstChild);
+}
+async function descargarVista() {
+  const v = $('#view'); if (!v) return;
+  const lbl = ((vistasDeRol().find(x => x.id === S.view)) || {}).label || S.view;
+  const XL = await cargarXlsx(), wb = XL.utils.book_new(), usados = new Set();
+  const hoja = (t, i) => { let n = String(t || ('Tabla ' + (i + 1))).replace(/[\\\/\?\*\[\]:]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28) || ('Tabla ' + (i + 1)), k = n, c = 2; while (usados.has(k.toLowerCase())) k = n.slice(0, 25) + ' ' + c++; usados.add(k.toLowerCase()); return k; };
+  const txt = c => String(c.innerText || '').replace(/\s*\n+\s*/g, ' · ').replace(/\s+/g, ' ').trim();
+  const filtros = [];
+  v.querySelectorAll('.seg button.on, button.on, .pill[data-act]').forEach(b => { const t = txt(b); if (t) filtros.push(t); });
+  v.querySelectorAll('select').forEach(s => { const o = s.selectedOptions && s.selectedOptions[0]; if (o && s.value) filtros.push(txt(o)); });
+  v.querySelectorAll('input').forEach(i => { if (i.value && i.type !== 'checkbox' && i.type !== 'hidden') filtros.push((i.placeholder ? i.placeholder + ': ' : '') + i.value); });
+  const kp = [...v.querySelectorAll('.kpi')].map(k => [txt(k.querySelector('.k-l') || k), txt(k.querySelector('.k-v') || k), txt(k.querySelector('.k-s') || { innerText: '' })]);
+  const parcial = /Se muestran \d+ de|Se muestran las \d+ primeras|primeras? \d+ de/i.test(v.innerText);
+  const tablas = [...v.querySelectorAll('table')].filter(t => t.offsetParent !== null);
+  const info = [['Vista', lbl], ['Exportado', new Date().toLocaleString('es-CO')], ['Por', S.data.user.nombre], ['Filtros activos', filtros.filter((x, i, a) => a.indexOf(x) === i).join(' | ') || 'Ninguno']];
+  if (parcial) info.push(['Aviso', 'Esta pantalla muestra solo una parte de algunas listas; lo descargado es lo que se ve en pantalla.']);
+  if (kp.length) { info.push([]); info.push(['Indicador', 'Valor', 'Detalle']); kp.forEach(k => info.push(k)); }
+  XL.utils.book_append_sheet(wb, XL.utils.aoa_to_sheet(info), hoja('Resumen', 0));
+  let filasTot = 0;
+  tablas.forEach((t, i) => {
+    const rows = [...t.rows].filter(r => r.offsetParent !== null).map(r => [...r.cells].map(txt)).filter(r => r.some(Boolean));
+    if (!rows.length) return; filasTot += Math.max(0, rows.length - 1);
+    const card = t.closest('.pn-card, .card'), tt = card && card.querySelector('h2, h3, h4');
+    XL.utils.book_append_sheet(wb, XL.utils.aoa_to_sheet(rows), hoja(tt ? txt(tt).replace(/[^\p{L}\p{N} ]+/gu, ' ') : '', i));
+  });
+  if (!tablas.length && VISTAS_LEADS.includes(S.view)) {   // tarjetas: la base de leads que ve esta persona
+    const src = (S.M && S.M.leads) || [];
+    if (!src.length) { toast('No hay datos para descargar en esta vista.', 'bad'); return; }
+    XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(src.map(l => Object.assign({ Estado: l.estado || '', Asesor: l.asesor || '', Punto: l.sede || '', Origen: canalLead(l) }, l.raw || {}))), hoja('Leads', 0)); filasTot = src.length;
+  }
+  if (!filasTot && !kp.length) { toast('No hay datos para descargar en esta vista.', 'bad'); return; }
+  const nom = String(lbl).toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, '-').replace(/^-|-$/g, '') + '_' + ymd(new Date()) + '.xlsx';
+  XL.writeFile(wb, nom); toast('Descargado: ' + nom + (filasTot ? ' (' + filasTot + ' filas)' : ''), 'ok');
+}
 function render() {
   const base = { fbrend: vFbRend, fbgest: vFbGest, pauta: vPauta, icventas: vICVentas, gerencial: vGerencial, pendcot: vPendCot, inteligencia: vInteligencia, punto: vPunto, dia: vDia, equipo: vEquipo, miscot: () => vListaPanel('cotizaciones'), misventas: () => vListaPanel('ventas'), entregas: () => vListaPanel('entregas'), citas: vCitas,
     alertas: () => vControlTab('alertas'), auditoria: () => vControlTab('auditoria'), hoy: vHoy, chats: vChats, embudo: vEmbudo, control: vControl, metas: vMetas, indicadores: vIndicadores, analista: vAnalista, comisiones: vComisionesSb, mateo: vMateo, conciliacion: vConciliacion, accesos: vAccesos, config: vConfig, disponibilidad: vDisponibilidad, zonas: vZonas, carga: vCargaDatos };
   const fn =(MOD && MOD.views[S.view]) || base[S.view];
   const sinCambio = S._vistaPrev === S.view;
   $('#view').innerHTML = fn();
+  ponerDescarga();
   if (S.view === 'embudo') bindKanban();
   if (!sinCambio) animarNumeros(); // el conteo animado solo al cambiar de vista, no en cada actualización automática
   S._vistaPrev = S.view;
@@ -3656,6 +3700,7 @@ document.addEventListener('click', async e => {
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
+  if (act === 'dl-vista') { try { await descargarVista(); } catch (e) { toast(e.message || 'No se pudo descargar.', 'bad'); } return; }
   if (act === 'pc-t') { S.pcTab = a.dataset.v; render(); return; }
   if (act === 'pc-r') { S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
   if (act === 'ger-r') { S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
