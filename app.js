@@ -1283,6 +1283,8 @@ function ponerDescarga() {
   b.innerHTML = '<button class="btn btn-sm" data-act="dl-vista" title="Descarga en Excel lo que estás viendo, con los filtros activos"><i class="ti ti-download"></i> Descargar esta vista</button>';
   v.insertBefore(b, v.firstChild);
 }
+// Pantallas que pintan sus tablas después (Control, pestañas internas…): el botón aparece cuando llegan
+(function () { const ini = () => { const v = document.getElementById('view'); if (!v || !window.MutationObserver) return; let t = 0; new MutationObserver(() => { clearTimeout(t); t = setTimeout(() => { try { ponerDescarga(); } catch (e) { /* sin botón */ } }, 250); }).observe(v, { childList: true, subtree: true }); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else ini(); })();
 async function descargarVista() {
   const v = $('#view'); if (!v) return;
   const lbl = ((vistasDeRol().find(x => x.id === S.view)) || {}).label || S.view;
