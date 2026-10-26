@@ -2856,7 +2856,7 @@ function filasMateo(L, conVence, D) {
   const hora = x => new Date(x).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const orden = L.slice().sort((a, b) => (a.origen === 'Pauta' ? 0 : 1) - (b.origen === 'Pauta' ? 0 : 1) || Date.parse(a.llegada) - Date.parse(b.llegada));
   return `<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Llegó</th><th>Quién escribió</th><th>Mensaje</th><th>Origen</th>${conVence ? '<th class="r">Vence en</th>' : ''}</tr></thead><tbody>${orden.map(x => `<tr><td>${esc(hora(x.llegada))}</td>
-    <td><b>${esc(x.nombre || 'Sin nombre')}</b><div class="tiny muted">${esc(x.telefono || x.id_contacto || 'sin número')}</div></td><td style="max-width:360px">${esc(x.mensaje || '—')}</td>
+    <td><b>${esc(x.nombre || 'Sin nombre')}</b><div class="tiny muted">${esc(x.telefono || x.id_contacto || 'sin número')}</div></td><td style="max-width:360px">${esc(x.mensaje || '—')}${x.n > 1 ? `<div class="tiny muted">Último de ${x.n} mensajes · el primero llegó ${esc(hora(x.primera))}</div>` : ''}</td>
     <td><span class="pill ${x.origen === 'Pauta' ? 'pill-info' : ''}">${esc(x.origen || '—')}</span>${x.anuncio ? `<div class="tiny muted">${esc(x.anuncio)}</div>` : ''}</td>
     ${conVence ? `<td class="r num">${Math.max(0, D.ventanaHoras - x.horas).toFixed(1).replace('.', ',')} h</td>` : ''}</tr>`).join('')}</tbody></table></div>`;
 }
