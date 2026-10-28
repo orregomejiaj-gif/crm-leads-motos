@@ -2866,15 +2866,17 @@ function vMetas() {
 // Ventana grande al entrar: cómo vamos con los leads y con la meta del mes
 function mostrarBienvenida() {
   const u = S.data.user, L = leadsAlcance();
+  if (u.soloLectura && !S.cvx && !S.cvxBienv) { S.cvxBienv = true; api('cruceVentas').then(r => { S.cvx = r; }).catch(() => { S.cvx = { err: 1 }; }).finally(() => mostrarBienvenida()); return; }
   const hora = bparts(new Date()).h, saludo = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
   const abiertos = L.filter(l => !['Facturado', 'Perdido', 'Retenido', 'Otra ciudad'].includes(l.estado));
-  const nuevos = abiertos.filter(l => l.estado === 'Nuevo').length, cotizados = L.filter(l => l.cotizado).length, vendidos = L.filter(l => l.estado === 'Facturado').length;
+  let nuevos = abiertos.filter(l => l.estado === 'Nuevo').length, cotizados = L.filter(l => l.cotizado).length, vendidos = L.filter(l => l.estado === 'Facturado').length;
   const msg = nuevos ? `Tienes ${nuevos} lead${nuevos === 1 ? '' : 's'} sin contactar: el primero que responde, vende. Empieza por ahí.` : (abiertos.length ? 'No hay leads sin contactar. Sigue las cotizaciones y las próximas acciones del día.' : 'Aún no hay leads abiertos. Cuando entren por la pauta o por referidos aparecerán aquí.');
+  let cotLbl = 'Cotizados', venLbl = 'Vendidos'; if (u.soloLectura && S.cvx && !S.cvx.err) { cotizados = S.cvx.cotizacionesCRM || 0; vendidos = S.cvx.vivas || 0; cotLbl = 'Cotizaciones CRM'; venLbl = 'Pasa a facturar / Cerrado ganado'; }
   const kp = (n, t, c) => `<div class="wl-kpi ${c || ''}"><b data-n="${n}">0</b><span>${t}</span></div>`;
   const html = `<div class="wl-backdrop" data-wl-cerrar></div><div class="wl-card" role="dialog" aria-modal="true" aria-label="Resumen de leads">
     <button class="icon-btn wl-x" data-wl-cerrar title="Cerrar"><i class="ti ti-x"></i></button>
     <div class="wl-top"><div class="wl-saludo">${saludo}, ${esc(String(u.nombre).split(' ')[0])} 👋</div><div class="wl-mes">Gestión de leads · pauta en redes y referidos</div></div>
-    <div class="wl-kpis">${kp(abiertos.length, 'Leads abiertos')}${kp(nuevos, 'Sin contactar', nuevos ? 'wl-venta' : '')}${kp(cotizados, 'Cotizados')}${kp(vendidos, 'Vendidos', 'wl-venta')}</div>
+    <div class="wl-kpis">${kp(abiertos.length, 'Leads abiertos')}${kp(nuevos, 'Sin contactar', nuevos ? 'wl-venta' : '')}${kp(cotizados, cotLbl)}${kp(vendidos, venLbl, 'wl-venta')}</div>
     <div class="wl-meta"><div class="wl-meta-t"><i class="ti ti-bolt"></i> Lo primero hoy</div><p class="wl-ritmo">${esc(msg)}</p></div>
     <div class="wl-acciones"><button class="btn btn-primary wl-entrar" data-wl-cerrar><i class="ti ti-arrow-right"></i> Entrar a la app</button></div></div>`;
   let w = $('#welcome');
