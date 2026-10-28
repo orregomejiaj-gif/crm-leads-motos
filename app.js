@@ -3948,10 +3948,107 @@ document.addEventListener('keydown', e => {
 $('#btn-refresh').onclick = () => cargar();
 $('#btn-usuarios').onclick = () => abrirAccesos();
 // ── Manual del perfil: qué hace cada botón del menú (el mismo que se envía por correo) ──
+// ── Manual interactivo: glosario con buscador + recorrido paso a paso que señala cada botón con una flecha y su explicación ──
+const MN_TERMINOS = [
+  ['Score / prioridad', 'Puntaje que calcula la app para cada lead (temperatura, moto de interés, tiempo sin gestión). Rojo = gestionar ya, amarillo = gestionar hoy, verde = puede esperar.', 'score prioridad caliente tibio frio temperatura'],
+  ['SLA vencido', 'El lead pasó el plazo (en horas hábiles) para el primer contacto o para la siguiente gestión. Atiéndelo primero.', 'sla plazo vencido atraso horas habiles'],
+  ['Estados del lead', 'Nuevo → Contactado → Cotizado → Facturado (Pasa a facturar / Cerrado ganado). También Perdido, Detenido u Otra ciudad. Se cambian desde la ficha del lead o con «Mover a» en el Embudo.', 'estado etapa nuevo contactado cotizado facturado perdido detenido mover'],
+  ['Pasa a facturar / Cerrado ganado', 'Etapa de las ventas facturadas. Pasa sola a «Cerrado ganado» cuando la factura aparece en Síntesis.', 'ganado facturado venta factura sintesis cerrado'],
+  ['Cotizado sin soporte', 'Lead marcado como cotizado que no cruza con ninguna cotización del CRM. Hay que registrar la cotización o corregir el estado.', 'sin soporte cotizacion crm cruce'],
+  ['Cruce con el CRM / Síntesis', 'La app une leads, cotizaciones del CRM y facturas de Síntesis por celular, cédula o cotización, para saber qué lead terminó en venta.', 'cruce crm sintesis cotizacion factura celular cedula'],
+  ['Ventana de 24 h (WhatsApp)', 'WhatsApp solo permite escribir libremente dentro de las 24 h del último mensaje del cliente. Pasado ese tiempo se usa «Reactivar chat» con la plantilla aprobada.', 'whatsapp ventana 24 horas reactivar plantilla'],
+  ['Mateo', 'Asistente virtual que atiende por WhatsApp, informa solo de motos AKT y pide nombre, documento y correo para la cotización.', 'mateo bot asistente ia whatsapp'],
+  ['Reasignación', 'Cambio del asesor responsable de un lead. Ocurre por inactividad (4 h hábiles sin gestión) o manualmente por el administrador.', 'reasignar reasignacion asesor inactividad'],
+  ['Descargar esta vista', 'Baja a Excel lo que estás viendo, con los filtros activos (solo administradores).', 'descargar excel exportar base'],
+];
+const MN_COMUN = [
+  ['#btn-refresh', 'Actualizar', 'Recarga los datos al instante; la app también se actualiza sola cada pocos minutos.'],
+  ['#btn-manual', 'Manual', 'Este manual: busca cualquier botón o término y te lo señala en pantalla.'],
+  ['#btn-usuarios', 'Usuarios y accesos', 'Crea usuarios, envía acceso por correo y asigna la vista de cada persona.'],
+  ['#btn-logout', 'Cerrar sesión', 'Sal siempre que uses un equipo compartido.'],
+];
+const mnNorm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+function mnQuitar() { ['mn-ring', 'mn-bub'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); }); window.removeEventListener('resize', mnReponer); document.removeEventListener('keydown', mnTecla, true); S.mnTour = null; }
+function mnTecla(e) { if (!S.mnTour) return; if (e.key === 'Escape') { mnQuitar(); } else if (e.key === 'ArrowRight') mnPaso(1); else if (e.key === 'ArrowLeft') mnPaso(-1); }
+function mnReponer() { if (S.mnTour) mnMostrar(); }
+function mnMostrar() {
+  const T = S.mnTour; if (!T) return; const p = T.pasos[T.i]; if (!p) return mnQuitar();
+  const el = p.sel ? document.querySelector(p.sel) : null;
+  let ring = document.getElementById('mn-ring'), bub = document.getElementById('mn-bub');
+  if (!ring) { ring = document.createElement('div'); ring.id = 'mn-ring'; document.body.appendChild(ring); }
+  if (!bub) { bub = document.createElement('div'); bub.id = 'mn-bub'; document.body.appendChild(bub); }
+  if (el) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const rc = el ? el.getBoundingClientRect() : null, vw = window.innerWidth, vh = window.innerHeight;
+  if (rc && rc.width) { ring.style.cssText = `left:${rc.left - 4}px;top:${rc.top - 4}px;width:${rc.width + 8}px;height:${rc.height + 8}px`; ring.hidden = false; } else ring.hidden = true;
+  const ultimo = T.i === T.pasos.length - 1;
+  bub.innerHTML = `<div class="mn-n">Paso ${T.i + 1} de ${T.pasos.length}</div><h4>${esc(p.t)}</h4><p>${esc(p.d)}</p>
+    <div class="mn-bar"><button class="btn btn-sm" data-mn="ant" ${T.i ? '' : 'disabled'}>← Anterior</button>${p.id && el ? '<button class="btn btn-sm" data-mn="abrir">Abrir esta pantalla</button>' : ''}<button class="btn btn-sm btn-primary" data-mn="sig">${ultimo ? 'Terminar' : 'Siguiente →'}</button><button class="btn btn-sm" data-mn="fin">Salir</button></div>`;
+  bub.className = ''; bub.style.cssText = 'left:0;top:0;visibility:hidden';
+  const bw = Math.min(330, vw - 24); bub.style.width = bw + 'px'; const bh = bub.offsetHeight;
+  let x, y, lado;
+  if (rc && rc.width) {
+    if (rc.right + 16 + bw < vw && rc.left < vw * .5) { lado = 'izq'; x = rc.right + 16; y = Math.min(Math.max(8, rc.top + rc.height / 2 - 28), vh - bh - 8); }
+    else if (rc.left - 16 - bw > 0) { lado = 'der'; x = rc.left - 16 - bw; y = Math.min(Math.max(8, rc.top + rc.height / 2 - 28), vh - bh - 8); }
+    else if (rc.bottom + 16 + bh < vh) { lado = 'arr'; x = Math.min(Math.max(8, rc.left + rc.width / 2 - bw / 2), vw - bw - 8); y = rc.bottom + 16; }
+    else { lado = 'aba'; x = Math.min(Math.max(8, rc.left + rc.width / 2 - bw / 2), vw - bw - 8); y = Math.max(8, rc.top - 16 - bh); }
+    bub.className = 'mn-' + lado;
+    bub.style.setProperty('--mn-fx', Math.min(Math.max(18, rc.left + rc.width / 2 - x - 8), bw - 34) + 'px'); bub.style.setProperty('--mn-fy', Math.min(Math.max(14, rc.top + rc.height / 2 - y - 8), bh - 30) + 'px');
+  } else { x = (vw - bw) / 2; y = (vh - bh) / 3; bub.className = 'mn-centro'; }
+  bub.style.left = x + 'px'; bub.style.top = y + 'px'; bub.style.visibility = 'visible';
+}
+function mnPaso(d) { const T = S.mnTour; if (!T) return; const n = T.i + d; if (n >= T.pasos.length) return mnQuitar(); if (n < 0) return; T.i = n; mnMostrar(); }
+function mnEmpezar(pasos, i0) {
+  mnQuitar(); cerrarSheet();
+  if (!document.getElementById('mn-css')) { const st = document.createElement('style'); st.id = 'mn-css'; st.textContent = `
+  #mn-ring{position:fixed;z-index:10000;border-radius:10px;pointer-events:none;box-shadow:0 0 0 9999px rgba(8,20,50,.55),0 0 0 3px #7ED957;animation:mnp 1.4s ease-in-out infinite}
+  @keyframes mnp{50%{box-shadow:0 0 0 9999px rgba(8,20,50,.55),0 0 0 7px rgba(126,217,87,.55)}}
+  #mn-bub{position:fixed;z-index:10001;background:#fff;color:#0f172a;border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:14px;line-height:1.45}
+  #mn-bub h4{margin:2px 0 6px;font-size:16px;color:#0b2e6e} #mn-bub p{margin:0 0 10px;color:#334155} .mn-n{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+  .mn-bar{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  #mn-bub::before{content:'';position:absolute;width:16px;height:16px;background:#fff;transform:rotate(45deg)}
+  #mn-bub.mn-izq::before{left:-8px;top:var(--mn-fy)} #mn-bub.mn-der::before{right:-8px;top:var(--mn-fy)}
+  #mn-bub.mn-arr::before{top:-8px;left:var(--mn-fx)} #mn-bub.mn-aba::before{bottom:-8px;left:var(--mn-fx)} #mn-bub.mn-centro::before{display:none}
+  .mn-card{border:1px solid rgba(100,116,139,.25);border-radius:10px;padding:10px 12px;margin:8px 0} .mn-card h4{margin:0 0 4px;color:#0b2e6e}
+  .mn-card .row{gap:6px;margin-top:6px} mark.mn{background:#fde68a;padding:0 1px;border-radius:2px}`; document.head.appendChild(st); }
+  S.mnTour = { pasos, i: i0 || 0 }; window.addEventListener('resize', mnReponer); document.addEventListener('keydown', mnTecla, true); mnMostrar();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-mn]'); if (!b) return;
+  const a = b.dataset.mn;
+  if (a === 'sig') mnPaso(1); else if (a === 'ant') mnPaso(-1); else if (a === 'fin') mnQuitar();
+  else if (a === 'abrir') { const T = S.mnTour, p = T && T.pasos[T.i]; if (p && p.id) { const nb = document.querySelector('[data-nav="' + p.id + '"]'); if (nb) nb.click(); setTimeout(mnMostrar, 350); } }
+  else if (a === 'tour') mnEmpezar(S.mnPasos, 0);
+  else if (a === 'uno') mnEmpezar([S.mnPasos[Number(b.dataset.i)]], 0);
+});
 async function abrirManual(ced) {
   abrirSheet('<div class="sheet-b"><div class="loading"><div><i class="ti ti-loader-2 spin"></i> Abriendo el manual…</div></div></div>', true);
-  try { const r = await api('manualPerfil', ced ? { cedula: ced } : {}); abrirSheet(`<div class="sheet-h"><div><h2>${esc(r.titulo)}</h2><div class="muted small">Qué encuentras en cada botón de tu menú.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div><div class="sheet-b" style="max-height:72vh;overflow:auto">${r.html}</div>`, true); }
-  catch (e) { cerrarSheet(); toast(e.message || 'No se pudo abrir el manual.', 'bad'); }
+  let r; try { r = await api('manualPerfil', ced ? { cedula: ced } : {}); } catch (e) { cerrarSheet(); toast(e.message || 'No se pudo abrir el manual.', 'bad'); return; }
+  const propio = !ced, G = r.glosario || {};
+  // Botones del menú: si es el manual propio, exactamente los que tiene la persona en su menú; si es de otra, los de su perfil
+  const idsMenu = propio ? vistasDeRol().map(v => v.id) : (r.ids || []);
+  const pasos = [];
+  idsMenu.forEach(id => { const g = G[id] || null, lbl = propio ? ((vistasDeRol().find(v => v.id === id) || {}).label || (g && g.t)) : (g && g.t); if (lbl) pasos.push({ id, t: lbl, d: g ? g.d : 'Pantalla de tu menú.', sel: '[data-nav="' + id + '"]', tipo: 'Menú' }); });
+  MN_COMUN.forEach(c => { if (!propio && c[0] === '#btn-usuarios') return; const el = document.querySelector(c[0]); if (propio && (!el || el.hidden)) return; pasos.push({ id: '', t: c[1], d: c[2], sel: c[0], tipo: 'En pantalla' }); });
+  S.mnPasos = pasos;
+  const terminos = MN_TERMINOS.map(t => ({ t: t[0], d: t[1], k: t[2], tipo: 'Término' }));
+  const todo = pasos.map((p, i) => ({ t: p.t, d: p.d, k: '', tipo: p.tipo, i })).concat(terminos);
+  const lim = r.limites || {};
+  const avisos = [lim.soloContacto ? 'De cada cliente solo ves si ya fue contactado o no; no ves chats, teléfonos ni datos personales.' : '', lim.soloSemana ? 'Solo ves los leads de la semana en curso (de lunes a hoy).' : ''].filter(Boolean);
+  const pintar = q => {
+    const nq = mnNorm(q).trim(), ws = nq.split(/\s+/).filter(Boolean);
+    const hit = todo.filter(x => !ws.length || ws.every(w => mnNorm(x.t + ' ' + x.d + ' ' + x.k + ' ' + x.tipo).includes(w)));
+    const resalta = s => { let h = esc(s); ws.forEach(w => { if (w.length > 1) h = h.replace(new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark class="mn">$1</mark>'); }); return h; };
+    const grupo = tipo => { const l = hit.filter(x => x.tipo === tipo); return l.length ? `<h3 style="margin:14px 0 4px">${tipo === 'Menú' ? 'Botones del menú' : tipo === 'En pantalla' ? 'Botones de la parte superior' : 'Glosario de términos'} <span class="muted small">(${l.length})</span></h3>` + l.map(x => `<div class="mn-card"><h4>${resalta(x.t)}</h4><div class="small">${resalta(x.d)}</div>${propio && x.i !== undefined && document.querySelector(pasos[x.i].sel) ? `<div class="row"><button class="btn btn-sm btn-primary" data-mn="uno" data-i="${x.i}"><i class="ti ti-pointer"></i> Señalar en pantalla</button></div>` : ''}</div>`).join('') : ''; };
+    $('#mn-res').innerHTML = (grupo('Menú') + grupo('En pantalla') + grupo('Término')) || '<p class="muted">No encontré nada con esa búsqueda. Prueba con otra palabra (por ejemplo: chats, cotización, meta, descargar).</p>';
+  };
+  abrirSheet(`<div class="sheet-h"><div><h2>${esc(r.titulo)}</h2><div class="muted small">Busca cualquier botón o término, o deja que te lleve paso a paso por el menú.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
+    <div class="sheet-b" style="max-height:74vh;overflow:auto">
+      ${avisos.length ? `<div class="notice"><i class="ti ti-info-circle"></i><div>${esc(avisos.join(' '))}</div></div>` : ''}
+      <div class="row wrap" style="gap:8px;margin-bottom:6px"><div class="inp-ico" style="flex:1;min-width:200px"><i class="ti ti-search"></i><input id="mn-q" class="inp" placeholder="Buscar: chats, cotizar, descargar, score…" autocomplete="off"></div>
+      ${propio ? '<button class="btn btn-primary" data-mn="tour"><i class="ti ti-route"></i> Recorrido paso a paso</button>' : ''}</div>
+      ${propio ? '<div class="tiny muted">En el recorrido una flecha señala cada botón de tu menú y te explica para qué sirve. Puedes avanzar con los botones o con las flechas del teclado, y salir con Esc.</div>' : ''}
+      <div id="mn-res"></div></div>`, true);
+  pintar(''); const q = $('#mn-q'); if (q) { q.oninput = () => pintar(q.value); setTimeout(() => q.focus(), 50); }
 }
 $('#btn-manual').onclick = () => abrirManual();
 // ── Usuarios y accesos (solo el Jefe que administra la app): crear usuarios y enviar usuario + contraseña + enlace + manual por correo ──
