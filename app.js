@@ -838,6 +838,9 @@ function vPauta() {
   if (!S.pau) return S.pauErr ? `<div class="notice bad"><i class="ti ti-alert-triangle"></i><div>${esc(S.pauErr)}</div></div>` : '<div class="loading"><div><i class="ti ti-loader-2 spin"></i> Leyendo la pauta de Meta…</div></div>';
   const r = S.pau, t = r.totales || {}, cls = S.data.user.rol === 'jefe' ? 'jefe' : 'admin', C = r.crm || {}, A = r.porAnuncio || [], CP = r.porCampana || [], SR = r.serie || [];
   const dias = S.pauDias || 30, pto = S.pauPunto || '', esJefe = S.data.user.rol === 'jefe', emp = S.pauEmp || 'motoracing', EMP = r.empresas || {};
+  // El cruce con el CRM (leads, cotizados, vendidos) solo aplica a Itagüí y Los Colores: los demás puntos no registran sus leads aquí. Observadores y perfiles de otra sede no lo ven.
+  const esPtoCrm = x => /itag|colores/.test(norm(x || '')), u0 = S.data.user;
+  const cruza = !u0.soloLectura && emp === 'motoracing' && (u0.rol === 'jefe' ? esPtoCrm(pto) : esPtoCrm(u0.sede));
   const avisoPrueba = r.prueba && !esJefe ? `<p class="tiny muted" style="margin:0 0 10px">* Inversión de ${esc(r.prueba.punto)} ajustada manualmente por el Jefe Comercial.</p>` : '';   // el Jefe ve la cifra sin aviso; quien no es Jefe siempre ve que está ajustada
   const b = (kk, v, txt, on) => `<button class="${on ? 'on' : ''}" data-act="pau-f" data-k="${kk}" data-v="${v}">${txt}</button>`;
   const conv = t.conversaciones || 0, resultados = conv || t.leads_meta || 0, cpr = resultados ? t.gasto / resultados : null, ctr = t.impresiones ? t.clics_enlace * 100 / t.impresiones : null, cpm = t.impresiones ? t.gasto * 1000 / t.impresiones : null;
@@ -850,15 +853,15 @@ function vPauta() {
   if (conCosto.length > 1) ia.push(`✅ «${pauCorto(conCosto[0].anuncio, 60)}» es el anuncio más barato: ${fm(conCosto[0].cpc)} por conversación (${conCosto[0].conversaciones} conversaciones).`, `⚠️ «${pauCorto(conCosto[conCosto.length - 1].anuncio, 60)}» es el más caro: ${fm(conCosto[conCosto.length - 1].cpc)} por conversación.`);
   if (sinRes.length) ia.push(`🛑 ${sinRes.length} anuncio${sinRes.length === 1 ? '' : 's'} gastó ${fm(sinRes.reduce((s, a) => s + a.gasto, 0))} sin traer conversaciones: «${pauCorto(sinRes[0].anuncio, 50)}»${sinRes.length > 1 ? ' y otros' : ''}. Evalúa pausarlos.`);
   if (mejorDia && mejorDia.conversaciones) ia.push(`📈 El mejor día fue el ${mejorDia.fecha.slice(8, 10)}/${mejorDia.fecha.slice(5, 7)} con ${mejorDia.conversaciones} conversaciones.`);
-  if (conv && C.leads !== undefined && C.leads < conv * 0.5) ia.push(`🔎 Meta reporta ${pauN(conv)} conversaciones pero el CRM registra ${C.leads} leads de pauta: hay conversaciones que no llegan a ser lead (o falta el dato del anuncio de origen).`);
+  if (cruza && conv && C.leads !== undefined && C.leads < conv * 0.5) ia.push(`🔎 Meta reporta ${pauN(conv)} conversaciones pero el CRM registra ${C.leads} leads de pauta: hay conversaciones que no llegan a ser lead (o falta el dato del anuncio de origen).`);
   const cuerpo = r.sinDatos ? `<div class="pn-card"><b>Todavía no hay datos de pauta en este período.</b><p class="small muted">La sincronización con Meta corre sola cada 30 minutos${r.estado ? ` (último resultado: ${esc(r.estado)})` : ''}. Pulsa «Actualizar ahora» para traerla en este momento.</p></div>` : `
     <div class="grid g-kpi">
       ${kpi('💸 Inversión', money(Math.round(t.gasto || 0)), `${dias} días · CPM ${fm(cpm)}`)}
       ${kpi('💬 Conversaciones', pauN(conv), t.leads_meta ? `${pauN(t.leads_meta)} formularios de lead` : 'iniciadas por WhatsApp/Messenger')}
       ${kpi('🎯 Costo por conversación', fm(cpr), 'inversión ÷ conversaciones')}
-      ${kpi('📥 Leads en el CRM', pauN(C.leads || 0), `costo por lead ${fm(costoLeadCrm)}`)}
-      ${kpi('📝 Cotizados', pauN(C.cotizados || 0), `${C.leads ? (C.cotizados * 100 / C.leads).toFixed(0) : 0} % de los leads de pauta`)}
-      ${kpi('💰 Vendidos', pauN(C.ventas || 0), `costo por venta ${fm(costoVenta)}`, C.ventas ? 'ok' : '')}
+      ${cruza ? kpi('📥 Leads en el CRM', pauN(C.leads || 0), `costo por lead ${fm(costoLeadCrm)}`) : ''}
+      ${cruza ? kpi('📝 Cotizados', pauN(C.cotizados || 0), `${C.leads ? (C.cotizados * 100 / C.leads).toFixed(0) : 0} % de los leads de pauta`) : ''}
+      ${cruza ? kpi('💰 Vendidos', pauN(C.ventas || 0), `costo por venta ${fm(costoVenta)}`, C.ventas ? 'ok' : '') : ''}
       ${kpi('👍 Me gusta (reacciones)', pauN(t.reacciones), `${fm(t.reacciones ? t.gasto / t.reacciones : null)} por reacción`)}
       ${kpi('💭 Comentarios', pauN(t.comentarios), `${fm(t.comentarios ? t.gasto / t.comentarios : null)} por comentario`)}
       ${kpi('🔁 Compartidos', pauN(t.compartidos), `${pauN(t.guardados)} guardados`)}
@@ -871,12 +874,12 @@ function vPauta() {
       <div class="pn-card"><h3>💬 Conversaciones por día</h3>${pauSerie(SR, 'conversaciones', '#16a34a', v => pauN(v))}</div>
       <div class="pn-card"><h3>👍 Reacciones por día</h3>${pauSerie(SR, 'reacciones', '#f97316', v => pauN(v))}</div>
       <div class="pn-card"><h3>💭 Comentarios por día</h3>${pauSerie(SR, 'comentarios', '#9333ea', v => pauN(v))}</div>
-      <div class="pn-card"><h3>🔻 Del anuncio a la venta</h3>${pauBarras([{ t: 'Conversaciones (Meta)', v: conv }, { t: 'Leads en el CRM', v: C.leads || 0 }, { t: 'Cotizados', v: C.cotizados || 0 }, { t: 'Vendidos', v: C.ventas || 0 }], 't', 'v', x => pauN(x), '#2563eb')}</div>
+      ${cruza ? `<div class="pn-card"><h3>🔻 Del anuncio a la venta</h3>${pauBarras([{ t: 'Conversaciones (Meta)', v: conv }, { t: 'Leads en el CRM', v: C.leads || 0 }, { t: 'Cotizados', v: C.cotizados || 0 }, { t: 'Vendidos', v: C.ventas || 0 }], 't', 'v', x => pauN(x), '#2563eb')}</div>` : ''}
       <div class="pn-card"><h3>❤️ Interacciones</h3>${pauDonut([{ t: 'Reacciones', v: t.reacciones || 0, c: '#f97316' }, { t: 'Comentarios', v: t.comentarios || 0, c: '#9333ea' }, { t: 'Compartidos', v: t.compartidos || 0, c: '#16a34a' }, { t: 'Guardados', v: t.guardados || 0, c: '#2563eb' }])}</div>
       <div class="pn-card"><h3>📣 Inversión por campaña</h3>${pauBarras(CP.slice(0, 8), 'campana', 'gasto', x => money(Math.round(x)), '#2563eb', x => `${pauN(x.conversaciones)} conv. · ${x.conversaciones ? money(Math.round(x.gasto / x.conversaciones)) : '—'} por conversación`)}</div>
       <div class="pn-card"><h3>🏆 Costo por conversación (menor es mejor)</h3>${pauBarras(conCosto.slice(0, 8), 'anuncio', 'cpc', x => money(Math.round(x)), '#16a34a', x => `${x.conversaciones} conversaciones · ${money(Math.round(x.gasto))} invertidos`)}</div>
     </div>
-    <div class="pn-card" style="margin-top:14px"><h3>📍 Por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Inversión</th><th class="r">Conversaciones</th><th class="r">Costo/conv.</th><th class="r">Reacciones</th><th class="r">Comentarios</th><th class="r">Leads CRM</th><th class="r">Ventas</th></tr></thead><tbody>${(r.porPunto || []).map(p => { const c = (C.porPunto || []).find(x => x.punto === p.punto) || {}; return `<tr><td><b>${esc(p.punto)}</b></td><td class="r">${money(Math.round(p.gasto))}</td><td class="r">${pauN(p.conversaciones)}</td><td class="r">${fm(p.conversaciones ? p.gasto / p.conversaciones : null)}</td><td class="r">${pauN(p.reacciones)}</td><td class="r">${pauN(p.comentarios)}</td><td class="r">${pauN(c.leads)}</td><td class="r">${pauN(c.ventas)}</td></tr>`; }).join('')}</tbody></table></div></div>
+    <div class="pn-card" style="margin-top:14px"><h3>📍 Por punto</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Punto</th><th class="r">Inversión</th><th class="r">Conversaciones</th><th class="r">Costo/conv.</th><th class="r">Reacciones</th><th class="r">Comentarios</th>${u0.soloLectura ? '' : '<th class="r">Leads CRM</th><th class="r">Ventas</th>'}</tr></thead><tbody>${(r.porPunto || []).map(p => { const c = (C.porPunto || []).find(x => x.punto === p.punto) || {}, crmP = !u0.soloLectura && esPtoCrm(p.punto); return `<tr><td><b>${esc(p.punto)}</b></td><td class="r">${money(Math.round(p.gasto))}</td><td class="r">${pauN(p.conversaciones)}</td><td class="r">${fm(p.conversaciones ? p.gasto / p.conversaciones : null)}</td><td class="r">${pauN(p.reacciones)}</td><td class="r">${pauN(p.comentarios)}</td>${u0.soloLectura ? '' : `<td class="r">${crmP ? pauN(c.leads) : '—'}</td><td class="r">${crmP ? pauN(c.ventas) : '—'}</td>`}</tr>`; }).join('')}</tbody></table></div></div>
     <div class="pn-card" style="margin-top:14px"><h3>📣 Por anuncio</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Anuncio</th><th>Punto</th><th class="r">Inversión</th><th class="r">Impresiones</th><th class="r">Clics</th><th class="r">Conv.</th><th class="r">Costo/conv.</th><th class="r">👍</th><th class="r">💭</th><th class="r">🔁</th></tr></thead><tbody>${A.map(a => `<tr><td><b title="${esc(a.anuncio)}">${esc(pauCorto(a.anuncio, 46))}</b><div class="tiny muted">${esc(pauCorto(a.campana, 46))}</div></td><td>${esc(a.punto || '—')}</td><td class="r">${money(Math.round(a.gasto))}</td><td class="r">${pauN(a.impresiones)}</td><td class="r">${pauN(a.clics_enlace)}</td><td class="r">${pauN(a.conversaciones)}</td><td class="r">${fm(a.conversaciones ? a.gasto / a.conversaciones : null)}</td><td class="r">${pauN(a.reacciones)}</td><td class="r">${pauN(a.comentarios)}</td><td class="r">${pauN(a.compartidos)}</td></tr>`).join('')}</tbody></table></div></div>`;
   return `${hero(cls, 'ti-brand-meta', 'Pauta en Facebook e Instagram', `Panel gerencial · ${esc(r.desde)} → ${esc(r.hasta)} · actualizado ${esc(sync)}`)}
     <div class="row wrap" style="gap:10px;margin:0 0 12px;align-items:center">
@@ -1277,8 +1280,9 @@ function renderNav() {
 // ── Descargar lo que se ve: cada pantalla trae su botón y exporta a Excel las tablas visibles (con los filtros activos) y los indicadores ──
 const VISTAS_SIN_DESCARGA = ['config', 'accesos', 'carga'];
 const VISTAS_LEADS = ['hoy', 'embudo', 'dia', 'chats', 'control'];   // pantallas de tarjetas: se descarga la base de leads que ve la persona
+const puedeDescargar = () => { const u = S.data && S.data.user; return !!u && (u.rol === 'admin' || !!u.superAdmin || DEMO); };   // solo los administradores de punto y el Jefe que administra la app; asesores y observadores no descargan
 function ponerDescarga() {
-  const v = $('#view'); if (!v || v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
+  const v = $('#view'); if (!v || v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view) || !puedeDescargar()) return;
   if (!v.querySelector('table, .kpi, .card') && !VISTAS_LEADS.includes(S.view)) return;
   const b = document.createElement('div'); b.id = 'dl-bar'; b.style.cssText = 'display:flex;justify-content:flex-end;margin:0 0 8px';
   b.innerHTML = '<button class="btn btn-sm" data-act="dl-vista" title="Descarga en Excel lo que estás viendo, con los filtros activos"><i class="ti ti-download"></i> Descargar esta vista</button>';
@@ -1287,7 +1291,7 @@ function ponerDescarga() {
 // Pantallas que pintan sus tablas después (Control, pestañas internas…): el botón aparece cuando llegan
 (function () { const ini = () => { const v = document.getElementById('view'); if (!v || !window.MutationObserver) return; let t = 0; new MutationObserver(() => { clearTimeout(t); t = setTimeout(() => { try { ponerDescarga(); } catch (e) { /* sin botón */ } }, 250); }).observe(v, { childList: true, subtree: true }); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else ini(); })();
 async function descargarVista() {
-  const v = $('#view'); if (!v) return;
+  const v = $('#view'); if (!v || !puedeDescargar()) return;
   const lbl = ((vistasDeRol().find(x => x.id === S.view)) || {}).label || S.view;
   const XL = await cargarXlsx(), wb = XL.utils.book_new(), usados = new Set();
   const hoja = (t, i) => { let n = String(t || ('Tabla ' + (i + 1))).replace(/[\\\/\?\*\[\]:]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28) || ('Tabla ' + (i + 1)), k = n, c = 2; while (usados.has(k.toLowerCase())) k = n.slice(0, 25) + ' ' + c++; usados.add(k.toLowerCase()); return k; };
@@ -3691,6 +3695,7 @@ document.addEventListener('click', async e => {
     } catch (e) { toast(e.message, 'bad'); }
     M.go = false; M.msg = ''; M.t = 0; cargarMateo(); return;
   }
+  if ((act === 'com-exp' || act === 'gl-exp') && !puedeDescargar()) { toast('Tu perfil no incluye descargas.', 'bad'); return; }
   if (act === 'com-exp') { try { await exportarComisiones(); } catch (e) { toast(e.message || 'No se pudo exportar.', 'bad'); } return; }
   if (act === 'gl-fechas-q') { S.glDesde = ''; S.glHasta = ''; render(); return; }
   if (act === 'hoy-fechas-q') { S.hoyDesde = ''; S.hoyHasta = ''; render(); return; }
