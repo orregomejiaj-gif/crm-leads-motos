@@ -401,6 +401,7 @@ async function enviarCarga(k) {
   } catch (e) { toast('Se cargaron ' + hechas + ' de ' + x.filas.length + '. Error: ' + e.message, 'bad'); }
   S.carga.enviando = false; render();
 }
+document.addEventListener('change', async e => { const s = e.target && e.target.closest && e.target.closest('.acc-vista'); if (s) { s.disabled = true; try { await api('accesoVista', { cedula: s.dataset.ced, vista: s.value }); toast('Vista asignada: ' + s.options[s.selectedIndex].text, 'ok'); await abrirAccesos(); } catch (er) { s.disabled = false; toast(er.message, 'bad'); await abrirAccesos(); } } });
 document.addEventListener('change', e => { const i = e.target && e.target.closest && e.target.closest('[data-carga]'); if (i) leerArchivoCarga(i); });
 /** Limpiar una base cargada (solo Jefe): borrar todo, el último cargue o un cargue elegido. Pide confirmación y deja registro en la bitácora. */
 async function limpiarCarga(tipo) {
@@ -3960,12 +3961,15 @@ async function abrirAccesos(msg) {
   try { S.acc = await api('accesosLista'); } catch (e) { cerrarSheet(); toast(e.message, 'bad'); return; }
   pintarAccesos(msg);
 }
+const VISTAS_ACC = [['normal', 'Completa (según su perfil)'], ['sinchats', 'Sin chats'], ['semana', 'Solo leads de la semana'], ['gerencia', 'Gerencia: observador sin chats · datos reales'], ['gerencia_ideal', 'Gerencia: observador sin chats · IDEAL'], ['observador', 'Observador con chats'], ['contacto', 'Solo contactado sí/no']];
+function vistaActual(r) { const s = new Set(r || []); if (s.has('solocontacto')) return 'contacto'; if (s.has('solover')) return s.has('sinchats') ? (s.has('ideal') ? 'gerencia_ideal' : 'gerencia') : 'observador'; if (s.has('sinchats')) return 'sinchats'; if (s.has('semana')) return 'semana'; return 'normal'; }
+function vistaOpts(r) { const v = vistaActual(r); return VISTAS_ACC.map(x => '<option value="' + x[0] + '"' + (x[0] === v ? ' selected' : '') + '>' + x[1] + '</option>').join(''); }
 function pintarAccesos(msg) {
   const A = S.acc, rolTxt = r => r === 'jefe' ? 'Jefe' : r === 'admin' ? 'Administrador' : 'Asesor';
   const fila = u => `<tr><td><input type="checkbox" class="acc-sel" data-ced="${esc(u.cedula)}" ${u.correo && u.activo ? '' : 'disabled'}></td>
     <td><b>${esc(u.nombre)}</b><div class="tiny muted">${esc(u.usuario ? 'usuario: ' + u.usuario : 'sin usuario')}${u.punto ? ' · ' + esc(u.punto) : ''}</div></td><td>${rolTxt(u.rol)}${u.restr.length ? `<div class="tiny muted">${u.restr.map(x => x === 'sinchats' ? 'sin chats' : x === 'semana' ? 'solo semana' : x === 'solover' ? 'observador' : x === 'solocontacto' ? 'solo contactado sí/no' : x === 'ideal' ? 'modo Ideal' : x).join(', ')}</div>` : ''}</td>
     <td><input class="inp acc-mail" data-ced="${esc(u.cedula)}" value="${esc(u.correo)}" placeholder="correo@empresa.com" style="min-width:210px"></td><td>${u.tieneClave ? '<span class="pill pill-ok">con clave</span>' : '<span class="pill pill-warn">sin clave</span>'}</td>
-    <td class="r">${u.restr.includes('solover') || u.restr.includes('solocontacto') ? `<button class="btn btn-sm " data-act="acc-ideal" data-ced="${esc(u.cedula)}" data-on="${u.restr.includes('ideal') ? 0 : 1}" title="Ideal: el perfil ve las cifras personalizadas. Apagado: ve lo real."><i class="ti ti-sparkles"></i> Ideal: ${u.restr.includes('ideal') ? 'ACTIVO' : 'apagado'}</button> ` : ''}<button class="btn btn-sm" data-act="acc-man" data-ced="${esc(u.cedula)}"><i class="ti ti-book-2"></i> Ver manual</button> <button class="btn btn-sm" data-act="acc-env" data-ced="${esc(u.cedula)}"><i class="ti ti-mail-forward"></i> Enviar acceso</button></td></tr>`;
+    <td class="r"><select class="sel acc-vista" data-ced="${esc(u.cedula)}" title="Vista que verá esta persona" style="max-width:230px">${vistaOpts(u.restr)}</select> <button class="btn btn-sm" data-act="acc-man" data-ced="${esc(u.cedula)}"><i class="ti ti-book-2"></i> Ver manual</button> <button class="btn btn-sm" data-act="acc-env" data-ced="${esc(u.cedula)}"><i class="ti ti-mail-forward"></i> Enviar acceso</button></td></tr>`;
   abrirSheet(`<div class="sheet-h"><div><h2>Usuarios y accesos</h2><div class="muted small">Crea usuarios o elige los ya creados y envíales por correo su usuario, una contraseña nueva, el enlace y el manual de su perfil.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
     <div class="sheet-b">
     ${A.envioActivo ? '' : '<div class="notice"><i class="ti ti-mail-off"></i><div>El envío automático de correos aún no está activado. <button class="btn btn-sm btn-primary" data-act="acc-inst">Activar envío por Gmail</button><div class="tiny muted">Crea en n8n un flujo «IC Leads · Enviar acceso por correo» con la cuenta de Gmail ya conectada. Mientras tanto puedes copiar el mensaje.</div></div></div>'}
