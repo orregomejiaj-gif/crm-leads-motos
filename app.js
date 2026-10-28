@@ -1282,7 +1282,9 @@ const VISTAS_SIN_DESCARGA = ['config', 'accesos', 'carga'];
 const VISTAS_LEADS = ['hoy', 'embudo', 'dia', 'chats', 'control'];   // pantallas de tarjetas: se descarga la base de leads que ve la persona
 const puedeDescargar = () => { const u = S.data && S.data.user; return !!u && (u.rol === 'admin' || !!u.superAdmin || DEMO); };   // solo los administradores de punto y el Jefe que administra la app; asesores y observadores no descargan
 function ponerDescarga() {
-  const v = $('#view'); if (!v || v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view) || !puedeDescargar()) return;
+  const v = $('#view'); if (!v) return;
+  if (!puedeDescargar()) { v.querySelectorAll('[data-act="gl-exp"], [data-act="com-exp"], #dl-bar').forEach(b => b.remove()); return; }   // asesores y observadores: sin ningún botón de descarga
+  if (v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
   if (!v.querySelector('table, .kpi, .card') && !VISTAS_LEADS.includes(S.view)) return;
   const b = document.createElement('div'); b.id = 'dl-bar'; b.style.cssText = 'display:flex;justify-content:flex-end;margin:0 0 8px';
   b.innerHTML = '<button class="btn btn-sm" data-act="dl-vista" title="Descarga en Excel lo que estás viendo, con los filtros activos"><i class="ti ti-download"></i> Descargar esta vista</button>';
