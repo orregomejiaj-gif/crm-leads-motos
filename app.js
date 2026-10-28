@@ -2606,7 +2606,7 @@ async function moverMasivo() {
 async function reasignarMasivo() {
   const u = S.data.user, jefe = u.rol === 'jefe', ls = [...S.embSel].map(id => S.M.byId[id]).filter(Boolean);
   if (!ls.length) return toast('Marca al menos un lead.', 'bad');
-  if (ls.length > 40) return toast('Máximo 40 leads por vez: quita algunos.', 'bad');
+  if (ls.length > 40 && !u.superAdmin) return toast('Máximo 40 leads por vez: quita algunos.', 'bad');
   const eq = (S.M.asesores || []).filter(p => p.nombre && (jefe || p.sedeCanon === u.sede)), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
   const optsAs = punto => opts(eq.filter(p => !jefe || p.sedeCanon === punto).map(p => p.nombre), '', jefe ? 'Elige el nuevo asesor…' : 'Asesor sugerido…');
   const r = await new Promise(res => {
@@ -3675,7 +3675,7 @@ document.addEventListener('click', async e => {
     $('#am-go').onclick = async () => {
       const punto = $('#am-punto').value, as = $('#am-as').value, mot = $('#am-mot').value.trim(), ids = [...sel];
       if (!ids.length) { toast('Marca al menos un lead.', 'bad'); return; }
-      if (ids.length > 40) { toast('Máximo 40 leads por lote: quita algunos.', 'bad'); return; }
+      if (ids.length > 40 && !(S.data.user && S.data.user.superAdmin)) { toast('Máximo 40 leads por lote: quita algunos.', 'bad'); return; }
       if (!as) { toast('Elige el asesor.', 'bad'); return; }
       if (mot.length < 5) { toast('Cuenta el motivo.', 'bad'); return; }
       if (!confirm('¿Pasar ' + ids.length + ' lead(s) a ' + as + ' (' + punto + ')?')) return;
