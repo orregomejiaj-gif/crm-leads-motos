@@ -4023,7 +4023,7 @@ const MN_TERMINOS = [
   ['Ventana de 24 h (WhatsApp)', 'WhatsApp solo permite escribir libremente dentro de las 24 h del último mensaje del cliente. Pasado ese tiempo se usa «Reactivar chat» con la plantilla aprobada.', 'whatsapp ventana 24 horas reactivar plantilla'],
   ['Mateo', 'Asistente virtual que atiende por WhatsApp, informa solo de motos AKT y pide nombre, documento y correo para la cotización.', 'mateo bot asistente ia whatsapp'],
   ['Reasignación', 'Cambio del asesor responsable de un lead. Ocurre por inactividad (4 h hábiles sin gestión) o manualmente por el administrador.', 'reasignar reasignacion asesor inactividad'],
-  ['Descargar esta vista', 'Baja a Excel lo que estás viendo, con los filtros activos (solo administradores).', 'descargar excel exportar base'],
+  ['Descargar esta vista', 'Baja a Excel lo que estás viendo, con los filtros activos.', 'descargar excel exportar base'],
 ];
 const MN_COMUN = [
   ['#btn-refresh', 'Actualizar', 'Recarga los datos al instante; la app también se actualiza sola cada pocos minutos.'],
@@ -4094,7 +4094,7 @@ async function abrirManual(ced) {
   idsMenu.forEach(id => { const g = G[id] || null, lbl = propio ? ((vistasDeRol().find(v => v.id === id) || {}).label || (g && g.t)) : (g && g.t); if (lbl) pasos.push({ id, t: lbl, d: g ? g.d : 'Pantalla de tu menú.', sel: '[data-nav="' + id + '"]', tipo: 'Menú' }); });
   MN_COMUN.forEach(c => { if (!propio && c[0] === '#btn-usuarios') return; const el = document.querySelector(c[0]); if (propio && (!el || el.hidden)) return; pasos.push({ id: '', t: c[1], d: c[2], sel: c[0], tipo: 'En pantalla' }); });
   S.mnPasos = pasos;
-  const terminos = MN_TERMINOS.map(t => ({ t: t[0], d: t[1], k: t[2], tipo: 'Término' }));
+  const terminos = MN_TERMINOS.filter(t => t[0] !== 'Descargar esta vista' || puedeDescargar()).map(t => ({ t: t[0], d: t[1], k: t[2], tipo: 'Término' }));
   const todo = pasos.map((p, i) => ({ t: p.t, d: p.d, k: '', tipo: p.tipo, i })).concat(terminos);
   const lim = r.limites || {};
   const avisos = [lim.soloContacto ? 'De cada cliente solo ves si ya fue contactado o no; no ves chats, teléfonos ni datos personales.' : '', lim.soloSemana ? 'Solo ves los leads de la semana en curso (de lunes a hoy).' : ''].filter(Boolean);
