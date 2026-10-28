@@ -1220,8 +1220,9 @@ function vListaPanel(kind) {
 function vistasDeRol() {
   // Las pantallas que solo calculan sobre leads (Indicadores, Conciliación, Leads/Embudo del Admin) se ocultan mientras haya muy pocos leads: vuelven solas con volumen.
   const pocos = ((S.M && S.M.leads) || []).length < 15, ocultas = pocos ? { indicadores: 1, conciliacion: 1 } : {};
+  if (S.data.user.soloContacto) return vistasDeRolBase().filter(v => ['embudo', 'gerencial', 'icventas', 'pauta'].includes(v.id));   // observador: embudo y campañas
   const sinChats = !!S.data.user.sinChats;   // acceso sin chats: tampoco ve Reactivar Mateo (muestra los mensajes de los clientes)
-  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')));
+  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos'].includes(v.id)));   // el observador solo consulta
 }
 function vistasDeRolBase() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
@@ -1236,7 +1237,7 @@ function vistasDeRolBase() {
     it('cotizaciones', 'ti-file-dollar', 'Cotizaciones'), it('pauta', 'ti-brand-meta', 'Pauta Meta'), it('fbrend', 'ti-chart-bar', 'Páginas · Rendimiento'), it('fbgest', 'ti-brand-facebook', 'Páginas · Gestión'),
     it('conciliacion', 'ti-git-compare', 'Conciliación'), it('carga', 'ti-cloud-upload', 'Cargar datos'), it('auditoria', 'ti-history', 'Auditoría'), it('accesos', 'ti-link', 'Accesos'), it('config', 'ti-settings', 'Ajustes')];
 }
-function homeDeRol() { return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
+function homeDeRol() { if (S.data.user.soloContacto) return 'embudo'; return ({ jefe: 'inteligencia', admin: 'punto', asesor: 'dia' })[S.data.user.rol] || 'hoy'; }
 function vistasDeRolViejas() {
   const r = S.data.user.rol;
   const v = [
@@ -1614,6 +1615,10 @@ const PERFIL = [
 function abrirLead(id) {
   const l = S.M.byId[id];
   if (!l) return;
+  if (S.data.user.soloContacto) {   // observador: de cada lead solo se muestra si ya fue contactado
+    const c = !!(l.g && /^s[ií]/i.test(String(l.g.contactado || ''))) || ['Contactado', 'Cotizado', 'Facturado'].includes(l.estado);
+    abrirSheet(`<div class="sheet-h"><div><h2>${esc(l.nombre)}</h2><div class="muted small">${esc(l.producto || '')}${l.canal ? ' · ' + esc(l.canal) : ''}</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div><div class="sheet-b"><p><b>Contactado:</b> ${c ? '<span class="pill pill-ok">Sí</span>' : '<span class="pill pill-warn">No</span>'}</p><p class="tiny muted">Tu perfil es de observador: solo ves si el cliente fue contactado.</p></div>`, true); return;
+  }
   S.leadAbierto = id;
   const r = l.raw, g = l.g || {}, u = S.data.user, ed = puedeEditar(l);
   const perIA = ((S.data.fase2 || {}).perfiles || []).find(p => String(p.id_lead) === f2Key(l)) || {};
@@ -3722,7 +3727,7 @@ document.addEventListener('click', async e => {
   if (act === 'acc-crear') {
     const g = id => ($('#' + id) || {}).value || '', ch = id => !!($('#' + id) || {}).checked;
     try {
-      const r = await api('accesoGuardar', { nombre: g('nu-nombre'), cedula: g('nu-ced'), correo: g('nu-mail'), rol: g('nu-rol'), punto: g('nu-punto'), sinChats: ch('nu-nochats'), semana: ch('nu-sem') });
+      const r = await api('accesoGuardar', { nombre: g('nu-nombre'), cedula: g('nu-ced'), correo: g('nu-mail'), rol: g('nu-rol'), punto: g('nu-punto'), sinChats: ch('nu-nochats'), semana: ch('nu-sem'), observador: ch('nu-obs'), soloContacto: ch('nu-con') });
       S.acc = await api('accesosLista');
       if (a.dataset.env === '1') { const e = await api('accesoEnviar', { cedula: r.cedula, para: g('nu-mail') }); S.acc = await api('accesosLista'); pintarAccesos(accResultado([e])); }
       else pintarAccesos('<div class="notice ok"><i class="ti ti-circle-check"></i><div>Usuario creado: <b>' + esc(r.usuario) + '</b>. Selecciónalo en la lista y pulsa «Enviar acceso» cuando quieras entregarle la clave.</div></div>');
@@ -3895,7 +3900,7 @@ async function abrirAccesos(msg) {
 function pintarAccesos(msg) {
   const A = S.acc, rolTxt = r => r === 'jefe' ? 'Jefe' : r === 'admin' ? 'Administrador' : 'Asesor';
   const fila = u => `<tr><td><input type="checkbox" class="acc-sel" data-ced="${esc(u.cedula)}" ${u.correo && u.activo ? '' : 'disabled'}></td>
-    <td><b>${esc(u.nombre)}</b><div class="tiny muted">${esc(u.usuario ? 'usuario: ' + u.usuario : 'sin usuario')}${u.punto ? ' · ' + esc(u.punto) : ''}</div></td><td>${rolTxt(u.rol)}${u.restr.length ? `<div class="tiny muted">${u.restr.map(x => x === 'sinchats' ? 'sin chats' : x === 'semana' ? 'solo semana' : x).join(', ')}</div>` : ''}</td>
+    <td><b>${esc(u.nombre)}</b><div class="tiny muted">${esc(u.usuario ? 'usuario: ' + u.usuario : 'sin usuario')}${u.punto ? ' · ' + esc(u.punto) : ''}</div></td><td>${rolTxt(u.rol)}${u.restr.length ? `<div class="tiny muted">${u.restr.map(x => x === 'sinchats' ? 'sin chats' : x === 'semana' ? 'solo semana' : x === 'solover' ? 'observador' : x === 'solocontacto' ? 'solo contactado sí/no' : x).join(', ')}</div>` : ''}</td>
     <td><input class="inp acc-mail" data-ced="${esc(u.cedula)}" value="${esc(u.correo)}" placeholder="correo@empresa.com" style="min-width:210px"></td><td>${u.tieneClave ? '<span class="pill pill-ok">con clave</span>' : '<span class="pill pill-warn">sin clave</span>'}</td>
     <td class="r"><button class="btn btn-sm" data-act="acc-env" data-ced="${esc(u.cedula)}"><i class="ti ti-mail-forward"></i> Enviar acceso</button></td></tr>`;
   abrirSheet(`<div class="sheet-h"><div><h2>Usuarios y accesos</h2><div class="muted small">Crea usuarios o elige los ya creados y envíales por correo su usuario, una contraseña nueva, el enlace y el manual de su perfil.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
@@ -3912,7 +3917,7 @@ function pintarAccesos(msg) {
       <input class="inp" id="nu-mail" placeholder="Correo (el usuario será lo de antes del @)" type="email">
       <select class="sel" id="nu-rol"><option value="asesor">Asesor comercial</option><option value="admin">Administrador de punto</option><option value="jefe">Jefe (perfil de gerencia)</option></select>
       <select class="sel" id="nu-punto"><option value="Itagüí">Punto Itagüí</option><option value="Los Colores">Punto Los Colores</option></select>
-      <div class="small"><label><input type="checkbox" id="nu-nochats"> Sin chats</label> &nbsp; <label><input type="checkbox" id="nu-sem"> Solo leads de la semana</label></div></div>
+      <div class="small"><label><input type="checkbox" id="nu-nochats"> Sin chats</label> &nbsp; <label><input type="checkbox" id="nu-sem"> Solo leads de la semana</label> &nbsp; <label><input type="checkbox" id="nu-obs"> Observador (solo lectura)</label> &nbsp; <label><input type="checkbox" id="nu-con"> Solo ve si fue contactado (embudo y campañas)</label></div></div>
     <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn" data-act="acc-crear" data-env="0"><i class="ti ti-user-plus"></i> Solo crear</button><button class="btn btn-primary" data-act="acc-crear" data-env="1"><i class="ti ti-send"></i> Crear y enviar acceso</button></div></div>`, true);
 }
 const accEnviar = (ced, para) => api('accesoEnviar', { cedula: ced, para });
