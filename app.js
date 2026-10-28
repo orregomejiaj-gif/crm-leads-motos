@@ -1228,7 +1228,7 @@ function vistasDeRol() {
   const pocos = ((S.M && S.M.leads) || []).length < 15, ocultas = pocos ? { indicadores: 1, conciliacion: 1 } : {};
   if (S.data.user.soloContacto) return vistasDeRolBase().filter(v => ['embudo', 'gerencial', 'icventas', 'pauta'].includes(v.id));   // observador: embudo y campañas
   const sinChats = !!S.data.user.sinChats;   // acceso sin chats: tampoco ve Reactivar Mateo (muestra los mensajes de los clientes)
-  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos', 'pendcot', 'icventas', 'conciliacion', 'cotizaciones'].includes(v.id)));   // el observador solo consulta; Pendientes por cotizar (documentos y correos de clientes) tampoco lo ve
+  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos', 'pendcot', 'icventas', 'conciliacion'].includes(v.id)));   // el observador solo consulta; Pendientes por cotizar (documentos y correos de clientes) tampoco lo ve
 }
 function vistasDeRolBase() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
@@ -1311,7 +1311,7 @@ function ocultarCruces(v) {
 }
 function ponerDescarga() {
   const v = $('#view'); if (!v) return;
-  if (S.data && S.data.user && S.data.user.soloLectura) { if (S.view !== 'embudo') ocultarCruces(v); ocultarEscrituras(); }
+  if (S.data && S.data.user && S.data.user.soloLectura) { if (S.view !== 'embudo' && S.view !== 'cotizaciones') ocultarCruces(v); ocultarEscrituras(); }
   if (!puedeDescargar()) { v.querySelectorAll('[data-act="gl-exp"], [data-act="com-exp"], #dl-bar').forEach(b => b.remove()); return; }   // asesores y observadores: sin ningún botón de descarga
   if (v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
   if (!v.querySelector('table, .kpi, .card') && !VISTAS_LEADS.includes(S.view)) return;
