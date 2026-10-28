@@ -479,7 +479,7 @@ async function cargar(silencioso) {
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
     $('#tb-sub').textContent = `${S.data.user.nombre} · ${({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
     $('#tb-ver').textContent = `v${window.AKT_VERSION || '?'}${S.data.version ? ' · API ' + S.data.version : ''}`;
-    pintarBtnViejos();
+    pintarBtnViejos(); pintarBtnUsuarios();
     if (!S.bandejaIni) { S.bandejaIni = true; cargarBandeja(); }
     const vistas = vistasDeRol();
     if (!S._home) { S._home = 1; S.view = homeDeRol(); }
@@ -3707,6 +3707,28 @@ document.addEventListener('click', async e => {
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
+  if (act === 'acc-copiar') { try { await navigator.clipboard.writeText(a.dataset.t); toast('Acceso copiado', 'ok'); } catch (e) { toast('No se pudo copiar.', 'bad'); } return; }
+  if (act === 'acc-inst') { a.disabled = true; try { await api('instalarEnvioCorreo'); toast('Envío de correos activado', 'ok'); await abrirAccesos(); } catch (e) { a.disabled = false; toast(e.message, 'bad'); } return; }
+  if (act === 'acc-env' || act === 'acc-env-sel') {
+    const ceds = act === 'acc-env' ? [a.dataset.ced] : [...document.querySelectorAll('.acc-sel:checked')].map(x => x.dataset.ced);
+    if (!ceds.length) { toast('Marca al menos un usuario.', 'bad'); return; }
+    const paras = {}; document.querySelectorAll('.acc-mail').forEach(i => { paras[i.dataset.ced] = i.value.trim(); });   // se leen antes de abrir la confirmación
+    const ok = await confirmar('Enviar acceso', `Se generará una <b>contraseña nueva</b> y se enviará por correo a <b>${ceds.length}</b> usuario${ceds.length === 1 ? '' : 's'} con su usuario, enlace y manual. La contraseña anterior dejará de servir.`, 'Enviar'); if (!ok) { pintarAccesos(); return; }
+    const rs = [];
+    for (const c of ceds) { try { rs.push(await accEnviar(c, paras[c])); } catch (e) { rs.push({ ok: false, error: e.message }); } }
+    try { S.acc = await api('accesosLista'); } catch (e) { /* queda la lista anterior */ }
+    pintarAccesos(accResultado(rs)); return;
+  }
+  if (act === 'acc-crear') {
+    const g = id => ($('#' + id) || {}).value || '', ch = id => !!($('#' + id) || {}).checked;
+    try {
+      const r = await api('accesoGuardar', { nombre: g('nu-nombre'), cedula: g('nu-ced'), correo: g('nu-mail'), rol: g('nu-rol'), punto: g('nu-punto'), sinChats: ch('nu-nochats'), semana: ch('nu-sem') });
+      S.acc = await api('accesosLista');
+      if (a.dataset.env === '1') { const e = await api('accesoEnviar', { cedula: r.cedula, para: g('nu-mail') }); S.acc = await api('accesosLista'); pintarAccesos(accResultado([e])); }
+      else pintarAccesos('<div class="notice ok"><i class="ti ti-circle-check"></i><div>Usuario creado: <b>' + esc(r.usuario) + '</b>. Selecciónalo en la lista y pulsa «Enviar acceso» cuando quieras entregarle la clave.</div></div>');
+    } catch (e) { toast(e.message, 'bad'); }
+    return;
+  }
   if (act === 'dl-vista') { try { await descargarVista(); } catch (e) { toast(e.message || 'No se pudo descargar.', 'bad'); } return; }
   if (act === 'pc-t') { S.pcTab = a.dataset.v; render(); return; }
   if (act === 'pc-r') { S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
@@ -3862,6 +3884,43 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.edit) { e.preventDefault(); e.target.blur(); }
 });
 $('#btn-refresh').onclick = () => cargar();
+$('#btn-usuarios').onclick = () => abrirAccesos();
+// ── Usuarios y accesos (solo el Jefe que administra la app): crear usuarios y enviar usuario + contraseña + enlace + manual por correo ──
+function pintarBtnUsuarios() { const b = $('#btn-usuarios'); if (b) b.hidden = !(S.data && S.data.user && S.data.user.rol === 'jefe' && S.data.user.superAdmin); }
+async function abrirAccesos(msg) {
+  abrirSheet('<div class="sheet-b"><div class="loading"><div><i class="ti ti-loader-2 spin"></i> Cargando usuarios…</div></div></div>', true);
+  try { S.acc = await api('accesosLista'); } catch (e) { cerrarSheet(); toast(e.message, 'bad'); return; }
+  pintarAccesos(msg);
+}
+function pintarAccesos(msg) {
+  const A = S.acc, rolTxt = r => r === 'jefe' ? 'Jefe' : r === 'admin' ? 'Administrador' : 'Asesor';
+  const fila = u => `<tr><td><input type="checkbox" class="acc-sel" data-ced="${esc(u.cedula)}" ${u.correo && u.activo ? '' : 'disabled'}></td>
+    <td><b>${esc(u.nombre)}</b><div class="tiny muted">${esc(u.usuario ? 'usuario: ' + u.usuario : 'sin usuario')}${u.punto ? ' · ' + esc(u.punto) : ''}</div></td><td>${rolTxt(u.rol)}${u.restr.length ? `<div class="tiny muted">${u.restr.map(x => x === 'sinchats' ? 'sin chats' : x === 'semana' ? 'solo semana' : x).join(', ')}</div>` : ''}</td>
+    <td><input class="inp acc-mail" data-ced="${esc(u.cedula)}" value="${esc(u.correo)}" placeholder="correo@empresa.com" style="min-width:210px"></td><td>${u.tieneClave ? '<span class="pill pill-ok">con clave</span>' : '<span class="pill pill-warn">sin clave</span>'}</td>
+    <td class="r"><button class="btn btn-sm" data-act="acc-env" data-ced="${esc(u.cedula)}"><i class="ti ti-mail-forward"></i> Enviar acceso</button></td></tr>`;
+  abrirSheet(`<div class="sheet-h"><div><h2>Usuarios y accesos</h2><div class="muted small">Crea usuarios o elige los ya creados y envíales por correo su usuario, una contraseña nueva, el enlace y el manual de su perfil.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
+    <div class="sheet-b">
+    ${A.envioActivo ? '' : '<div class="notice"><i class="ti ti-mail-off"></i><div>El envío automático de correos aún no está activado. <button class="btn btn-sm btn-primary" data-act="acc-inst">Activar envío por Gmail</button><div class="tiny muted">Crea en n8n un flujo «IC Leads · Enviar acceso por correo» con la cuenta de Gmail ya conectada. Mientras tanto puedes copiar el mensaje.</div></div></div>'}
+    ${msg || ''}
+    <h3 style="margin:10px 0 6px">Usuarios del sistema</h3>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>Persona</th><th>Perfil</th><th>Correo</th><th>Acceso</th><th></th></tr></thead><tbody>${A.usuarios.map(fila).join('')}</tbody></table></div>
+    <div class="row" style="justify-content:flex-end;margin:8px 0"><button class="btn btn-primary" data-act="acc-env-sel"><i class="ti ti-send"></i> Enviar acceso a los seleccionados</button></div>
+    <p class="tiny muted">Al enviar se genera una <b>contraseña nueva</b> (la anterior deja de servir). Cambia el correo en la fila si debe llegar a otra dirección.</p>
+    <h3 style="margin:16px 0 6px">Crear usuario nuevo</h3>
+    <div class="grid g2" style="gap:8px">
+      <input class="inp" id="nu-nombre" placeholder="Nombre y apellido"><input class="inp" id="nu-ced" placeholder="Cédula (solo números)" inputmode="numeric">
+      <input class="inp" id="nu-mail" placeholder="Correo (el usuario será lo de antes del @)" type="email">
+      <select class="sel" id="nu-rol"><option value="asesor">Asesor comercial</option><option value="admin">Administrador de punto</option><option value="jefe">Jefe (perfil de gerencia)</option></select>
+      <select class="sel" id="nu-punto"><option value="Itagüí">Punto Itagüí</option><option value="Los Colores">Punto Los Colores</option></select>
+      <div class="small"><label><input type="checkbox" id="nu-nochats"> Sin chats</label> &nbsp; <label><input type="checkbox" id="nu-sem"> Solo leads de la semana</label></div></div>
+    <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn" data-act="acc-crear" data-env="0"><i class="ti ti-user-plus"></i> Solo crear</button><button class="btn btn-primary" data-act="acc-crear" data-env="1"><i class="ti ti-send"></i> Crear y enviar acceso</button></div></div>`, true);
+}
+const accEnviar = (ced, para) => api('accesoEnviar', { cedula: ced, para });
+function accResultado(rs) {
+  const cuerpo = rs.map(r => r.ok ? `<div style="margin:6px 0;padding:8px 10px;border-radius:8px;background:rgba(120,130,140,.12)"><b>${esc(r.usuario)}</b> → ${esc(r.para)}: ${r.enviado ? '<span class="pill pill-ok">enviado</span>' : '<span class="pill pill-warn">no se envió</span> <span class="tiny muted">' + esc(r.motivo || '') + '</span>'}
+    ${r.enviado ? '' : `<div class="tiny" style="margin-top:4px">Copia este acceso y mándalo tú: <code>${esc(r.texto).replace(/\n/g, '<br>')}</code></div><button class="btn btn-sm" data-act="acc-copiar" data-t="${esc(r.texto)}"><i class="ti ti-copy"></i> Copiar</button> <a class="btn btn-sm" href="mailto:${esc(r.para)}?subject=${encodeURIComponent(r.asunto)}&body=${encodeURIComponent('Hola,\n\nTu acceso a IC Leads:\n\n' + r.texto)}"><i class="ti ti-mail"></i> Abrir en mi correo</a>`}</div>` : `<div class="notice bad" style="margin:6px 0"><i class="ti ti-alert-triangle"></i><div>${esc(r.error || 'Error')}</div></div>`).join('');
+  return `<div class="notice ok" style="display:block"><b>Resultado del envío</b>${cuerpo}</div>`;
+}
 /** Botón del Jefe: oculta o muestra los leads viejos que el servidor esconde (config LEADS_DESDE) para todo el equipo o solo para algunas personas (LEADS_PARA). */
 function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find(x => String(x.clave) === (clave || 'LEADS_DESDE')); return r ? String(r.valor || '').trim() : ''; }
 function leadsParaTxt() { const v = cfgLeadsDesde('LEADS_PARA'); return !v || /^todos$/i.test(v) ? 'todo el equipo' : v.split('|').filter(Boolean).join(', '); }
