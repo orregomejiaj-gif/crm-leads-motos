@@ -1225,7 +1225,7 @@ function vistasDeRol() {
   const pocos = ((S.M && S.M.leads) || []).length < 15, ocultas = pocos ? { indicadores: 1, conciliacion: 1 } : {};
   if (S.data.user.soloContacto) return vistasDeRolBase().filter(v => ['embudo', 'gerencial', 'icventas', 'pauta'].includes(v.id));   // observador: embudo y campañas
   const sinChats = !!S.data.user.sinChats;   // acceso sin chats: tampoco ve Reactivar Mateo (muestra los mensajes de los clientes)
-  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos'].includes(v.id)));   // el observador solo consulta
+  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos', 'pendcot', 'icventas', 'conciliacion', 'cotizaciones'].includes(v.id)));   // el observador solo consulta; Pendientes por cotizar (documentos y correos de clientes) tampoco lo ve
 }
 function vistasDeRolBase() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
@@ -1281,8 +1281,34 @@ function renderNav() {
 const VISTAS_SIN_DESCARGA = ['config', 'accesos', 'carga'];
 const VISTAS_LEADS = ['hoy', 'embudo', 'dia', 'chats', 'control'];   // pantallas de tarjetas: se descarga la base de leads que ve la persona
 const puedeDescargar = () => { const u = S.data && S.data.user; return !!u && (u.rol === 'admin' || !!u.superAdmin || DEMO); };   // solo los administradores de punto y el Jefe que administra la app; asesores y observadores no descargan
+/** Observador: quita de la pantalla (y de la ficha abierta) todo botón o selector que modifique algo. */
+function ocultarEscrituras() {
+  const u = S.data && S.data.user; if (!u || !u.soloLectura) return;
+  const RE = /asignar|reasignar|guardar|nuevo|nueva|crear|agregar|a[ñn]adir|registrar|enviar|marcar|reactivar|mover|ajustar|cargar|subir|eliminar|borrar|quitar|editar|aprobar|validar|detener|cerrar lead|cotizar|selecci[oó]n m[uú]ltiple|resolver|justificar|importar/i;
+  ['#view', '#sheet-panel'].forEach(sel => {
+    const raiz = document.querySelector(sel); if (!raiz) return;
+    raiz.querySelectorAll('button, a.btn, select[data-mover], select[data-asignar], textarea').forEach(b => {
+      if (b.closest('.seg') || b.matches('[data-close], [data-act="pau-f"], [data-act="dl-vista"], .icon-btn')) return;
+      const txt = (b.innerText || b.title || '').trim();
+      if (b.tagName === 'TEXTAREA' || b.matches('select[data-mover], select[data-asignar]') || (txt && RE.test(txt))) b.remove();
+    });
+    raiz.querySelectorAll('[draggable="true"]').forEach(x => x.setAttribute('draggable', 'false'));
+  });
+}
+/** Observador: fuera de Embudo no se muestra ningún cruce con cotizaciones del CRM, facturas ni ventas (tarjetas, bloques y columnas). */
+function ocultarCruces(v) {
+  const RE = /crm|s[ií]ntesis|sin soporte|vendid|cotizad|cotizaci|venta|factur|conciliaci|conversi[oó]n/i;
+  v.querySelectorAll('.kpi').forEach(k => { if (RE.test(k.innerText)) k.remove(); });
+  v.querySelectorAll('.pn-card, .card').forEach(c => { const h = c.querySelector(':scope > h3, :scope > h4, :scope > .card-h h3, :scope > div:first-child > h3'); if (h && RE.test(h.innerText) && !c.querySelector('#dl-bar, .card, .pn-card')) c.remove(); });   // solo bloques hoja con ese título (nunca un contenedor grande)
+  v.querySelectorAll('table').forEach(t => {
+    const ths = t.tHead ? [...t.tHead.rows[0].cells] : []; const idx = ths.map((c, i) => RE.test(c.innerText) ? i : -1).filter(i => i >= 0).reverse();
+    idx.forEach(i => [...t.rows].forEach(r => { if (r.cells[i]) r.cells[i].remove(); }));
+  });
+  v.querySelectorAll('.lectura .small, .notice .small').forEach(x => { if (RE.test(x.innerText)) x.remove(); });
+}
 function ponerDescarga() {
   const v = $('#view'); if (!v) return;
+  if (S.data && S.data.user && S.data.user.soloLectura) { if (S.view !== 'embudo') ocultarCruces(v); ocultarEscrituras(); }
   if (!puedeDescargar()) { v.querySelectorAll('[data-act="gl-exp"], [data-act="com-exp"], #dl-bar').forEach(b => b.remove()); return; }   // asesores y observadores: sin ningún botón de descarga
   if (v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
   if (!v.querySelector('table, .kpi, .card') && !VISTAS_LEADS.includes(S.view)) return;
@@ -1291,7 +1317,7 @@ function ponerDescarga() {
   v.insertBefore(b, v.firstChild);
 }
 // Pantallas que pintan sus tablas después (Control, pestañas internas…): el botón aparece cuando llegan
-(function () { const ini = () => { const v = document.getElementById('view'); if (!v || !window.MutationObserver) return; let t = 0; new MutationObserver(() => { clearTimeout(t); t = setTimeout(() => { try { ponerDescarga(); } catch (e) { /* sin botón */ } }, 250); }).observe(v, { childList: true, subtree: true }); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else ini(); })();
+(function () { const ini = () => { const v = document.getElementById('view'); if (!v || !window.MutationObserver) return; let t = 0; const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(() => { try { ponerDescarga(); } catch (e) { /* sin botón */ } }, 250); }); mo.observe(v, { childList: true, subtree: true }); const sp = document.getElementById('sheet-panel'); if (sp) mo.observe(sp, { childList: true, subtree: true }); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else ini(); })();
 async function descargarVista() {
   const v = $('#view'); if (!v || !puedeDescargar()) return;
   const lbl = ((vistasDeRol().find(x => x.id === S.view)) || {}).label || S.view;
@@ -1344,6 +1370,7 @@ function render() {
 
 // ── Componentes ───────────────────────────────────────────────────────────
 function toast(msg, tipo) {
+  if (S.data && S.data.user && S.data.user.soloLectura && /observador|no incluye|no puedes modificar|solo puedes mover|no tienes acceso/i.test(String(msg))) return;   // el observador no ve avisos de permisos: lo que no puede hacer, simplemente no se le muestra
   const t = document.createElement('div');
   t.className = 'toast ' + (tipo || '');
   t.innerHTML = `<i class="ti ${tipo === 'bad' ? 'ti-alert-circle' : tipo === 'ok' ? 'ti-circle-check' : 'ti-info-circle'}"></i><div>${esc(msg)}</div>`;
@@ -1393,6 +1420,7 @@ function contactoTxt(l) {
 function waLink(l) { return l.tel ? `https://wa.me/57${l.tel}` : ''; }
 function puedeEditar(l) {
   const u = S.data.user;
+  if (u.soloLectura) return false;   // observador: sin controles de edición
   if (u.rol === 'jefe') return true;
   if (u.rol === 'admin') return l.sede === u.sede;
   return norm(l.asesor) === norm(u.nombre);
@@ -1623,7 +1651,7 @@ function abrirLead(id) {
   if (!l) return;
   if (S.data.user.soloContacto) {   // observador: de cada lead solo se muestra si ya fue contactado
     const c = !!(l.g && /^s[ií]/i.test(String(l.g.contactado || ''))) || ['Contactado', 'Cotizado', 'Facturado'].includes(l.estado);
-    abrirSheet(`<div class="sheet-h"><div><h2>${esc(l.nombre)}</h2><div class="muted small">${esc(l.producto || '')}${l.canal ? ' · ' + esc(l.canal) : ''}</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div><div class="sheet-b"><p><b>Contactado:</b> ${c ? '<span class="pill pill-ok">Sí</span>' : '<span class="pill pill-warn">No</span>'}</p><p class="tiny muted">Tu perfil es de observador: solo ves si el cliente fue contactado.</p></div>`, true); return;
+    abrirSheet(`<div class="sheet-h"><div><h2>${esc(l.nombre)}</h2><div class="muted small">${esc(l.producto || '')}${l.canal ? ' · ' + esc(l.canal) : ''}</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div><div class="sheet-b"><p><b>Contactado:</b> ${c ? '<span class="pill pill-ok">Sí</span>' : '<span class="pill pill-warn">No</span>'}</p></div>`, true); return;
   }
   S.leadAbierto = id;
   const r = l.raw, g = l.g || {}, u = S.data.user, ed = puedeEditar(l);
@@ -2606,8 +2634,10 @@ function vEmbudo() {
   if (!S.embSel) S.embSel = new Set();
   const ls = filtrar(S.M.leads, S.f);
   // Jefe: facturas reales de Síntesis frente a los leads de la app (el cruce se hace por celular, cédula y cotización del CRM). No se escala ni se estima: son los datos tal cual.
-  if (S.data.user.rol === 'jefe' && !S.data.user.soloContacto && !S.cvx && !S.cvxBusy) { S.cvxBusy = true; api('cruceVentas').then(r => { S.cvx = r; }).catch(() => { S.cvx = { err: 1 }; }).finally(() => { S.cvxBusy = false; if (S.view === 'embudo') render(); }); }
-  const cx = S.cvx && !S.cvx.err ? `<div class="notice"><i class="ti ti-receipt"></i><div><b>Facturación (Síntesis):</b> ${S.cvx.vivas} facturas vivas · <b>${S.cvx.leadsConVenta}</b> corresponden a leads de esta app · ${S.cvx.leadsConCotizacion} leads con cotización en el CRM.${S.cvx.leadsConVenta === 0 ? ' <span class="tiny muted">Las facturas del periodo vienen de clientes que no registraron su chat en la app (otros canales o venta directa en el punto).</span>' : ''}</div></div>` : '';
+  if (S.data.user.rol === 'jefe' && !S.data.user.soloContacto && !S.cvx && !S.cvxBusy) {   // (también el observador: para el bloque del embudo) S.cvxBusy = true; api('cruceVentas').then(r => { S.cvx = r; }).catch(() => { S.cvx = { err: 1 }; }).finally(() => { S.cvxBusy = false; if (S.view === 'embudo') render(); }); }
+  // Observador (Director Comercial): en el Embudo ve el 100 % de las cotizaciones del CRM y las facturas de Síntesis como ganadas (son totales de las bases, no solo de los leads de la app)
+  const cxObs = S.data.user.soloLectura && S.cvx && !S.cvx.err ? (() => { const n = ls.length, c = S.cvx.cotizacionesCRM || 0, g = S.cvx.vivas || 0, mx = Math.max(n, c, g, 1), fila = (t, v, col, sub) => `<div style="margin:6px 0"><div class="row between small"><span>${t}</span><b>${pauN(v)}</b></div><div style="background:rgba(100,116,139,.18);border-radius:6px;height:10px"><div style="width:${Math.max(2, v * 100 / mx)}%;background:${col};height:10px;border-radius:6px"></div></div>${sub ? `<div class="tiny muted">${sub}</div>` : ''}</div>`; return `<div class="pn-card" style="margin:10px 0"><h3 style="margin:0 0 4px">🔻 Del lead a la venta</h3>${fila('Leads en la app (los que ves abajo)', n, '#2563eb', '')}${fila('Cotizaciones del CRM · 100 %', c, '#f59e0b', 'Todas las cotizaciones cargadas en el CRM, tengan o no lead en la app.')}${fila('Ganados · facturas de Síntesis', g, '#16a34a', 'Todas las facturas vivas de Síntesis (netas de notas crédito).')}</div>`; })() : '';
+  const cx = S.data.user.soloLectura ? cxObs : S.cvx && !S.cvx.err ? `<div class="notice"><i class="ti ti-receipt"></i><div><b>Facturación (Síntesis):</b> ${S.cvx.vivas} facturas vivas · <b>${S.cvx.leadsConVenta}</b> corresponden a leads de esta app · ${S.cvx.leadsConCotizacion} leads con cotización en el CRM.${S.cvx.leadsConVenta === 0 ? ' <span class="tiny muted">Las facturas del periodo vienen de clientes que no registraron su chat en la app (otros canales o venta directa en el punto).</span>' : ''}</div></div>` : '';
   return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div><div class="row" style="gap:8px"><button class="btn btn-sm ${S.embMasivo ? 'btn-dark' : ''}" data-act="emb-masivo"><i class="ti ti-checkbox"></i> ${S.embMasivo ? 'Salir de la selección' : 'Selección múltiple'}</button></div></div>${barraMasiva()}
     ${cx}
     ${filtrosHTML()}
