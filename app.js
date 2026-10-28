@@ -1223,12 +1223,14 @@ function vListaPanel(kind) {
 
 // ── Navegación ────────────────────────────────────────────────────────────
 // Cada cargo ve su propio menú (y el API valida el cargo en cada ruta: ocultar un botón no basta).
+const ORDEN_MENU = ['dia', 'hoy', 'inteligencia', 'embudo', 'chats', 'mateo', 'pendcot', 'miscot', 'seguimientos', 'citas', 'zonas', 'control', 'punto', 'equipo', 'disponibilidad', 'comisiones', 'cotizaciones', 'pauta', 'fbrend', 'fbgest', 'gerencial', 'icventas', 'indicadores', 'analista', 'conciliacion', 'carga', 'alertas', 'auditoria', 'accesos', 'config'];   // arriba lo de leads, luego cotizaciones, pauta/campañas, análisis y administración
+const ordenarMenu = a => a.map((v, i) => [v, ORDEN_MENU.indexOf(v.id) < 0 ? 99 : ORDEN_MENU.indexOf(v.id), i]).sort((x, y) => x[1] - y[1] || x[2] - y[2]).map(x => x[0]);
 function vistasDeRol() {
   // Las pantallas que solo calculan sobre leads (Indicadores, Conciliación, Leads/Embudo del Admin) se ocultan mientras haya muy pocos leads: vuelven solas con volumen.
   const pocos = ((S.M && S.M.leads) || []).length < 15, ocultas = pocos ? { indicadores: 1, conciliacion: 1 } : {};
-  if (S.data.user.soloContacto) return vistasDeRolBase().filter(v => ['embudo', 'gerencial', 'icventas', 'pauta'].includes(v.id));   // observador: embudo y campañas
+  if (S.data.user.soloContacto) return ordenarMenu(vistasDeRolBase().filter(v => ['embudo', 'gerencial', 'icventas', 'pauta'].includes(v.id)));   // observador: embudo y campañas
   const sinChats = !!S.data.user.sinChats;   // acceso sin chats: tampoco ve Reactivar Mateo (muestra los mensajes de los clientes)
-  return vistasDeRolBase().filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos', 'pendcot', 'icventas', 'conciliacion'].includes(v.id)));   // el observador solo consulta; Pendientes por cotizar (documentos y correos de clientes) tampoco lo ve
+  return ordenarMenu(vistasDeRolBase()).filter(v => !ocultas[v.id] && !(pocos && S.data.user.rol === 'admin' && v.id === 'embudo') && !(sinChats && (v.id === 'chats' || v.id === 'mateo')) && !(S.data.user.soloLectura && ['disponibilidad', 'config', 'carga', 'accesos', 'pendcot', 'icventas', 'conciliacion'].includes(v.id)));   // el observador solo consulta; Pendientes por cotizar (documentos y correos de clientes) tampoco lo ve
 }
 function vistasDeRolBase() {
   const r = S.data.user.rol, it = (id, icon, label) => ({ id, icon, label });
