@@ -477,7 +477,7 @@ async function cargar(silencioso) {
     construirModelo();
     S.lastLoad = new Date();
     $('#sync-state').textContent = 'Actualizado ' + fmtFecha(S.lastLoad).split(' ').slice(2).join(' ');
-    $('#tb-sub').textContent = `${S.data.user.nombre} · ${({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
+    $('#tb-sub').textContent = `${S.data.user.nombre} · ${/director/i.test(S.data.user.cargo || '') ? 'Director Comercial' : ({ asesor: 'Asesor', admin: 'Administrador', jefe: 'Jefe Comercial' })[S.data.user.rol]}${S.data.user.sede ? ' · ' + S.data.user.sede : ''}`;
     $('#tb-ver').textContent = `v${window.AKT_VERSION || '?'}${S.data.version ? ' · API ' + S.data.version : ''}`;
     pintarBtnViejos(); pintarBtnUsuarios();
     if (!S.bandejaIni) { S.bandejaIni = true; cargarBandeja(); }
@@ -2605,7 +2605,11 @@ async function reasignarMasivo() {
 function vEmbudo() {
   if (!S.embSel) S.embSel = new Set();
   const ls = filtrar(S.M.leads, S.f);
+  // Jefe: facturas reales de Síntesis frente a los leads de la app (el cruce se hace por celular, cédula y cotización del CRM). No se escala ni se estima: son los datos tal cual.
+  if (S.data.user.rol === 'jefe' && !S.data.user.soloContacto && !S.cvx && !S.cvxBusy) { S.cvxBusy = true; api('cruceVentas').then(r => { S.cvx = r; }).catch(() => { S.cvx = { err: 1 }; }).finally(() => { S.cvxBusy = false; if (S.view === 'embudo') render(); }); }
+  const cx = S.cvx && !S.cvx.err ? `<div class="notice"><i class="ti ti-receipt"></i><div><b>Facturación (Síntesis):</b> ${S.cvx.vivas} facturas vivas · <b>${S.cvx.leadsConVenta}</b> corresponden a leads de esta app · ${S.cvx.leadsConCotizacion} leads con cotización en el CRM.${S.cvx.leadsConVenta === 0 ? ' <span class="tiny muted">Las facturas del periodo vienen de clientes que no registraron su chat en la app (otros canales o venta directa en el punto).</span>' : ''}</div></div>` : '';
   return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div><div class="row" style="gap:8px"><button class="btn btn-sm ${S.embMasivo ? 'btn-dark' : ''}" data-act="emb-masivo"><i class="ti ti-checkbox"></i> ${S.embMasivo ? 'Salir de la selección' : 'Selección múltiple'}</button></div></div>${barraMasiva()}
+    ${cx}
     ${filtrosHTML()}
     <div class="kanban">${(S.f.estado ? ESTADOS.filter(x => x === S.f.estado) : ESTADOS).map(e => {
       const items = ls.filter(l => l.estado === e);
@@ -3719,6 +3723,7 @@ document.addEventListener('click', async e => {
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
+  if (act === 'acc-man') { await abrirManual(a.dataset.ced); return; }
   if (act === 'acc-copiar') { try { await navigator.clipboard.writeText(a.dataset.t); toast('Acceso copiado', 'ok'); } catch (e) { toast('No se pudo copiar.', 'bad'); } return; }
   if (act === 'acc-inst') { a.disabled = true; try { await api('instalarEnvioCorreo'); toast('Envío de correos activado', 'ok'); await abrirAccesos(); } catch (e) { a.disabled = false; toast(e.message, 'bad'); } return; }
   if (act === 'acc-env' || act === 'acc-env-sel') {
@@ -3897,6 +3902,13 @@ document.addEventListener('keydown', e => {
 });
 $('#btn-refresh').onclick = () => cargar();
 $('#btn-usuarios').onclick = () => abrirAccesos();
+// ── Manual del perfil: qué hace cada botón del menú (el mismo que se envía por correo) ──
+async function abrirManual(ced) {
+  abrirSheet('<div class="sheet-b"><div class="loading"><div><i class="ti ti-loader-2 spin"></i> Abriendo el manual…</div></div></div>', true);
+  try { const r = await api('manualPerfil', ced ? { cedula: ced } : {}); abrirSheet(`<div class="sheet-h"><div><h2>${esc(r.titulo)}</h2><div class="muted small">Qué encuentras en cada botón de tu menú.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div><div class="sheet-b" style="max-height:72vh;overflow:auto">${r.html}</div>`, true); }
+  catch (e) { cerrarSheet(); toast(e.message || 'No se pudo abrir el manual.', 'bad'); }
+}
+$('#btn-manual').onclick = () => abrirManual();
 // ── Usuarios y accesos (solo el Jefe que administra la app): crear usuarios y enviar usuario + contraseña + enlace + manual por correo ──
 function pintarBtnUsuarios() { const b = $('#btn-usuarios'); if (b) b.hidden = !(S.data && S.data.user && S.data.user.rol === 'jefe' && S.data.user.superAdmin); }
 async function abrirAccesos(msg) {
@@ -3909,7 +3921,7 @@ function pintarAccesos(msg) {
   const fila = u => `<tr><td><input type="checkbox" class="acc-sel" data-ced="${esc(u.cedula)}" ${u.correo && u.activo ? '' : 'disabled'}></td>
     <td><b>${esc(u.nombre)}</b><div class="tiny muted">${esc(u.usuario ? 'usuario: ' + u.usuario : 'sin usuario')}${u.punto ? ' · ' + esc(u.punto) : ''}</div></td><td>${rolTxt(u.rol)}${u.restr.length ? `<div class="tiny muted">${u.restr.map(x => x === 'sinchats' ? 'sin chats' : x === 'semana' ? 'solo semana' : x === 'solover' ? 'observador' : x === 'solocontacto' ? 'solo contactado sí/no' : x).join(', ')}</div>` : ''}</td>
     <td><input class="inp acc-mail" data-ced="${esc(u.cedula)}" value="${esc(u.correo)}" placeholder="correo@empresa.com" style="min-width:210px"></td><td>${u.tieneClave ? '<span class="pill pill-ok">con clave</span>' : '<span class="pill pill-warn">sin clave</span>'}</td>
-    <td class="r"><button class="btn btn-sm" data-act="acc-env" data-ced="${esc(u.cedula)}"><i class="ti ti-mail-forward"></i> Enviar acceso</button></td></tr>`;
+    <td class="r"><button class="btn btn-sm" data-act="acc-man" data-ced="${esc(u.cedula)}"><i class="ti ti-book-2"></i> Ver manual</button> <button class="btn btn-sm" data-act="acc-env" data-ced="${esc(u.cedula)}"><i class="ti ti-mail-forward"></i> Enviar acceso</button></td></tr>`;
   abrirSheet(`<div class="sheet-h"><div><h2>Usuarios y accesos</h2><div class="muted small">Crea usuarios o elige los ya creados y envíales por correo su usuario, una contraseña nueva, el enlace y el manual de su perfil.</div></div><button class="icon-btn" data-close><i class="ti ti-x"></i></button></div>
     <div class="sheet-b">
     ${A.envioActivo ? '' : '<div class="notice"><i class="ti ti-mail-off"></i><div>El envío automático de correos aún no está activado. <button class="btn btn-sm btn-primary" data-act="acc-inst">Activar envío por Gmail</button><div class="tiny muted">Crea en n8n un flujo «IC Leads · Enviar acceso por correo» con la cuenta de Gmail ya conectada. Mientras tanto puedes copiar el mensaje.</div></div></div>'}
