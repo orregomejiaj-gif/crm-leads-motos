@@ -2636,6 +2636,8 @@ async function reasignarMasivo() {
   toast(`${ok} lead(s) ${jefe ? 'reasignados' : 'solicitados'}` + (fallos.length ? ` · ${fallos.length} sin cambio (${fallos[0]})` : ''), fallos.length && !ok ? 'bad' : 'ok');
   await cargar(true);
 }
+const esFactObs = e => e === 'Facturado' && !!S.data.user.soloLectura && !!S.cvx && !S.cvx.err;
+const nFactObs = () => Math.min(VENTAS_REDES, S.cvx.vivas || VENTAS_REDES);
 function vEmbudo() {
   if (!S.embSel) S.embSel = new Set();
   const ls = filtrar(S.M.leads, S.f);
@@ -2649,7 +2651,7 @@ function vEmbudo() {
     ${filtrosHTML()}
     <div class="kanban">${(S.f.estado ? ESTADOS.filter(x => x === S.f.estado) : ESTADOS).map(e => {
       const items = ls.filter(l => l.estado === e);
-      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(e)} <small>${items.length}</small>${S.embMasivo ? `<label class="tiny" style="margin-left:6px;font-weight:400"><input type="checkbox" data-selcol="${e}"> todos</label>` : ''}</div>
+      return `<div class="col" data-col="${e}"><div class="col-h">${e === 'Facturado' ? 'Pasa a facturar / Cerrado ganado' : lblEstado(e)} <small>${esFactObs(e) ? nFactObs() : items.length}</small>${S.embMasivo ? `<label class="tiny" style="margin-left:6px;font-weight:400"><input type="checkbox" data-selcol="${e}"> todos</label>` : ''}</div>
         ${items.slice(0, 150).map(l => `<div class="kcard ${l.incons.length ? 'incons' : ''}" draggable="${puedeEditar(l) && !S.embMasivo}" data-drag="${esc(l.id)}">${S.embMasivo && puedeEditar(l) ? `<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-sel="${esc(l.id)}"${S.embSel.has(l.id) ? ' checked' : ''}> seleccionar</label>` : ''}
           <b data-act="abrir" data-id="${esc(l.id)}" style="cursor:pointer">${esc(l.nombre)}</b>
           <div class="muted">${esc(l.raw.modelo_interes || 'Sin modelo')} · ${esc(l.asesor || 'Sin asesor')}</div>
@@ -2657,7 +2659,7 @@ function vEmbudo() {
           ${puedeEditar(l) && (puedeReabrir() || !['Facturado', 'Perdido'].includes(e)) ? `<select class="sel" data-mover="${esc(l.id)}"><option value="">Mover a…</option>${ESTADOS.filter(x => x !== e && (x !== 'Nuevo' || puedeReabrir())).map(x => `<option value="${x}">${lblEstado(x)}</option>`).join('')}</select>` : ''}
         </div>`).join('')}
         ${items.length > 150 ? `<div class="tiny muted">+${items.length - 150} más (usa filtros)</div>` : ''}
-        ${!items.length ? '<div class="tiny muted" style="text-align:center;padding:12px">Vacío</div>' : ''}</div>`;
+        ${esFactObs(e) ? '<div style="text-align:center;padding:14px"><b style="font-size:28px;color:#16a34a">' + nFactObs() + '</b><div class="small">ventas facturadas</div><div class="tiny muted">de redes que llegaron a la tienda</div></div>' : !items.length ? '<div class="tiny muted" style="text-align:center;padding:12px">Vacío</div>' : ''}</div>`;
     }).join('')}${(() => {
       const otras = ls.filter(l => l.estado === 'Otra ciudad');
       return `<div class="col" data-col="Otra ciudad"><div class="col-h">Otra ciudad <small>${otras.length}</small></div>
