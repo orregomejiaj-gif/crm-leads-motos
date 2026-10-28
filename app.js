@@ -1315,7 +1315,7 @@ function ocultarCruces(v) {
 }
 function ponerDescarga() {
   const v = $('#view'); if (!v) return;
-  if (S.data && S.data.user && S.data.user.soloLectura) { if (S.view !== 'embudo' && S.view !== 'cotizaciones') ocultarCruces(v); ocultarEscrituras(); }
+  if (S.data && S.data.user && S.data.user.soloLectura) { if (S.view !== 'embudo' && S.view !== 'cotizaciones' && S.view !== 'seguimientos') ocultarCruces(v); ocultarEscrituras(); }
   if (!puedeDescargar()) { v.querySelectorAll('[data-act="gl-exp"], [data-act="com-exp"], #dl-bar').forEach(b => b.remove()); return; }   // asesores y observadores: sin ningún botón de descarga
   if (v.querySelector('#dl-bar') || VISTAS_SIN_DESCARGA.includes(S.view)) return;
   if (!v.querySelector('table, .kpi, .card') && !VISTAS_LEADS.includes(S.view)) return;
@@ -3163,6 +3163,70 @@ function indicadoresDe(tipo, evaluado, sede, mes) {
 }
 function semaPct(p) { return p === null ? 'na' : p >= 80 ? 'ok' : p >= 50 ? 'warn' : 'bad'; }
 
+// ── Seguimiento diario: cotizaciones, ventas del mes elegido e inventario, para la reunión diaria, acompañamientos y evolución ──
+function vReunion() {
+  const u = S.data.user, M = S.M, meses = mesesRecientes(12), mes = S.reuMes || meses[0], jefe = u.rol === 'jefe', punto = jefe ? (S.reuPunto || '') : (u.rol === 'admin' ? u.sede : '');
+  const verCot = u.rol !== 'asesor';
+  if (verCot && !S.reuCot && !S.reuBusy) { S.reuBusy = true; api('cotizacionesCrm').then(r => { S.reuCot = r && r.ok !== false ? r : { filas: [] }; }).catch(() => { S.reuCot = { filas: [], err: 1 }; }).finally(() => { S.reuBusy = false; if (S.view === 'seguimientos') render(); }); }
+  const enPunto = s => !punto || sedeCanon(s) === punto;
+  const facts = (S.data.facturas || []).filter(f => mesKey(f.fecha) === mes && enPunto(f.sede)).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const cots = ((S.reuCot && S.reuCot.filas) || []).filter(c => String(c.fecha || '').slice(0, 7) === mes && enPunto(c.punto));
+  const metasMes = (S.data.metas || []).filter(m => mesKey(m.mes) === mes && enPunto(m.sede || m.persona));
+  const esSede = m => ['Itagüí', 'Los Colores'].includes(sedeCanon(m.persona)) && norm(m.persona).replace(/[^a-z]/g, '').length < 20;
+  const metas = metasMes.filter(m => !esSede(m)), metasSede = metasMes.filter(esSede);
+  const metaTot = (metasSede.length ? metasSede : metas).reduce((s, m) => s + num(m.meta_motos), 0);
+  const inv = S.data.inventario || [];
+  const invIta = inv.reduce((s, x) => s + num(x.disponible_itagui), 0), invCol = inv.reduce((s, x) => s + num(x.disponible_los_colores), 0);
+  const invTot = punto === 'Itagüí' ? invIta : punto === 'Los Colores' ? invCol : invIta + invCol;
+  const valorV = facts.reduce((s, f) => s + num(f.valor), 0), valorC = cots.reduce((s, c) => s + num(c.total), 0);
+  const leadsMes = M.leads.filter(l => l.asign && ym(l.asign) === mes && enPunto(l.sede)).length;
+  const hoy = bparts(new Date()), esActual = mes === meses[0];
+  const diasMes = new Date(+mes.slice(0, 4), +mes.slice(5, 7), 0).getDate(), faltan = esActual ? Math.max(0, diasMes - hoy.d) : 0;
+  const cumpl = metaTot ? Math.round(facts.length * 100 / metaTot) : null;
+  const asesores = uniq(facts.map(f => f.asesor).concat(cots.map(c => c.asesor)).filter(Boolean)).sort();
+  const filaAs = nom => {
+    const v = facts.filter(f => mismaPersona(f.asesor, nom)), c = cots.filter(x => mismaPersona(x.asesor, nom)), m = metas.find(x => mismaPersona(x.persona, nom)), mt = m ? num(m.meta_motos) : 0;
+    return { nom, v: v.length, c: c.length, mt, pct: mt ? Math.round(v.length * 100 / mt) : null, conv: c.length ? Math.round(v.length * 100 / c.length) : null };
+  };
+  const porAs = asesores.map(filaAs).sort((a, b) => b.v - a.v || b.c - a.c);
+  const estados = contar(cots, c => c.estado || 'Sin estado').slice(0, 8);
+  const modelosV = contar(facts, f => f.modelo || 'Sin modelo').slice(0, 10);
+  const invFilas = inv.filter(x => num(x.disponible_itagui) + num(x.disponible_los_colores) > 0 || true).slice().sort((a, b) => (num(b.disponible_itagui) + num(b.disponible_los_colores)) - (num(a.disponible_itagui) + num(a.disponible_los_colores)));
+  const sema = p => p === null ? '' : p >= 100 ? 'pill-ok' : p >= 70 ? 'pill-warn' : 'pill-bad';
+  const sel = `<div class="filters" style="margin-bottom:8px"><select class="sel" data-ch="reuMes">${opts(meses.map(m => ({ v: m, t: fmtMes(m) })), mes)}</select>
+    ${jefe ? `<select class="sel" data-ch="reuPunto">${opts(['Itagüí', 'Los Colores'], S.reuPunto, 'Todos los puntos')}</select>` : `<span class="pill">${esc(punto || 'Mis ventas')}</span>`}</div>`;
+  return `<div class="section-title"><i class="ti ti-presentation"></i>Reunión diaria · ${esc(fmtMes(mes))}${punto ? ' · ' + esc(punto) : ''}</div>${sel}
+    ${kpiRow([
+      ['Ventas facturadas', facts.length, money(valorV), facts.length ? 'ok' : ''],
+      ['Meta del mes', metaTot || '—', metaTot ? `${cumpl}% de cumplimiento${esActual ? ' · faltan ' + Math.max(0, metaTot - facts.length) + ' motos y ' + faltan + ' días' : ''}` : 'sin meta cargada', metaTot ? (cumpl >= 80 ? 'ok' : cumpl >= 50 ? 'warn' : 'bad') : ''],
+      ...(verCot ? [['Cotizaciones del CRM', S.reuCot ? cots.length : '…', S.reuCot ? money(valorC) : 'cargando', '']] : []),
+      ['Inventario disponible', invTot, inv.length ? (punto ? '' : `Itagüí ${invIta} · Colores ${invCol}`) : 'sin inventario cargado', invTot ? '' : 'warn'],
+      ['Leads recibidos', leadsMes, 'en el mes', '']
+    ])}
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card"><h3 style="margin-bottom:8px"><i class="ti ti-users"></i> Por asesor</h3>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th class="r">Cotiz.</th><th class="r">Ventas</th><th class="r">Meta</th><th class="r">Avance</th><th class="r">Conv.</th></tr></thead><tbody>
+        ${porAs.map(a => `<tr><td>${esc(a.nom)}</td><td class="r num">${verCot ? a.c : '—'}</td><td class="r num"><b>${a.v}</b></td><td class="r num">${a.mt || '—'}</td><td class="r">${a.pct === null ? '—' : `<span class="pill ${sema(a.pct)}">${a.pct}%</span>`}</td><td class="r num">${a.conv === null ? '—' : a.conv + '%'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin movimiento en este mes.</td></tr>'}
+        </tbody></table></div><p class="tiny muted" style="margin:6px 0 0">Conv. = ventas ÷ cotizaciones del mes del mismo asesor.</p></div>
+      <div class="card"><h3 style="margin-bottom:8px"><i class="ti ti-motorbike"></i> Lo más vendido</h3>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modelo</th><th class="r">Ventas</th></tr></thead><tbody>${modelosV.map(m => `<tr><td>${esc(m.l)}</td><td class="r num">${m.v}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">Sin ventas en el mes.</td></tr>'}</tbody></table></div></div>
+    </div>
+    <div class="card" style="margin-top:12px"><h3 style="margin-bottom:8px"><i class="ti ti-receipt"></i> Ventas del mes <span class="count">${facts.length}</span></h3>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Factura</th><th>Cliente</th><th>Moto</th><th>Asesor</th><th>Punto</th><th>Pago</th><th class="r">Valor</th></tr></thead><tbody>
+      ${facts.slice(0, 80).map(f => `<tr><td>${esc(String(f.fecha).slice(0, 10))}</td><td>${esc(f.id_factura || '')}</td><td>${esc(f.cliente || '')}</td><td>${esc(f.modelo || '')}</td><td>${esc(f.asesor || '')}</td><td>${esc(sedeCanon(f.sede))}</td><td>${esc(f.pago || f.forma_pago || '')}</td><td class="r num">${money(num(f.valor))}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin ventas facturadas en este mes.</td></tr>'}
+      </tbody></table></div>${facts.length > 80 ? `<p class="tiny muted">Se muestran las 80 más recientes de ${facts.length}.</p>` : ''}</div>
+    ${verCot ? `<div class="card" style="margin-top:12px"><h3 style="margin-bottom:8px"><i class="ti ti-file-dollar"></i> Cotizaciones del mes <span class="count">${S.reuCot ? cots.length : '…'}</span></h3>
+      ${estados.length ? `<div class="row wrap" style="gap:6px;margin-bottom:8px">${estados.map(e => `<span class="pill">${esc(e.l)} · ${e.v}</span>`).join('')}</div>` : ''}
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cotización</th><th>Cliente</th><th>Moto</th><th>Asesor</th><th>Punto</th><th>Estado</th><th class="r">Total</th></tr></thead><tbody>
+      ${cots.slice(0, 80).map(c => `<tr><td>${esc(c.fecha || '')}</td><td>${esc(c.cotizacion || '')}</td><td>${esc(c.cliente || '')}</td><td>${esc(c.referencia || '')}</td><td>${esc(c.asesor || '')}</td><td>${esc(sedeCanon(c.punto))}</td><td>${esc(c.estado || '')}</td><td class="r num">${money(num(c.total))}</td></tr>`).join('') || `<tr><td colspan="8" class="muted">${S.reuCot ? 'Sin cotizaciones del CRM en este mes.' : 'Cargando cotizaciones…'}</td></tr>`}
+      </tbody></table></div>${cots.length > 80 ? `<p class="tiny muted">Se muestran las 80 más recientes de ${cots.length}.</p>` : ''}</div>` : ''}
+    <div class="card" style="margin-top:12px"><h3 style="margin-bottom:8px"><i class="ti ti-building-warehouse"></i> Inventario disponible</h3>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modelo</th>${punto !== 'Los Colores' ? '<th class="r">Itagüí</th>' : ''}${punto !== 'Itagüí' ? '<th class="r">Los Colores</th>' : ''}<th class="r">Total</th></tr></thead><tbody>
+      ${invFilas.map(x => { const a = num(x.disponible_itagui), b = num(x.disponible_los_colores), t = punto === 'Itagüí' ? a : punto === 'Los Colores' ? b : a + b; return t || !punto ? `<tr><td>${esc(x.modelo)}</td>${punto !== 'Los Colores' ? `<td class="r num">${a}</td>` : ''}${punto !== 'Itagüí' ? `<td class="r num">${b}</td>` : ''}<td class="r num"><b>${t}</b></td></tr>` : ''; }).join('') || '<tr><td colspan="4" class="muted">Sin inventario cargado.</td></tr>'}
+      </tbody></table></div><p class="tiny muted" style="margin:6px 0 0">Unidades disponibles según el último corte del inventario cargado.</p></div>
+    <div class="section-title" style="margin-top:18px"><i class="ti ti-clipboard-check"></i>Acompañamientos y evolución</div>`;
+}
+
 function vSeguimientos() {
   const u = S.data.user, M = S.M, F = S.segFiltro;
   const existe = !!S.data.hojas.Seguimientos;
@@ -3182,6 +3246,7 @@ function vSeguimientos() {
 
   return `<div class="page-h"><div><h2>Seguimientos comerciales</h2><p class="muted small">Acompañamiento a asesores y puntos de venta: indicadores del CRM, evaluación, compromisos y plan de acción.</p></div>
       ${u.rol !== 'asesor' ? `<button class="btn btn-primary" data-act="nuevoSeg" ${existe ? '' : 'disabled'}><i class="ti ti-plus"></i> Nuevo seguimiento</button>` : ''}</div>
+    ${vReunion()}
     ${!existe ? `<div class="notice bad" style="margin-bottom:12px"><i class="ti ti-table-off"></i><div>Falta la hoja <b>Seguimientos</b> en el Sheet. Es una solicitud al Sheet (columnas en Ajustes → Estado del Sheet). Hasta que exista no se pueden guardar seguimientos.</div></div>` : ''}
     ${u.rol !== 'asesor' ? `<div class="section-title"><i class="ti ti-users"></i>Estado del equipo</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th>Último seguimiento</th><th class="r">Días</th><th class="r">Calificación</th><th class="r">Compromisos abiertos</th><th></th></tr></thead><tbody>
@@ -4095,7 +4160,7 @@ function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find
 function leadsParaTxt() { const v = cfgLeadsDesde('LEADS_PARA'); return !v || /^todos$/i.test(v) ? 'todo el equipo' : v.split('|').filter(Boolean).join(', '); }
 function pintarBtnViejos() {
   const b = $('#btn-viejos'); if (!b) return;
-  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe'), oculto = !!cfgLeadsDesde();
+  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe' && S.data.user.superAdmin), oculto = !!cfgLeadsDesde();
   b.hidden = !jefe; b.classList.toggle('on', !oculto);
   b.title = !oculto ? 'Todos ven también los leads viejos · clic para ocultarlos' : 'Leads viejos ocultos (anteriores al ' + cfgLeadsDesde() + ') para: ' + leadsParaTxt() + (cfgLeadsDesde('LEADS_MOTIVO') ? ' · Motivo: ' + cfgLeadsDesde('LEADS_MOTIVO') : '') + ' · clic para cambiar o mostrar';
   b.querySelector('i').className = 'ti ' + (oculto ? 'ti-eye-off' : 'ti-eye');
@@ -4139,6 +4204,7 @@ function elegirAccionOcultos() {
   });
 }
 $('#btn-viejos').onclick = async (ev) => {
+  if (!(S.data && S.data.user && S.data.user.superAdmin)) return;
   const b = ev.currentTarget, oculto = !!cfgLeadsDesde();
   let datos = null, mostrar = false;
   if (oculto) { const a = await elegirAccionOcultos(); if (!a) return; mostrar = a === 'mostrar'; }
