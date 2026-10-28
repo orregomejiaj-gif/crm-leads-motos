@@ -1291,15 +1291,15 @@ const puedeDescargar = () => { const u = S.data && S.data.user; return !!u && (u
 /** Observador: quita de la pantalla (y de la ficha abierta) todo botón o selector que modifique algo. */
 function ocultarEscrituras() {
   const u = S.data && S.data.user; if (!u || !u.soloLectura) return;
-  const RE = /asignar|reasignar|guardar|nuevo|nueva|crear|agregar|a[ñn]adir|registrar|enviar|marcar|reactivar|mover|ajustar|cargar|subir|eliminar|borrar|quitar|editar|aprobar|validar|detener|cerrar lead|cotizar|selecci[oó]n m[uú]ltiple|resolver|justificar|importar/i;
+  const RE = u.mover ? /asignar|reasignar|crear|cargar|subir|eliminar|borrar|reactivar|ajustar|aprobar|validar|cotizar|selecci[oó]n m[uú]ltiple|importar|enviar|resolver|justificar/i : /asignar|reasignar|guardar|nuevo|nueva|crear|agregar|a[ñn]adir|registrar|enviar|marcar|reactivar|mover|ajustar|cargar|subir|eliminar|borrar|quitar|editar|aprobar|validar|detener|cerrar lead|cotizar|selecci[oó]n m[uú]ltiple|resolver|justificar|importar/i;
   ['#view', '#sheet-panel'].forEach(sel => {
     const raiz = document.querySelector(sel); if (!raiz) return;
     raiz.querySelectorAll('button, a.btn, select[data-mover], select[data-asignar], textarea').forEach(b => {
       if (b.closest('.seg') || b.matches('[data-close], [data-act="pau-f"], [data-act="dl-vista"], .icon-btn')) return;
       const txt = (b.innerText || b.title || '').trim();
-      if (b.tagName === 'TEXTAREA' || b.matches('select[data-mover], select[data-asignar]') || (txt && RE.test(txt))) b.remove();
+      if ((b.tagName === 'TEXTAREA' && !u.mover) || (b.matches('select[data-mover]') && !u.mover) || b.matches('select[data-asignar]') || (txt && RE.test(txt))) b.remove();
     });
-    raiz.querySelectorAll('[draggable="true"]').forEach(x => x.setAttribute('draggable', 'false'));
+    if (!u.mover) raiz.querySelectorAll('[draggable="true"]').forEach(x => x.setAttribute('draggable', 'false'));
   });
 }
 /** Observador: fuera de Embudo no se muestra ningún cruce con cotizaciones del CRM, facturas ni ventas (tarjetas, bloques y columnas). */
@@ -1377,7 +1377,7 @@ function render() {
 
 // ── Componentes ───────────────────────────────────────────────────────────
 function toast(msg, tipo) {
-  if (S.data && S.data.user && (S.data.user.soloLectura || S.data.user.sinChats) && /observador|no incluye|no puedes modificar|solo puedes mover|no tienes acceso|chats/i.test(String(msg))) return;   // el observador no ve avisos de permisos: lo que no puede hacer, simplemente no se le muestra
+  if (S.data && S.data.user && ((S.data.user.soloLectura && !S.data.user.mover) || S.data.user.sinChats) && /observador|no incluye|no puedes modificar|solo puedes mover|no tienes acceso|chats/i.test(String(msg))) return;   // el observador no ve avisos de permisos: lo que no puede hacer, simplemente no se le muestra
   const t = document.createElement('div');
   t.className = 'toast ' + (tipo || '');
   t.innerHTML = `<i class="ti ${tipo === 'bad' ? 'ti-alert-circle' : tipo === 'ok' ? 'ti-circle-check' : 'ti-info-circle'}"></i><div>${esc(msg)}</div>`;
@@ -1427,7 +1427,7 @@ function contactoTxt(l) {
 function waLink(l) { return l.tel ? `https://wa.me/57${l.tel}` : ''; }
 function puedeEditar(l) {
   const u = S.data.user;
-  if (u.soloLectura) return false;   // observador: sin controles de edición
+  if (u.soloLectura) return !!u.mover && !!l;   // observador: sin edición, salvo quien tiene permiso de mover de etapa y dejar seguimientos (uno a uno)
   if (u.rol === 'jefe') return true;
   if (u.rol === 'admin') return l.sede === u.sede;
   return norm(l.asesor) === norm(u.nombre);
@@ -2606,7 +2606,7 @@ async function moverMasivo() {
 async function reasignarMasivo() {
   const u = S.data.user, jefe = u.rol === 'jefe', ls = [...S.embSel].map(id => S.M.byId[id]).filter(Boolean);
   if (!ls.length) return toast('Marca al menos un lead.', 'bad');
-  if (ls.length > 40 && !u.superAdmin) return toast('Máximo 40 leads por vez: quita algunos.', 'bad');
+  if (!u.superAdmin) return toast('La selección masiva es solo del administrador.', 'bad');
   const eq = (S.M.asesores || []).filter(p => p.nombre && (jefe || p.sedeCanon === u.sede)), puntos = uniq(eq.map(p => p.sedeCanon).filter(Boolean)).sort();
   const optsAs = punto => opts(eq.filter(p => !jefe || p.sedeCanon === punto).map(p => p.nombre), '', jefe ? 'Elige el nuevo asesor…' : 'Asesor sugerido…');
   const r = await new Promise(res => {
@@ -2650,7 +2650,7 @@ function vEmbudo() {
   if (ideal() && !S.vrd && !S.vrdBusy) { S.vrdBusy = true; api('cotizacionesCrm').then(r => { S.crmObs = r && r.ok !== false ? r : { filas: [], total: 0 }; }).catch(() => { S.crmObs = { filas: [], total: 0 }; }); api('ventasRedesObs').then(r => { S.vrd = (r && r.ventas) || []; }).catch(() => { S.vrd = []; }).finally(() => { S.vrdBusy = false; if (S.view === 'embudo') render(); }); }
   const cxObs = S.data.user.soloLectura && S.cvx && !S.cvx.err ? (() => { const n = ls.length, c = S.cvx.cotizacionesCRM || 0, tot = S.cvx.vivas || 0, g = ideal() ? Math.min(VENTAS_REDES, tot) : tot, mx = Math.max(n, c, g, 1), fila = (t, v, col, sub) => `<div style="margin:6px 0"><div class="row between small"><span>${t}</span><b>${pauN(v)}</b></div><div style="background:rgba(100,116,139,.18);border-radius:6px;height:10px"><div style="width:${Math.max(2, v * 100 / mx)}%;background:${col};height:10px;border-radius:6px"></div></div>${sub ? `<div class="tiny muted">${sub}</div>` : ''}</div>`; return `<div class="pn-card" style="margin:10px 0"><h3 style="margin:0 0 4px">🔻 Del lead a la venta</h3>${fila('Leads en la app (los que ves abajo)', n, '#2563eb', '')}${fila('Cotizaciones del CRM · 100 %', c, '#f59e0b', 'Todas las cotizaciones cargadas en el CRM, tengan o no lead en la app.')}${fila(ideal() ? 'Pasa a facturar / Cerrado ganado' : 'Ganados · facturas de Síntesis', g, '#16a34a', ideal() ? '' : 'Todas las facturas vivas de Síntesis (netas de notas crédito).')}</div>`; })() : '';
   const cx = S.data.user.soloLectura ? cxObs : S.cvx && !S.cvx.err ? `<div class="notice"><i class="ti ti-receipt"></i><div><b>Facturación (Síntesis):</b> ${S.cvx.vivas} facturas vivas · <b>${S.cvx.leadsConVenta}</b> corresponden a leads de esta app · ${S.cvx.leadsConCotizacion} leads con cotización en el CRM.${S.cvx.leadsConVenta === 0 ? ' <span class="tiny muted">Las facturas del periodo vienen de clientes que no registraron su chat en la app (otros canales o venta directa en el punto).</span>' : ''}</div></div>` : '';
-  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div><div class="row" style="gap:8px"><button class="btn btn-sm ${S.embMasivo ? 'btn-dark' : ''}" data-act="emb-masivo"><i class="ti ti-checkbox"></i> ${S.embMasivo ? 'Salir de la selección' : 'Selección múltiple'}</button></div></div>${barraMasiva()}
+  return `<div class="page-h"><div><h2>Embudo</h2><p class="muted small">Arrastra una tarjeta para cambiar su estado (en celular usa “Mover a”). «Pasa a facturar» pasa solo a «Cerrado ganado» cuando la venta aparece en Síntesis.</p></div><div class="row" style="gap:8px">${S.data.user.superAdmin ? `<button class="btn btn-sm ${S.embMasivo ? 'btn-dark' : ''}" data-act="emb-masivo"><i class="ti ti-checkbox"></i> ${S.embMasivo ? 'Salir de la selección' : 'Selección múltiple'}</button>` : ""}</div></div>${S.data.user.superAdmin ? barraMasiva() : ""}
     ${cx}
     ${filtrosHTML()}
     <div class="kanban">${(S.f.estado ? ESTADOS.filter(x => x === S.f.estado) : ESTADOS).map(e => {
@@ -3675,7 +3675,7 @@ document.addEventListener('click', async e => {
     $('#am-go').onclick = async () => {
       const punto = $('#am-punto').value, as = $('#am-as').value, mot = $('#am-mot').value.trim(), ids = [...sel];
       if (!ids.length) { toast('Marca al menos un lead.', 'bad'); return; }
-      if (ids.length > 40 && !(S.data.user && S.data.user.superAdmin)) { toast('Máximo 40 leads por lote: quita algunos.', 'bad'); return; }
+      if (!(S.data.user && S.data.user.superAdmin)) { toast('La asignación por lotes es solo del administrador.', 'bad'); return; }
       if (!as) { toast('Elige el asesor.', 'bad'); return; }
       if (mot.length < 5) { toast('Cuenta el motivo.', 'bad'); return; }
       if (!confirm('¿Pasar ' + ids.length + ' lead(s) a ' + as + ' (' + punto + ')?')) return;
@@ -3761,7 +3761,7 @@ document.addEventListener('click', async e => {
     if (t === 'all') { S.panF = ''; S.gMoto = ''; S.gCanal = ''; S.gAs = ''; S.gDia = ''; S.gScore = ''; } else if (t === 'kpi') S.panF = ''; else S[{ moto: 'gMoto', canal: 'gCanal', asesor: 'gAs', dia: 'gDia', score: 'gScore' }[t]] = '';
     render(); return;
   }
-  if (act === 'emb-masivo') { S.embMasivo = !S.embMasivo; S.embSel = new Set(); S.embDest = ''; render(); return; }
+  if (act === 'emb-masivo' && S.data.user.superAdmin) { S.embMasivo = !S.embMasivo; S.embSel = new Set(); S.embDest = ''; render(); return; }
   if (act === 'emb-reasignar') { a.disabled = true; try { await reasignarMasivo(); } finally { a.disabled = false; } return; }
   if (act === 'emb-limpiar') { S.embSel = new Set(); render(); return; }
   if (act === 'emb-mover') { a.disabled = true; try { await moverMasivo(); } finally { a.disabled = false; } return; }
