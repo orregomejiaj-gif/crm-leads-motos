@@ -3224,7 +3224,7 @@ function vReunion() {
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modelo</th>${punto !== 'Los Colores' ? '<th class="r">Itagüí</th>' : ''}${punto !== 'Itagüí' ? '<th class="r">Los Colores</th>' : ''}<th class="r">Total</th></tr></thead><tbody>
       ${invFilas.map(x => { const a = num(x.disponible_itagui), b = num(x.disponible_los_colores), t = punto === 'Itagüí' ? a : punto === 'Los Colores' ? b : a + b; return t || !punto ? `<tr><td>${esc(x.modelo)}</td>${punto !== 'Los Colores' ? `<td class="r num">${a}</td>` : ''}${punto !== 'Itagüí' ? `<td class="r num">${b}</td>` : ''}<td class="r num"><b>${t}</b></td></tr>` : ''; }).join('') || '<tr><td colspan="4" class="muted">Sin inventario cargado.</td></tr>'}
       </tbody></table></div><p class="tiny muted" style="margin:6px 0 0">Unidades disponibles según el último corte del inventario cargado.</p></div>
-    <div class="section-title" style="margin-top:18px"><i class="ti ti-clipboard-check"></i>Acompañamientos y evolución</div>`;
+`;
 }
 
 function vSeguimientos() {
@@ -3246,7 +3246,6 @@ function vSeguimientos() {
 
   return `<div class="page-h"><div><h2>Seguimientos comerciales</h2><p class="muted small">Acompañamiento a asesores y puntos de venta: indicadores del CRM, evaluación, compromisos y plan de acción.</p></div>
       ${u.rol !== 'asesor' ? `<button class="btn btn-primary" data-act="nuevoSeg" ${existe ? '' : 'disabled'}><i class="ti ti-plus"></i> Nuevo seguimiento</button>` : ''}</div>
-    ${vReunion()}
     ${!existe ? `<div class="notice bad" style="margin-bottom:12px"><i class="ti ti-table-off"></i><div>Falta la hoja <b>Seguimientos</b> en el Sheet. Es una solicitud al Sheet (columnas en Ajustes → Estado del Sheet). Hasta que exista no se pueden guardar seguimientos.</div></div>` : ''}
     ${u.rol !== 'asesor' ? `<div class="section-title"><i class="ti ti-users"></i>Estado del equipo</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asesor</th><th>Punto</th><th>Último seguimiento</th><th class="r">Días</th><th class="r">Calificación</th><th class="r">Compromisos abiertos</th><th></th></tr></thead><tbody>
@@ -4224,7 +4223,7 @@ const H = {
   S, api, $, $$, esc, norm, digits, tel10, si, pad, num, pct, fmtPct, money, cap, uniq, sedeCanon, cedulaDe,
   parseFecha, fmtFecha, ymd, ym, bparts, bog, fmtMes, mesKey, mesesRecientes, horasHabiles, fmtHoras,
   toast, empty, kpi, bars, contar, opts, abrirSheet, cerrarSheet, confirmar, render, renderNav, cargar, parsePegado,
-  vAcompanamientos: vSeguimientos
+  vAcompanamientos: vSeguimientos, vReunion
 };
 const MOD = window.AKT_MODULOS ? window.AKT_MODULOS(H) : null;
 

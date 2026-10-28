@@ -128,9 +128,10 @@ const CHECK_DEF = [
 const checkItems = () => { const c = S.M.cfg.raw.checklist_semanal_items; return c ? String(c).split('|').map(s => s.trim()).filter(Boolean) : CHECK_DEF; };
 
 function vSeguimiento() {
-  const lista = esAsesor() ? [['comp', 'Mis compromisos'], ['acomp', 'Acompañamientos']]
-    : [['daily', 'Daily'], ['check', 'Checklist semanal'], ['comp', 'Compromisos'], ['evol', 'Evolución'], ['acomp', 'Acompañamientos']];
+  const lista = esAsesor() ? [['reunion', 'Reunión diaria'], ['comp', 'Mis compromisos'], ['acomp', 'Acompañamientos']]
+    : [['reunion', 'Reunión diaria'], ['daily', 'Daily'], ['check', 'Checklist semanal'], ['comp', 'Compromisos'], ['evol', 'Evolución'], ['acomp', 'Acompañamientos']];
   if (!lista.some(t => t[0] === T.seg)) T.seg = lista[0][0];
+  if (T.seg === 'reunion') return cabecera('Seguimiento comercial', 'Reunión diaria: ventas del mes, cotizaciones e inventario en un solo lugar.', 'seguimiento') + tabs('seg', lista) + H.vReunion();
   if (T.seg === 'acomp') return tabs('seg', lista) + H.vAcompanamientos();
   const d = datos('seguimiento');
   const head = cabecera('Seguimiento comercial', esAsesor() ? 'Tus compromisos de la semana y su revisión.' : 'Preguntas cortas: daily por asesor, checklist del punto y compromisos semanales.', 'seguimiento');
