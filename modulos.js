@@ -11,7 +11,7 @@ const render = () => H.render();
 
 const D = {};            // datos cargados por módulo
 const cargando = {};
-const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'sim', cif: 'cierre', cfgRepos: null };
+const T = { seg: '', pos: 'lista', inv: 'basicos', cot: 'crm', cif: 'cierre', cfgRepos: null };
 const F = { mesCif: '', fecha: '', semana: '', punto: '', asesor: '', dias: '30', cobertura: '30', quieto: '90', estado: '', tipo: '', periodoCot: '60', buscar: '' };
 let IMP = null;          // estado del cargador de exportes
 let REPOS = null;        // estado de repositorios (Ajustes)
@@ -715,14 +715,40 @@ function vSimulador(d) {
 }
 
 function vCotizaciones() {
-  const lista = [['sim', 'Simulador web'], ['cruce', 'Ventas ↔ cotizaciones CRM']];
+  const obs = !!u().soloLectura;   // observador (Director Comercial): solo las cotizaciones generales del CRM
+  const lista = obs ? [['crm', 'Cotizaciones CRM']] : [['crm', 'Cotizaciones CRM'], ['leads', 'Cotizaciones por leads'], ['cruce', 'Ventas ↔ cotizaciones'], ['sim', 'Simulador web']];
+  if (!lista.some(x => x[0] === T.cot)) T.cot = 'crm';
+  const head = cabecera('Cotizaciones', obs ? 'Cotizaciones cargadas desde el CRM.' : 'Cotizaciones del CRM, cotizaciones de los leads de la app, cruce con las ventas facturadas (Síntesis) y simulaciones del cotizador web.', 'cotizaciones');
+  if (T.cot === 'crm') return head + tabs('cot', lista) + tCrmGeneral();
+  if (T.cot === 'leads') return head + tabs('cot', lista) + tCotLeads();
   const d = datos('cotizaciones');
-  const head = cabecera('Cotizaciones', 'Simulaciones del cotizador web y cruce de las ventas facturadas (Síntesis) con las cotizaciones del CRM, por cédula o celular.', 'cotizaciones');
   if (!d) return head + tabs('cot', lista) + loading();
   if (d.error) return head + tabs('cot', lista) + errorMod(d);
   if (T.cot === 'sim') return head + tabs('cot', lista) + vSimulador(d);
   if (!d.repoOk) return head + tabs('cot', lista) + sinRepo('Cotizaciones');
   return head + tabs('cot', lista) + tCruceVentas(d);
+}
+async function cargarCot(clave, accion) {
+  if (cargando[clave] || D[clave]) return;
+  cargando[clave] = true;
+  try { D[clave] = await api(accion); } catch (e) { D[clave] = { error: e.message }; } finally { cargando[clave] = false; }
+  render();
+}
+/** Cotizaciones CRM: todas las cotizaciones cargadas desde el CRM, tengan o no lead en la app. */
+function tCrmGeneral() {
+  if (!D.crmGen) { cargarCot('crmGen', 'cotizacionesCrm'); return loading('Leyendo las cotizaciones del CRM…'); }
+  const g = D.crmGen; if (g.error) return errorMod(g);
+  const bloque = (t, rows) => `<div class="card" style="padding:14px"><h3 style="margin:0 0 6px">${t}</h3>${rows.length ? `<div class="tbl-wrap"><table class="tbl"><tbody>${rows.map(r => `<tr><td>${esc(r.k)}</td><td class="r num"><b>${r.n}</b></td><td class="r num muted">${r.v ? money(Math.round(r.v)) : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">Sin datos.</p>'}</div>`;
+  return `<div class="grid g-kpi">${kpi('Cotizaciones CRM', g.total, 'cargadas en total')}${kpi('Valor cotizado', money(Math.round(g.valor || 0)), 'suma de totales')}${kpi('Con cédula', g.conCedula, 'identificadas')}${kpi('Último mes', g.ultimoMes, g.mesTxt || '')}</div>
+    <div class="grid g2" style="margin-top:12px">${bloque('Por estado', g.porEstado || [])}${bloque('Por punto', g.porPunto || [])}${bloque('Por asesor', g.porAsesor || [])}${bloque('Por mes', g.porMes || [])}</div>
+    <div class="card" style="margin-top:12px;padding:14px"><h3 style="margin:0 0 6px">Últimas cotizaciones (${(g.filas || []).length} de ${g.total})</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Cotización</th><th>Cliente</th><th>Moto</th><th>Asesor</th><th>Punto</th><th>Estado</th><th class="r">Total</th></tr></thead><tbody>${(g.filas || []).map(f => `<tr><td>${esc(f.fecha)}</td><td>${esc(f.cotizacion)}</td><td>${esc(f.cliente)}</td><td>${esc(f.referencia)}</td><td>${esc(f.asesor)}</td><td>${esc(f.punto)}</td><td>${esc(f.estado)}</td><td class="r num">${f.total ? money(Math.round(f.total)) : '—'}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+/** Cotizaciones por leads: los leads de la app que ya tienen cotización en el CRM. */
+function tCotLeads() {
+  if (!D.lc) { cargarCot('lc', 'cotizacionesLeads'); return loading('Cruzando leads con las cotizaciones del CRM…'); }
+  const g = D.lc; if (g.error) return errorMod(g);
+  return `<div class="grid g-kpi">${kpi('Leads con cotización', g.leadsConCot, 'de ' + g.leads + ' leads')}${kpi('Cotizaciones de leads', g.cotizaciones, 'en el CRM')}${kpi('Pasaron a venta', g.conVenta, 'con factura en Síntesis')}</div>
+    <div class="card" style="margin-top:12px;padding:14px"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lead</th><th>Origen</th><th>Asesor del lead</th><th>Cotización</th><th>Moto</th><th>Asesor CRM</th><th>Estado</th><th class="r">Total</th><th>Venta</th></tr></thead><tbody>${(g.filas || []).map(f => `<tr><td><b>${esc(f.lead)}</b><div class="tiny muted">${esc(f.fecha_lead)}</div></td><td>${esc(f.origen)}</td><td>${esc(f.asesor_lead)}</td><td>${esc(f.cotizacion)}<div class="tiny muted">${esc(f.fecha)}</div></td><td>${esc(f.referencia)}</td><td>${esc(f.asesor)}</td><td>${esc(f.estado)}</td><td class="r num">${f.total ? money(Math.round(f.total)) : '—'}</td><td>${f.factura ? '<span class="pill pill-ok">' + esc(f.factura) + '</span>' : '<span class="muted">—</span>'}</td></tr>`).join('') || '<tr><td colspan="9" class="muted small">Ningún lead tiene cotización en el CRM todavía.</td></tr>'}</tbody></table></div></div>`;
 }
 /** Cruce: cada venta facturada (Síntesis) contra las cotizaciones del CRM, por cédula o celular. */
 function tCruceVentas(d) {
@@ -953,7 +979,7 @@ function repoTab() {
 // ═════════════════════════════════ EVENTOS ═══════════════════════════════
 async function onClick(act, el) {
   if (act === 'm-tab') { T[el.dataset.g] = el.dataset.v; return render(); }
-  if (act === 'm-recargar') { D[el.dataset.m] = null; return cargarMod(el.dataset.m, true); }
+  if (act === 'm-recargar') { if (el.dataset.m === 'cotizaciones') { D.crmGen = null; D.lc = null; } D[el.dataset.m] = null; return cargarMod(el.dataset.m, true); }
   if (act === 'm-q') { const g = el.parentNode; $$('button', g).forEach(b => b.classList.toggle('on', b === el)); g.dataset.val = el.dataset.v; return; }
   if (act === 'm-step') { const i = $('#' + el.dataset.t); i.value = Math.max(0, (Number(i.value) || 0) + Number(el.dataset.d)); return; }
   if (act === 'm-daily') return formDaily(el.dataset.a);

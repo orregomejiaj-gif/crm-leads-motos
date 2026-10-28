@@ -160,8 +160,11 @@ function fmtHoras(h) {
 }
 
 // ── API ───────────────────────────────────────────────────────────────────
+const ACC_CHATS = ['bandeja', 'chats', 'mateoPendientes', 'mateoReactivar', 'mateoGuardar', 'reactivarChat', 'enviarMensaje', 'enviarAdjunto'];
 async function api(action, payload = {}) {
   if (DEMO) return window.AKT_DEMO.handle(action, payload, S.demoRole);
+  // Perfil sin chats: la app no los consulta ni muestra avisos; devuelve una bandeja vacía
+  if (S.data && S.data.user && S.data.user.sinChats && ACC_CHATS.includes(action)) return { ok: true, chats: [], mensajes: [], abiertas: [], cerradas: [], historial: [], reactivadas: 0, guardadas: 0, vacio: true };
   const cuerpo = JSON.stringify(Object.assign({ action, token: S.token }, payload));
   const llamar = async (url) => {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: cuerpo }); // sin preflight CORS
@@ -1370,7 +1373,7 @@ function render() {
 
 // ── Componentes ───────────────────────────────────────────────────────────
 function toast(msg, tipo) {
-  if (S.data && S.data.user && S.data.user.soloLectura && /observador|no incluye|no puedes modificar|solo puedes mover|no tienes acceso/i.test(String(msg))) return;   // el observador no ve avisos de permisos: lo que no puede hacer, simplemente no se le muestra
+  if (S.data && S.data.user && (S.data.user.soloLectura || S.data.user.sinChats) && /observador|no incluye|no puedes modificar|solo puedes mover|no tienes acceso|chats/i.test(String(msg))) return;   // el observador no ve avisos de permisos: lo que no puede hacer, simplemente no se le muestra
   const t = document.createElement('div');
   t.className = 'toast ' + (tipo || '');
   t.innerHTML = `<i class="ti ${tipo === 'bad' ? 'ti-alert-circle' : tipo === 'ok' ? 'ti-circle-check' : 'ti-info-circle'}"></i><div>${esc(msg)}</div>`;
