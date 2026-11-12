@@ -3832,7 +3832,22 @@ document.addEventListener('click', async e => {
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
   if (act === 'acc-man') { await abrirManual(a.dataset.ced); return; }
-  if (act === 'mateo-aj') { const m = a.dataset.m, res = $('#mateo-aj-res'); if (m !== 'simular' && !confirm(m === 'aplicar' ? '¿Aplicar el ahorro de IA a Mateo ahora?' : '¿Volver Mateo a la versión anterior?')) return; a.disabled = true; if (res) res.textContent = 'Trabajando…'; try { const r = await api('mateoAjuste', m === 'simular' ? { simular: true } : m === 'revertir' ? { revertir: true } : {}); if (res) res.textContent = JSON.stringify(r, null, 1).slice(0, 900); toast(m === 'simular' ? 'Simulación lista' : m === 'aplicar' ? 'Ahorro aplicado a Mateo' : 'Mateo vuelto a la versión anterior', 'ok'); } catch (e) { if (res) res.textContent = e.message; toast(e.message, 'bad'); } a.disabled = false; return; }
+  if (act === 'mateo-todo') {
+    const p = a.dataset.p, res = $('#mateo-aj-res'), say = t => { if (res) res.textContent = t; };
+    if (!confirm(p === 'todo' ? '¿Aplicar el ahorro de Mateo, reactivar todos los chats pendientes y asignar los leads sin asesor?' : p === 'reactivar' ? '¿Reactivar todos los chats pendientes (uno por persona)?' : '¿Asignar los leads que no tienen asesor?')) return;
+    document.querySelectorAll('[data-act="mateo-todo"],[data-act="mateo-aj"]').forEach(x => { x.disabled = true; });
+    const reactivar = async () => { let hechos = 0, fallidos = 0, guardados = 0; for (let i = 0; i < 60; i++) { const r = await api('mateoReactivar', { max: 5 }); hechos += r.hechos || 0; fallidos += r.fallidos || 0; say('Reactivando… ' + hechos + ' personas reactivadas, quedan ' + (r.restantes || 0)); if (!r.hechos || !r.restantes) break; } try { const g = await api('mateoGuardar', { max: 20 }); guardados = g.hechos || 0; } catch (e) { /* sin ventana cerrada */ } return 'Reactivadas: ' + hechos + (fallidos ? ' (con error: ' + fallidos + ')' : '') + ' · pasadas a Chats por ventana cerrada: ' + guardados; };
+    const asignar = async () => { let tot = 0, fall = 0; const por = {}; for (let i = 0; i < 40; i++) { const r = await api('asignarPendientes', { max: 10 }); tot += r.asignados || 0; fall += r.fallos || 0; Object.keys(r.porAsesor || {}).forEach(k => { por[k] = (por[k] || 0) + r.porAsesor[k]; }); say('Asignando… ' + tot + ' asignados, quedan ' + (r.restantes || 0)); if (!r.asignados || !r.restantes) break; } return 'Asignados: ' + tot + (fall ? ' (sin poder asignar: ' + fall + ')' : '') + ' · ' + Object.keys(por).map(k => k + ' ' + por[k]).join(', '); };
+    try {
+      const sal = [];
+      if (p === 'todo') { const r = await api('mateoAjuste', {}); sal.push(r.yaAplicado ? 'Ahorro de Mateo: ya estaba aplicado' : 'Ahorro de Mateo aplicado'); say(sal.join('\n')); }
+      if (p === 'todo' || p === 'reactivar') { sal.push(await reactivar()); say(sal.join('\n')); }
+      if (p === 'todo' || p === 'asignar') { sal.push(await asignar()); say(sal.join('\n')); }
+      toast('Listo', 'ok'); await cargar();
+    } catch (e) { say(e.message); toast(e.message, 'bad'); }
+    document.querySelectorAll('[data-act="mateo-todo"],[data-act="mateo-aj"]').forEach(x => { x.disabled = false; });
+    return;
+  }  if (act === 'mateo-aj') { const m = a.dataset.m, res = $('#mateo-aj-res'); if (m !== 'simular' && !confirm(m === 'aplicar' ? '¿Aplicar el ahorro de IA a Mateo ahora?' : '¿Volver Mateo a la versión anterior?')) return; a.disabled = true; if (res) res.textContent = 'Trabajando…'; try { const r = await api('mateoAjuste', m === 'simular' ? { simular: true } : m === 'revertir' ? { revertir: true } : {}); if (res) res.textContent = JSON.stringify(r, null, 1).slice(0, 900); toast(m === 'simular' ? 'Simulación lista' : m === 'aplicar' ? 'Ahorro aplicado a Mateo' : 'Mateo vuelto a la versión anterior', 'ok'); } catch (e) { if (res) res.textContent = e.message; toast(e.message, 'bad'); } a.disabled = false; return; }
   if (act === 'acc-ideal') { a.disabled = true; try { await api('accesoIdeal', { cedula: a.dataset.ced, activo: a.dataset.on === '1' }); toast(a.dataset.on === '1' ? 'Modo Ideal ACTIVO' : 'Modo Ideal apagado: se muestra lo real', 'ok'); await abrirAccesos(); } catch (e) { a.disabled = false; toast(e.message, 'bad'); } return; }
   if (act === 'acc-copiar') { try { await navigator.clipboard.writeText(a.dataset.t); toast('Acceso copiado', 'ok'); } catch (e) { toast('No se pudo copiar.', 'bad'); } return; }
   if (act === 'acc-inst') { a.disabled = true; try { await api('instalarEnvioCorreo'); toast('Envío de correos activado', 'ok'); await abrirAccesos(); } catch (e) { a.disabled = false; toast(e.message, 'bad'); } return; }
@@ -4143,6 +4158,7 @@ function pintarAccesos(msg) {
     <h3 style="margin:16px 0 6px">Mateo · ahorro de IA</h3>
     <p class="tiny muted" style="margin:0 0 6px">Cambia a Mateo a un prompt corto (solo pregunta qué moto busca, crédito o contado, y dónde está), un modelo más económico y menos historial. Antes de aplicar, guarda una copia para volver atrás.</p>
     <div class="row wrap" style="gap:6px"><button class="btn btn-sm" data-act="mateo-aj" data-m="simular">Simular</button><button class="btn btn-sm btn-primary" data-act="mateo-aj" data-m="aplicar">Aplicar ahorro</button><button class="btn btn-sm" data-act="mateo-aj" data-m="revertir">Volver a la versión anterior</button></div>
+    <div class="row wrap" style="gap:6px;margin-top:8px"><button class="btn btn-sm" data-act="mateo-todo" data-p="reactivar">Reactivar todos los chats pendientes</button><button class="btn btn-sm" data-act="mateo-todo" data-p="asignar">Asignar pendientes (por zona o reparto equitativo)</button><button class="btn btn-sm btn-primary" data-act="mateo-todo" data-p="todo">Hacer todo en orden</button></div>
     <pre id="mateo-aj-res" class="tiny" style="white-space:pre-wrap;margin:6px 0 0"></pre>
     <h3 style="margin:16px 0 6px">Crear usuario nuevo</h3>
     <div class="grid g2" style="gap:8px">
@@ -4164,9 +4180,9 @@ function cfgLeadsDesde(clave) { const r = ((S.data && S.data.config) || []).find
 function leadsParaTxt() { const v = cfgLeadsDesde('LEADS_PARA'); return !v || /^todos$/i.test(v) ? 'todo el equipo' : v.split('|').filter(Boolean).join(', '); }
 function pintarBtnViejos() {
   const b = $('#btn-viejos'); if (!b) return;
-  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe' && S.data.user.superAdmin), oculto = !!cfgLeadsDesde();
+  const jefe = !!(S.data && S.data.user && S.data.user.rol === 'jefe' && S.data.user.superAdmin), oculto = !verMesAnterior();
   b.hidden = !jefe; b.classList.toggle('on', !oculto);
-  b.title = !oculto ? 'Todos ven también los leads viejos · clic para ocultarlos' : 'Leads viejos ocultos (anteriores al ' + cfgLeadsDesde() + ') para: ' + leadsParaTxt() + (cfgLeadsDesde('LEADS_MOTIVO') ? ' · Motivo: ' + cfgLeadsDesde('LEADS_MOTIVO') : '') + ' · clic para cambiar o mostrar';
+  b.title = oculto ? 'Leads del mes anterior ocultos para todos, incluido tú · clic para mostrártelos' : 'Estás viendo los leads del mes anterior (solo tú) · clic para ocultarlos para todos';
   b.querySelector('i').className = 'ti ' + (oculto ? 'ti-eye-off' : 'ti-eye');
 }
 /** Pregunta desde qué fecha, para quiénes y por qué ocultar los leads viejos. Devuelve { fecha, motivo, para } (para = 'todos' o nombres con «|») o null. */
@@ -4207,19 +4223,29 @@ function elegirAccionOcultos() {
     S._modalCancel = () => res('');
   });
 }
+const mesesLeads = () => { const h = new Date(Date.now() - 5 * 3600e3), y = h.getUTCFullYear(), m = h.getUTCMonth() + 1, ini = (yy, mm) => yy + '-' + String(mm).padStart(2, '0') + '-01'; return { act: ini(y, m), ant: m === 1 ? ini(y - 1, 12) : ini(y, m - 1) }; };
+function verMesAnterior() { const dj = cfgLeadsDesde('LEADS_DESDE_JEFE'); return !!dj && dj < mesesLeads().act; }
 $('#btn-viejos').onclick = async (ev) => {
   if (!(S.data && S.data.user && S.data.user.superAdmin)) return;
-  const b = ev.currentTarget, oculto = !!cfgLeadsDesde();
-  let datos = null, mostrar = false;
-  if (oculto) { const a = await elegirAccionOcultos(); if (!a) return; mostrar = a === 'mostrar'; }
-  if (!mostrar) { datos = await pedirOcultarLeads(cfgLeadsDesde('LEADS_CORTE') || '2026-10-15', cfgLeadsDesde('LEADS_PARA'), cfgLeadsDesde('LEADS_MOTIVO')); if (!datos) return; }
+  const b = ev.currentTarget, M = mesesLeads(), mostrando = verMesAnterior();
+  const a = await new Promise(res => {
+    abrirSheet(`<div class="sheet-b"><h3>Leads del mes anterior</h3>
+      <div class="small">${mostrando ? 'Ahora <b>tú</b> ves los leads del mes anterior; el resto del equipo no.' : 'Hoy <b>nadie</b> ve los leads del mes anterior, tampoco tú.'}</div>
+      <div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" id="vm-no">Cancelar</button>${mostrando ? '' : '<button class="btn btn-dark" id="vm-mos">Mostrar leads del mes anterior (solo a mí)</button>'}<button class="btn ${mostrando ? 'btn-dark' : ''}" id="vm-ocu">Ocultarlos para todos, incluido yo</button></div></div>`, true);
+    $('#vm-no').onclick = () => { cerrarModal(); res(''); };
+    if ($('#vm-mos')) $('#vm-mos').onclick = () => { cerrarModal(); res('mostrar'); };
+    $('#vm-ocu').onclick = () => { cerrarModal(); res('ocultar'); };
+    S._modalCancel = () => res('');
+  });
+  if (!a) return;
   b.disabled = true;
   try {
-    await api('config', { valores: mostrar ? { LEADS_DESDE: '' } : { LEADS_CORTE: datos.fecha, LEADS_DESDE: datos.fecha, LEADS_MOTIVO: datos.motivo, LEADS_PARA: datos.para } });
+    await api('config', { valores: a === 'mostrar' ? { LEADS_DESDE_JEFE: M.ant } : { LEADS_DESDE_JEFE: M.act, LEADS_DESDE: cfgLeadsDesde() || M.act } });
     await new Promise(r => setTimeout(r, 1200)); S.bandejaIni = false; await cargar();
-    toast(mostrar ? 'Todos ven ahora los leads viejos' : 'Leads viejos ocultos para: ' + (datos.para === 'todos' ? 'todo el equipo' : datos.para.split('|').join(', ')), 'ok');
+    toast(a === 'mostrar' ? 'Ahora ves los leads del mes anterior (solo tú)' : 'Leads del mes anterior ocultos para todos', 'ok');
   } catch (e) { toast(e.message, 'bad'); } finally { b.disabled = false; }
-};$('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
+};
+$('#btn-logout').onclick = () => { if (DEMO) location.href = location.pathname; else salir(); };
 $('#demo-role').onchange = e => { S.demoRole = e.target.value; S.hoyAsesor = ''; S.f.asesor = ''; S.f.punto = ''; cargar(); };
 
 // ── Módulos de la etapa 2 (modulos.js) ────────────────────────────────────
