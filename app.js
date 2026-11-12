@@ -3165,7 +3165,7 @@ function semaPct(p) { return p === null ? 'na' : p >= 80 ? 'ok' : p >= 50 ? 'war
 
 // ── Seguimiento diario: cotizaciones, ventas del mes elegido e inventario, para la reunión diaria, acompañamientos y evolución ──
 function vReunion() {
-  const u = S.data.user, M = S.M, meses = mesesRecientes(12), mes = S.reuMes || meses[0], jefe = u.rol === 'jefe', punto = jefe ? (S.reuPunto || '') : (u.rol === 'admin' ? u.sede : '');
+  const u = S.data.user, M = S.M, meses = mesesRecientes(typeof verMesAnterior === 'function' && verMesAnterior() ? 12 : 1), mes = meses.includes(S.reuMes) ? S.reuMes : meses[0], jefe = u.rol === 'jefe', punto = jefe ? (S.reuPunto || '') : (u.rol === 'admin' ? u.sede : '');
   const verCot = u.rol !== 'asesor';
   if (verCot && !S.reuCot && !S.reuBusy) { S.reuBusy = true; api('cotizacionesCrm').then(r => { S.reuCot = r && r.ok !== false ? r : { filas: [] }; }).catch(() => { S.reuCot = { filas: [], err: 1 }; }).finally(() => { S.reuBusy = false; if (S.view === 'seguimientos') render(); }); }
   const enPunto = s => !punto || sedeCanon(s) === punto;
@@ -3837,7 +3837,7 @@ document.addEventListener('click', async e => {
     if (!confirm(p === 'todo' ? '¿Aplicar el ahorro de Mateo, reactivar todos los chats pendientes y asignar los leads sin asesor?' : p === 'reactivar' ? '¿Reactivar todos los chats pendientes (uno por persona)?' : '¿Asignar los leads que no tienen asesor?')) return;
     document.querySelectorAll('[data-act="mateo-todo"],[data-act="mateo-aj"]').forEach(x => { x.disabled = true; });
     const reactivar = async () => { let hechos = 0, fallidos = 0, guardados = 0; for (let i = 0; i < 60; i++) { const r = await api('mateoReactivar', { max: 5 }); hechos += r.hechos || 0; fallidos += r.fallidos || 0; say('Reactivando… ' + hechos + ' personas reactivadas, quedan ' + (r.restantes || 0)); if (!r.hechos || !r.restantes) break; } try { const g = await api('mateoGuardar', { max: 20 }); guardados = g.hechos || 0; } catch (e) { /* sin ventana cerrada */ } return 'Reactivadas: ' + hechos + (fallidos ? ' (con error: ' + fallidos + ')' : '') + ' · pasadas a Chats por ventana cerrada: ' + guardados; };
-    const asignar = async () => { let tot = 0, fall = 0; const por = {}; for (let i = 0; i < 40; i++) { const r = await api('asignarPendientes', { max: 10 }); tot += r.asignados || 0; fall += r.fallos || 0; Object.keys(r.porAsesor || {}).forEach(k => { por[k] = (por[k] || 0) + r.porAsesor[k]; }); say('Asignando… ' + tot + ' asignados, quedan ' + (r.restantes || 0)); if (!r.asignados || !r.restantes) break; } return 'Asignados: ' + tot + (fall ? ' (sin poder asignar: ' + fall + ')' : '') + ' · ' + Object.keys(por).map(k => k + ' ' + por[k]).join(', '); };
+    const asignar = async () => { let tot = 0, fall = 0; const por = {}; for (let i = 0; i < 40; i++) { const r = await api('asignarPendientes', { max: 10, rebalancear: true }); tot += r.asignados || 0; fall += r.fallos || 0; Object.keys(r.porAsesor || {}).forEach(k => { por[k] = (por[k] || 0) + r.porAsesor[k]; }); say('Asignando… ' + tot + ' asignados, quedan ' + (r.restantes || 0)); if (!r.asignados || !r.restantes) break; } return 'Asignados: ' + tot + (fall ? ' (sin poder asignar: ' + fall + ')' : '') + ' · ' + Object.keys(por).map(k => k + ' ' + por[k]).join(', '); };
     try {
       const sal = [];
       if (p === 'todo') { const r = await api('mateoAjuste', {}); sal.push(r.yaAplicado ? 'Ahorro de Mateo: ya estaba aplicado' : 'Ahorro de Mateo aplicado'); say(sal.join('\n')); }
