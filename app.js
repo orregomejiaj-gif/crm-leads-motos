@@ -3832,6 +3832,7 @@ document.addEventListener('click', async e => {
   if (act === 'ger-d') { S.gerDias = Number(a.dataset.v); S.ger = null; S.gerErr = ''; S.gerT = 0; render(); return; }
   if (act === 'pc-d') { S.pcDias = Number(a.dataset.v); S.pc = null; S.pcErr = ''; S.pcT = 0; render(); return; }
   if (act === 'acc-man') { await abrirManual(a.dataset.ced); return; }
+  if (act === 'mateo-aj') { const m = a.dataset.m, res = $('#mateo-aj-res'); if (m !== 'simular' && !confirm(m === 'aplicar' ? '¿Aplicar el ahorro de IA a Mateo ahora?' : '¿Volver Mateo a la versión anterior?')) return; a.disabled = true; if (res) res.textContent = 'Trabajando…'; try { const r = await api('mateoAjuste', m === 'simular' ? { simular: true } : m === 'revertir' ? { revertir: true } : {}); if (res) res.textContent = JSON.stringify(r, null, 1).slice(0, 900); toast(m === 'simular' ? 'Simulación lista' : m === 'aplicar' ? 'Ahorro aplicado a Mateo' : 'Mateo vuelto a la versión anterior', 'ok'); } catch (e) { if (res) res.textContent = e.message; toast(e.message, 'bad'); } a.disabled = false; return; }
   if (act === 'acc-ideal') { a.disabled = true; try { await api('accesoIdeal', { cedula: a.dataset.ced, activo: a.dataset.on === '1' }); toast(a.dataset.on === '1' ? 'Modo Ideal ACTIVO' : 'Modo Ideal apagado: se muestra lo real', 'ok'); await abrirAccesos(); } catch (e) { a.disabled = false; toast(e.message, 'bad'); } return; }
   if (act === 'acc-copiar') { try { await navigator.clipboard.writeText(a.dataset.t); toast('Acceso copiado', 'ok'); } catch (e) { toast('No se pudo copiar.', 'bad'); } return; }
   if (act === 'acc-inst') { a.disabled = true; try { await api('instalarEnvioCorreo'); toast('Envío de correos activado', 'ok'); await abrirAccesos(); } catch (e) { a.disabled = false; toast(e.message, 'bad'); } return; }
@@ -4139,6 +4140,10 @@ function pintarAccesos(msg) {
     <div class="tbl-wrap"><table class="tbl" style="table-layout:auto"><thead><tr><th></th><th>Persona</th><th style="min-width:230px">Vista asignada</th><th>Correo</th><th>Acceso</th><th></th></tr></thead><tbody>${A.usuarios.map(fila).join('')}</tbody></table></div>
     <div class="row" style="justify-content:flex-end;margin:8px 0"><button class="btn btn-primary" data-act="acc-env-sel"><i class="ti ti-send"></i> Enviar acceso a los seleccionados</button></div>
     <p class="tiny muted">Al enviar se genera una <b>contraseña nueva</b> (la anterior deja de servir). Cambia el correo en la fila si debe llegar a otra dirección.</p>
+    <h3 style="margin:16px 0 6px">Mateo · ahorro de IA</h3>
+    <p class="tiny muted" style="margin:0 0 6px">Cambia a Mateo a un prompt corto (solo pregunta qué moto busca, crédito o contado, y dónde está), un modelo más económico y menos historial. Antes de aplicar, guarda una copia para volver atrás.</p>
+    <div class="row wrap" style="gap:6px"><button class="btn btn-sm" data-act="mateo-aj" data-m="simular">Simular</button><button class="btn btn-sm btn-primary" data-act="mateo-aj" data-m="aplicar">Aplicar ahorro</button><button class="btn btn-sm" data-act="mateo-aj" data-m="revertir">Volver a la versión anterior</button></div>
+    <pre id="mateo-aj-res" class="tiny" style="white-space:pre-wrap;margin:6px 0 0"></pre>
     <h3 style="margin:16px 0 6px">Crear usuario nuevo</h3>
     <div class="grid g2" style="gap:8px">
       <input class="inp" id="nu-nombre" placeholder="Nombre y apellido"><input class="inp" id="nu-ced" placeholder="Cédula (solo números)" inputmode="numeric">
